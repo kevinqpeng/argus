@@ -41,6 +41,24 @@ npx skills add kevinqpeng/argus
 npx skills add kevinqpeng/argus --list
 ```
 
+### 使用插件安装
+
+**Codex**：添加此仓库作为插件市场，再安装插件：
+
+```bash
+codex plugin marketplace add kevinqpeng/argus
+codex plugin add argus@argus-marketplace
+```
+
+**Claude Code**：在 Claude Code 中运行：
+
+```text
+/plugin marketplace add kevinqpeng/argus
+/plugin install argus@argus-marketplace
+```
+
+重新启动会话后，调用 `argus` 或 `setup-argus`。插件与 skills CLI 安装方式使用同一组技能；执行前仍需配置所需工具和授权。
+
 ### 2. 配置运行环境
 
 调用 `setup-argus`，按照提示配置 Agent 模型、测试目标和结果交付方式。执行 Web 或移动端测试时，还需要配置对应工具和目标环境。
@@ -67,16 +85,7 @@ Jev 使用宿主安全环境中的 `TYPESAFE_API_KEY`。凭据、测试账号和
 
 ## 工作流程
 
-| 阶段 | 工作内容 |
-| --- | --- |
-| 1 | 接收 PRD 与测试授权 |
-| 2 | 配置运行环境并冻结输入 |
-| 3 | 生成场景和测试用例 |
-| 4 | 检查计划覆盖门禁 |
-| 5 | 执行测试并复现失败 |
-| 6 | 记录缺陷与证据 |
-| 7 | 检查执行覆盖门禁 |
-| 8 | 生成报告并交付 |
+![Argus 工作流程：需求与授权、配置与冻结、场景与用例、计划覆盖门禁、执行与复现、缺陷与证据、执行覆盖门禁、报告与交付](assets/workflow.svg)
 
 Argus 为每次运行记录独立的 runId、配置和输入指纹。输入或配置发生变化时，流程会创建新的运行记录并保留历史。
 

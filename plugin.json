@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "argus",
+  "version": "0.1.0",
+  "description": "Agent skills for PRD acceptance, regression testing, and evidence-based reporting.",
+  "author": {
+    "name": "kevinqpeng"
+  }
+}

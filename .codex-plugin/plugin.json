@@ -1,0 +1,27 @@
+{
+  "name": "argus",
+  "version": "0.1.0",
+  "description": "Agent skills for PRD acceptance, regression testing, and evidence-based reporting.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Argus",
+    "shortDescription": "PRD acceptance and regression testing with traceable evidence",
+    "longDescription": "Argus coordinates test planning, coverage checks, web and mobile execution, bug reporting, and evidence delivery.",
+    "developerName": "kevinqpeng",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "使用 Argus 验收这份 PRD。",
+      "使用 Argus 回归验证已修复的 Bug。"
+    ],
+    "websiteURL": "https://github.com/kevinqpeng/argus",
+    "brandColor": "#6044F5"
+  },
+  "author": {
+    "name": "kevinqpeng"
+  }
+}
