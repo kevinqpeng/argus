@@ -525,7 +525,18 @@
           "type": "object"
         },
         "gates": {
-          "type": "array"
+          "type": "object",
+          "properties": {
+            "formalVerification": {
+              "type": "object",
+              "required": ["status", "reason", "evidenceRef"],
+              "properties": {
+                "status": {"enum": ["PASSED", "BLOCKED", "N/A"]},
+                "reason": {"type": "string", "minLength": 1},
+                "evidenceRef": {"type": "string", "minLength": 1}
+              }
+            }
+          }
         },
         "publication": {
           "type": "object"

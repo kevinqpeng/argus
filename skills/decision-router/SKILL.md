@@ -11,6 +11,7 @@ description: Routes semantic test judgments using typed Jev or verified Laya res
 
 ## 1. 绑定问题与证据
 
+- 形式化验证适用性按 [形式化路由](references/formal-routing.md) 处理，选中后调用 Argus 子技能；不与平台路由互斥。
 - 选当前步骤需要的题目。绑定明确 AC/场景/用例 ID 与可定位证据。
 - 只发送已授权且脱敏的相关 state。
 - 多个可同时为真的路由分别用 noul。
