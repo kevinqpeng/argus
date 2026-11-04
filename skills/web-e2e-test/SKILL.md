@@ -20,6 +20,16 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 - 记录源码版本，不修改项目配置/fixture/package.json/锁文件。
 - 大批量用 runner，浏览器探索不算批量通过。
 
+## ego 辅助（按需）
+
+仅当冻结配置 execution.webAssistant=ego、本机为 macOS 且 [依赖检查](../setup-argus/references/ego.md) READY 时使用。调用前读取当前 ego-browser skill 并执行其 `ego-browser skill` 指引。未选时直接执行 Playwright。
+
+- 陌生页面才做只读结构探索，输出页面结构、稳定语义定位线索和观察证据供 harness 使用；snapshot ref 不写入长期测试脚本。熟悉页面不重复探索。
+- 遵守相同目标白名单与人工评审门禁；门禁前仅只读准备，业务验证和有副作用的交互等待评审通过。
+- 不复用用户登录态或从 Ego 向 Playwright 导出 Cookie/认证。TaskSpace 不等于认证隔离；未验证专用测试身份与隔离前，ego 只可访问无需认证、无敏感会话的公开页面，受保护页面由隔离 Playwright 操作。
+- 失败先检查 runner 输出与 trace，证据不足再用 ego 调查；调查结论由 Playwright 原路径重放验证。ego 的截图、动作回执和模型判断不计 passed，不替换 caseId/matrixId/attempt 或覆盖分母。
+- 不在 ego nodejs 内导入 Playwright 或启动额外浏览器；二者独立执行，仅传递脱敏观察事实。ego 故障记录辅助能力缺口，继续可执行的 Playwright 测试，不跳过断言或改变原结果。
+
 ## 2. 核对私有配置与授权目标
 
 - 按 [私有工作区](../setup-argus/references/storage.md) 使用 `projectDir/web-private.json`，由执行进程读取 base URL 及每个角色/租户的专用账号。测试范围从已授权的 Argus run 获取。

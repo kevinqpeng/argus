@@ -45,3 +45,4 @@ description: Computes frozen-scenario design and execution coverage with 95 perc
 - 空场景阻断，无 P0 为 N/A。
 - 门禁输出不代表外部工具、性能、安全或发布已验收。
 - 由主 Skill 汇总。
+- 形式化模型状态、迁移、反例和 TLC 通过不计入业务覆盖或 attempts。由模型导出的真实 ui/api 用例按原规则计数；主 Skill 单独检查 formalVerification 门禁，不能仅凭本脚本通过宣称形式化验证或全量验收通过。

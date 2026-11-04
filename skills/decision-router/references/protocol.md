@@ -11,7 +11,7 @@
 ```json
 {
   "schemaVersion": 1,
-  "questionSetVersion": "1.3.0",
+  "questionSetVersion": "1.4.0",
   "answers": {
     "ui": {"noul": 0.9, "probabilityKind": "calibrated"},
     "failure": {

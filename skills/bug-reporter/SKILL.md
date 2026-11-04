@@ -19,7 +19,7 @@ description: Records reproducible bugs in user-selected online or local tables u
 
 ## 2. 记录缺陷信息与指纹
 
-- Bug 内部记录项目/模块、版本/环境、AC/场景/用例、前置/复现、预期/实际、首次/最近时间、频率、证据和根因状态。面向用户的 Bug 表只展示 [表格通道与回退](references/channels.md) 指定的 12 列。
+- Bug 内部记录项目/模块、版本/环境、AC/场景/用例、前置/复现、预期/实际、首次/最近时间、频率、证据和根因状态。面向用户的 Bug 表只展示 [表格通道与回退](references/channels.md) 指定的列。
 - 指纹为项目+环境类别+场景/接口+归一化错误/断言的 SHA-256，不含 runId 或动态订单号。语义近似只作候选，核查后合并。
 
 ## 3. 复用或收集交付选择
@@ -48,7 +48,7 @@ description: Records reproducible bugs in user-selected online or local tables u
 ## 7. 生成并验证本地表格
 
 - 本地 CSV 调用配套 local_table.py，以指纹维护累计 Bug 表、以 runId 维护汇总。
-- 要求下拉选择时，按通道规范生成并验证 Excel 工作簿，CSV 单独不能完成该要求。所选本地交付物回读及字段验证通过后才标 LOCAL_COMPLETED。
+- 按通道规范生成并验证带优先级下拉的 Excel 工作簿；CSV 仅作数据源，不能单独满足正式交付。所选本地交付物回读及字段验证通过后才标 LOCAL_COMPLETED。
 - Excel 按可用表格工具生成验证，不伪造扩展名。
 - 保留人工状态/优先级。表头变更先报告，不清空重建。
 
