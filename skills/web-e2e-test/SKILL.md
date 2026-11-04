@@ -37,6 +37,7 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 ## 4. 编写并审查业务断言
 
+- 生成脚本前按 [页面探索与失败诊断](../argus/references/page-diagnostics.md) 建立和复用本 run 的页面地图；纯 API 用例跳过。
 - UI 用 role/label/testid，API 验证 HTTP、业务码、契约和后置状态。
 - 可组合 API 造数、UI 操作、API/授权只读 DB 核对。
 - 每条用例执行前才判断是否需要 MySQL 配合；需要时按 [数据库核验规则](../argus/references/mysql.md) 调用可用 MySQL 工具。不需要时不连接数据库。
@@ -58,6 +59,7 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 ## 7. 复现失败并核查根因
 
+- 按 [页面探索与失败诊断](../argus/references/page-diagnostics.md) 选择证据、限制修复并记录用量。
 - 原始错误 -> 前置数据 -> 调用链 -> 服务日志 -> 必要视觉分析。
 - 读 decision-router 分类，再由宿主复现归因。
 - 产品/测试/环境/数据/flaky/unknown 分开。未知根因是待证实假设。

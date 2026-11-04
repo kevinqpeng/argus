@@ -41,6 +41,7 @@ Read the [Argus contract](../argus/references/contracts.md), [private storage ru
 - Use stable accessibility or resource IDs.
 - Switch explicitly between native and WebView contexts.
 - A WebView that cannot be inspected blocks its cases; an external browser is not a substitute.
+- Before generating scripts, build and reuse the run's page map under the [page exploration and failure diagnostics rules](../argus/references/page-diagnostics.md).
 
 ## 5. Run cases and verify business state
 
@@ -62,6 +63,7 @@ Read the [Argus contract](../argus/references/contracts.md), [private storage ru
 ## 7. Reproduce failures and clean resources
 
 - Reproduce failures and classify product, environment, data, test, flaky, or unknown.
+- Apply the [page exploration and failure diagnostics rules](../argus/references/page-diagnostics.md) to evidence selection, repair limits, and run metrics.
 - Change product code only with separate authorization.
 - Clean only registered resources, read back cleanup, close Appium/WDA sessions, and release the device.
 - On resume, inspect leftover resources before acting.
