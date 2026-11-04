@@ -1,0 +1,111 @@
+---
+name: setup-argus
+description: Configures Argus model mappings, reasoning effort, tools and bug-recording channels. Use for setup-argus, Argus doctor, model changes or scoped reset.
+---
+
+# 初始化与诊断
+
+## 输入与必读规则
+
+先读 [共享契约](../argus/references/contracts.md) 和 [存储规则](references/storage.md)。
+
+解析或保存配置时读 [配置规范](references/config.md)，收集选择时读 [阻塞问答](references/interaction.md)，模型阶段读 [角色映射与推理强度](references/models.md)，宿主发现时读 [适配说明](references/hosts.md)。
+
+输入：可选的只读项目、本机、宿主元信息与已有选择。
+
+源码项目路径不是必填。
+
+没有项目时使用当前会话工作目录作为工作区身份，不因缺少源码阻断测试。
+
+配置保存当前 Agent 原生目录下独立的 argus 命名空间。
+
+证据和 run 快照仍在仓库外个人工作区。
+
+setup 不产生项目 Git 改动。
+
+仅配置或测试 MySQL 时，直接按 [MySQL 项目配置](references/storage.md#mysql-项目配置) 执行，跳过下面的完整 setup 步骤。
+
+其他 setup 提出选择即暂停 setup 及主流程，实际回答后再继续。
+
+工具选择、空回答与恢复统一按阻塞问答执行。
+
+## 1. 识别当前宿主
+
+- 从当前会话识别宿主，区分配置默认模型和会话实际模型。
+- 不要从模型名猜宿主。
+- 先用宿主公开元信息。再按该版本规则选择非敏感配置来源和层级。
+
+## 2. 只读发现配置
+
+- 先运行 `python3 <本目录>/scripts/host_config.py --help`。
+- --host 选实际宿主，--runtime-dir/原生环境变量确定 Agent 根目录。只使用根目录的一份 argus-model.json，顶层保存模型设置，projects 保存各项目设置。
+- 没有人员 profile 或 --tester。
+- --state-dir/ARGUS_HOME 只控制产物根。
+- 初次只读发现，不加 --init。仅在有源码仓库时记录 Git 状态。
+- 发现返回 BLOCKED 时先依据 stage、reason 和本地脱敏证据排查，不能把未知错误解释为缺少应用名称或项目路径。
+- 移动端配置查找及 `--project-id` 复用遵循存储规则。
+- 在任何选择提问之前，按 [MySQL 项目配置](references/storage.md#mysql-项目配置) 检查当前项目 MySQL 配置并展示状态及缺项引导。普通 setup 缺文件时创建私有空模板；只读 doctor 不创建文件或连接数据库。已完整配置的连接验证按存储规则处理。
+
+## 3. 核对配置来源与实际模型
+
+- 脚本仅探测已知用户级候选，默认结果是 candidate，不是最终有效模型。
+- 宿主核对 managed/user/project/profile/env/启动覆盖后，可按低到高顺序多次传 `--config`。把完整解析依据写入 doctor。
+- `--profile` 适用 Codex。
+- agy 的 JSON 候选需用已安装版本验证。无法读取的会话模型为 unknown。
+
+## 4. 收集缺失选择
+
+- 按阻塞问答展示完整模型映射，逐轮收集尚缺选择。
+- Bug 问卷由 `scripts/bug_questions.py` 和 `references/bug-questions.json` 驱动。面向用户显示表格平台名称，技术通道留在内部配置。
+
+## 5. 校验并保存已确认配置
+
+- 选择收到后校验模型、每模型强度、执行模式和图片能力。
+- --model-catalog 传宿主发现值，--session-effort 传本轮真实强度。--format markdown 可生成完整映射表。
+- --overrides 传 roles/defaultEffort/decision/execution。--project-overrides 传目标等个人设置。
+- --init 在当前 Agent 命名空间锁内保存，不改其原有 config.toml/settings.json。仅本次用临时覆盖和 --run-id。
+- 选择待定就停在第 4 步，不提前保存。
+
+## 6. 冻结本次运行快照
+
+- 每次执行使用唯一 runId。异内容不可覆盖同名快照。
+- 运行中只读 runConfigPath，所有报告、fixtures、探测脚本和证据写仓库外 workspacePath。
+- 旧名称/人员目录只做显式迁移，校验后移除旧活动入口，不并行保留两份配置。
+- 历史证据不改写。
+
+## 7. 检查 Jev 决策能力
+
+- decision 使用 [decision-router](../decision-router/SKILL.md) 内置 Jev API。只检查宿主安全环境中是否有 `TYPESAFE_API_KEY`，缺失时引导用户填写 Key。
+- 无需用户配置决策 Provider、模型或端点。
+- 自定义服务仅在用户明确要求时验证。
+
+## 8. 验证所选工具与记录通道
+
+- 每次普通 setup 都按 [MySQL 项目配置](references/storage.md#mysql-项目配置) 检查当前项目的配置并引导补齐；只配置状态，不因此认定测试用例需要查库。缺项不阻断非数据库用例。
+- Web 范围已确定时，按 [Playwright 安装引导](references/playwright.md) 检查 Node.js/npm、隔离 harness 内的 Playwright 和所需浏览器；缺少组件时先取得安装授权，再安装并验证。Web/API-only 跳过移动依赖检查。
+- 按范围探测其他测试工具与所选记录通道；Playwright 目标和账号文件按 [存储规则](references/storage.md) 指引用户自行填写，缺项只报字段名，不在聊天收集值。
+- 仅在测试用例执行前判断该用例是否需要 MySQL；需要时按 [数据库核验规则](../argus/references/mysql.md) 调用可用的 MySQL 工具并执行受审查的只读核验。不需要时仅将该用例的数据库核验标为 N/A，用例本身继续执行。
+- 本地 CSV 验证私有目录、表头、写入与读回能力，不要求企微/飞书授权。
+- 在线按实际 MCP/API/CLI/浏览器/Webhook 验证动作与权限。未选工具不阻断。
+- k6/sysbench/ZAP 按需探测。
+- 版本/help/样例与退出码是证据，found-not-verified 不能标 READY，不为探测执行配置内命令。
+
+### 移动端依赖检查
+
+- 移动端范围已确定时，先按 [存储规则](references/storage.md) 自动识别设备与应用、补齐私有配置并引导剩余必填项。再按 [Appium 安装引导](references/appium.md) 检查依赖。缺少组件先询问，用户同意后安装并验证。
+- 只读 doctor 仅报告缺项。
+
+## 9. 展示配置与诊断结果
+
+- 展示更新后完整角色—模型—强度映射和各配置文件位置，doctor 区分默认/角色覆盖、请求/解析/实际值及执行缺口。
+- 原生目录内本 Skill 的配置在每次启动时显式读取，不依赖把某个宿主的模型名注入所有宿主的全局指令。
+- 交付/能力和 Git 检查沿用当前 run 规则。未调用验证不能报模型切换成功。
+
+## 完成条件
+
+- 完成：选中能力有真实证据或明确 BLOCKED/UNSUPPORTED，未选 SKIPPED。
+- 宿主子 Agent 不要求另一份 API key。
+- 自动发现不改宿主原生配置或共享项目文件，不读其他 Agent 凭据。
+- reset/switch-model 仅更新当前运行时所选覆盖（使用相同锁与原子写入），已运行快照保持不变。
+- 需重验后使用新 runId。
+- API Key 仅保存环境变量名或安全引用。

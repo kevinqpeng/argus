@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "questionSetVersion": "1.3.0",
+  "thresholds": {"choiceTop": 0.8, "choiceMargin": 0.2, "noulYes": 0.8, "noulNo": 0.2, "sumTolerance": 1e-06, "scoreBoundaryMass": 0.2},
+  "questions": {
+    "ui": {"type": "noul", "instructions": "Does this scenario require observing user interface behavior?"},
+    "platform": {"type": "choice", "instructions": "Which authorized execution platform is supported by the supplied project evidence and scenario?", "criteria": {"web": "The requested UI is a PC or H5 website, or the authorized scenario is API-only.", "mobile": "The requested UI is an installed Android or iOS application on a local physical device.", "both": "The supplied authorized scope explicitly requires both web and installed mobile application behavior.", "insufficient_evidence": "The evidence cannot establish the requested platform or authorization scope."}},
+    "mobile_os": {"type": "choice", "instructions": "Which local physical mobile device platforms are explicitly supported and in scope?", "criteria": {"android": "Android physical device only.", "ios": "iOS physical device only.", "both": "Both Android and iOS physical devices are explicitly in scope.", "insufficient_evidence": "The evidence does not establish a supported, authorized physical-device target."}},
+    "api": {"type": "noul", "instructions": "Does this scenario require checking an API response or persisted business state?"},
+    "mysql_evidence": {"type": "noul", "instructions": "Does the supplied MySQL evidence candidate directly verify the supplied scenario's acceptance criterion?"},
+    "performance": {"type": "noul", "instructions": "Does this acceptance criterion specify load, throughput or latency requirements?"},
+    "security": {"type": "noul", "instructions": "Does this scenario require checking an authentication, authorization or data disclosure boundary?"},
+    "mapping": {"type": "noul", "instructions": "Do the supplied assertions directly verify the behavior in the supplied acceptance criterion?"},
+    "failure": {"type": "choice", "instructions": "Which failure category best fits the supplied reproduction evidence?", "criteria": {"product": "Business behavior contradicts an approved requirement.", "test": "Test setup, selector or assertion is incorrect.", "environment": "Service, tool or dependency is unavailable.", "data": "Required test data is missing or contaminated.", "flaky": "Identical inputs yield inconsistent outcomes.", "unknown": "Evidence is insufficient to distinguish causes."}},
+    "duplicate": {"type": "noul", "instructions": "Do these two bug records describe the same affected behavior, scope and evidenced cause?"},
+    "impact": {"type": "score", "instructions": "Rate the demonstrated business impact of this failure.", "criteria": ["Cosmetic issue; the task succeeds.", "Secondary function impaired; a workaround exists.", "Core task fails for affected users.", "Funds, critical data or authorization boundary is compromised."]},
+    "visual_obscured": {"type": "noul", "instructions": "In `screenshot`, is the target described in `target` obscured by the keyboard? Judge the condition in `acceptance`.", "visual": true, "trueMeaning": "异常：目标被键盘遮挡"},
+    "visual_error_visible": {"type": "noul", "instructions": "In `screenshot`, is the specific error message described in `target` visible, as specified by `acceptance`?", "visual": true, "trueMeaning": "目标错误提示可见"},
+    "visual_truncated": {"type": "noul", "instructions": "In `screenshot`, is the target text described in `target` visibly truncated, against `acceptance`?", "visual": true, "trueMeaning": "异常：目标文字截断"},
+    "visual_state_applicable": {"type": "noul", "instructions": "Does `screenshot` clearly show one of the known page states described in `states`?", "visual": true, "trueMeaning": "候选页面状态适用"},
+    "visual_state": {"type": "choice", "instructions": "Which known page state in `states` is shown in `screenshot`?", "criteria": {"first": "The first known state described in `states.first`.", "second": "The second known state described in `states.second`.", "other": "None of the described known states or the screenshot is unclear."}, "visual": true}
+  }
+}

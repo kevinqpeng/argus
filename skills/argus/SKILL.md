@@ -1,0 +1,104 @@
+---
+name: argus
+description: Runs Argus PRD acceptance testing, verifies fixes for reported bugs, or resumes an interrupted run, with coverage gates and evidence delivery.
+---
+
+# AI 测试主流程
+
+## 输入与必读规则
+
+先读 [共享契约](references/contracts.md)。本文件负责阶段顺序；各阶段细节在对应 Skill，同一 run 已读且未变化的规则无需重复加载。相对路径从本 SKILL.md 解析。
+
+输入：完整 PRD、测试范围、已有配置与授权。
+
+Web 与移动端目标配置按 [私有工作区](../setup-argus/references/storage.md) 在本机文件保存。
+
+移动端先自动探测补齐，只引导用户补充无法确定的必填项。
+
+目标是完成设计、执行、复现和表格交付。
+
+仅生成脚本不算完成。
+
+用户要求验证已报告问题的修复时，先执行下方「缺陷修复回归」分支；普通 PRD 验收仍按第 1–8 阶段执行。
+
+## 缺陷修复回归
+
+1. 读取原 Bug 表、原 run 的 manifest、冻结 PRD/场景/用例、执行结果和证据。确定用户指定的 Bug；未指定时收集本次待回归范围。逐条关联原 Bug ID 或稳定指纹、原 run、caseIds、复现步骤、预期结果及首次失败证据；缺少关键关联或断言时标记该问题 blocked，说明缺口。
+2. 记录修复后的实际应用/服务或代码版本、环境及目标，按 setup 创建新 runId 并冻结配置和输入指纹，保留原 run。原 PRD 和场景未变时复用原冻结基线与用例；输入变化按现行规则重新冻结并保留原始关联。冻结本次选中的 Bug、关联用例和必需矩阵；额外关联场景仅按用户指定范围加入。
+3. 按第 5 阶段执行原复现路径及关联用例的真实业务断言，并留存原始输出和必要证据。每个 Bug 的所有关联用例在必需矩阵均 passed 且原预期得到验证，才标「已验证修复」；原问题仍复现标「未修复」；error、blocked、skipped、cancelled、flaky、缺断言或证据不足标「未确认」，记录原因。出现不同问题时另行分类、查重和记录，保留原 Bug 的回归结论。
+4. 调用 coverage-check 计算并报告原冻结基线的覆盖和缺口；仅回归部分问题标 partial，不把子集结果当全量验收通过。生成回归报告，逐项列原 Bug 标识、原 run 和用例、修复版本与环境、实际结果、结论、证据及新 runId；结果来自本次结构化执行事实，保留历史。
+5. 按 bug-reporter 和已选交付策略将回归结论与证据关联原记录并读回。保留人工信息和原报告；状态仅在用户授权的更新范围内、现有状态枚举与结论明确对应且通道支持时更新。否则在报告注明待同步及原因，不宣称表格已更新。原问题复现复用原记录，避免重复建 Bug。写入本次测试汇总并报告发布状态；失败只恢复发布，不重跑业务测试。
+
+## 1. 登记输入与运行身份
+
+- 读取完整 PRD 和已有测试设施。有源码项目时只读 AGENTS.md、源码及 Git 状态并记录代码版本。
+- 没有源码项目也可测试，记录应用或服务版本、PRD 哈希、目标与预算，不要求用户提供项目路径。
+- 读 [setup-argus](../setup-argus/SKILL.md)，先取得唯一 runId 和仓库外 workspacePath，再写 manifest。
+
+## 2. 确认并冻结配置
+
+- 按 setup 读取当前 Agent 配置、展示角色—模型—强度表并收集缺失选择。Jev 决策内置，只引导用户设置 `TYPESAFE_API_KEY`，冻结 runConfigPath。
+- 提出选择即暂停整个主流程，收到实际回答才继续。沿用 setup 的结构化问答工具选择和等待规则。
+- 模型角色按冻结配置通过宿主子 Agent 或已验证 API 调用。inherit-parent 省略模型参数。
+- 能力缺失或策略不允许时 BLOCKED，不能由主会话冒充。映射与强度见 [模型规范](../setup-argus/references/models.md)。
+
+## 3. 冻结场景并生成用例
+
+- 读 [prd-to-cases](../prd-to-cases/SKILL.md)，提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.md`。按其指引做语义映射并核对 Markdown 与 JSON 一致。
+- 此阶段只设计和生成用例，不判断或执行 MySQL 核验；在执行每条用例前再判断是否需要数据库配合。
+- 业务歧义留记录，未澄清 P0 阻断执行。
+
+## 4. 检查计划覆盖门禁
+
+- 读 [coverage-check](../coverage-check/SKILL.md)，跑计划门禁：有效场景覆盖至少 95%，P0 100%。
+- 最多补齐两轮，仍不足交付缺口。
+
+## 5. 选择平台并执行测试
+
+- 按 [平台路由](../decision-router/references/platform-routing.md) 判定 web/mobile/both。明确平台范围和直接调用技能优先于 Jev。
+- 纯 API 走现有接口执行路径。
+- Jev 低置信度时补证据或澄清，Jev 不可用则 BLOCKED。具体截图条件可按 decision-router 批量并行比对，当前所有视觉结果均须冻结的 vision 复核，冲突由 bug_analysis 核查。
+- 按路由读取 [web-e2e-test](../web-e2e-test/SKILL.md) 或 [mobile-e2e-test](../mobile-e2e-test/SKILL.md)，分别执行隔离的 Playwright 或 Appium 流程。
+- 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时调用 [数据库核验规则](references/mysql.md) 指定的 MySQL 工具并冻结本用例查询与断言。生成场景和用例时不做数据库核验。
+- 移动端只支持 Android/iOS 本地真机，本期不接云真机。
+
+## 6. 记录并交付 Bug
+
+- 读 [bug-reporter](../bug-reporter/SKILL.md)，分类、查重、写入并读回所选表格。产品修复须另有授权。
+- 发布失败按已选策略处理，只恢复发布。
+
+## 7. 执行已选非功能测试
+
+范围包含负载或安全时，分别读 [performance-test](../performance-test/SKILL.md)、[security-test](../security-test/SKILL.md) 并执行。未选 N/A，已选且不可执行 BLOCKED。
+
+## 8. 检查执行门禁并交付
+
+- 跑执行门禁，按下文报告要求交付。
+- 有源码仓库时核对 Git 无本次新增改动，并核对清理结果及表格读回。online/local/both 的完成条件沿用 bug-reporter，未满足接受范围保持部分完成。
+
+## 恢复
+
+继续前核对 manifest、冻结配置、真实文件及 PRD/代码/目标指纹。
+
+后续偏好变化不影响已有 run。
+
+采用新配置、切换宿主/会话模型或输入变化时新建 runId，保留历史。
+
+有副作用步骤重跑前检查资源与幂等条件。
+
+独立 Agent 各自 runId，同 run 分片按共享契约合并。
+
+调用遵守宿主与用户授权。
+
+## 报告
+
+report.md 从同一 JSON 事实生成，包含：
+
+- full/partial 范围、版本、时间、环境；计划/执行/通过分子分母、missingIds、P0 计划与执行。
+- passed/failed/error/blocked/skipped/flaky/cancelled；非功能范围与结论。
+- 失败复现、根因事实或假设、真实证据与 Bug 链接。
+- 模型调用预算、已知/未知成本与降级；清理、发布、恢复状态。
+- 可用表格路径/链接、测试结论及分别的本地/在线状态；附件必须存在。
+- 用例 JSON 与人工评审 Markdown 的路径；复用原冻结用例时也在本次 run 生成或复制并核对对应的评审表。
+
+工具失败、未运行或缺证据不能报告通过；本地回退不能冒充在线成功。

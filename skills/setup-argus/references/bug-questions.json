@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "questions": {
+    "bug_destination": {"header": "Bug 记录", "question": "Bug 和测试汇总记录到哪里？", "options": [
+      {"value": "online", "label": "在线表格", "description": "下一轮选择飞书表格或企业微信表格。"},
+      {"value": "local", "label": "本地表格", "description": "保存在仓库外，无需云端写入权限。"},
+      {"value": "both", "label": "在线和本地", "description": "同时维护在线记录和本地表格。"}]},
+    "online_platform": {"header": "在线平台", "question": "使用哪种在线表格？", "options": [
+      {"value": "feishu_cli", "label": "飞书表格", "description": "使用飞书多维表格记录 Bug 和测试汇总。"},
+      {"value": "wecom_cli", "label": "企业微信表格", "description": "使用企业微信智能表格记录 Bug 和测试汇总。"}]},
+    "table_action": {"header": "表格操作", "question": "要新建表格、复用现有表格，还是导入文件？", "options": [
+      {"value": "create", "label": "新建表格", "description": "自动准备 Bug 明细和测试汇总，下一轮选择名称。"},
+      {"value": "existing", "label": "复用现有表格", "description": "下一轮在输入框中提供表格链接。"},
+      {"value": "import", "label": "导入文件", "description": "先生成本地文件，再验证导入结果。"}]},
+    "failure_policy": {"header": "无权限时", "question": "在线写入无权限或失败时怎么处理？", "options": [
+      {"value": "ask", "label": "询问后处理", "description": "暂停并选择本地记录、其他通道或停止。"},
+      {"value": "local", "label": "自动本地记录", "description": "保存本地正式表格，明确保留在线待同步状态。"},
+      {"value": "stop", "label": "停止发布", "description": "保留证据和待处理记录，不自动切换。"}]},
+    "target_url": {"header": "现有表格", "question": "请通过自定义答案粘贴完整表格链接，或选择改为新建。", "options": [
+      {"value": "paste", "label": "粘贴表格链接", "description": "在自定义答案输入链接；仅选此项还不算提供链接。"},
+      {"value": "create", "label": "改为新建", "description": "不再要求现有链接，转到新建表格的名称选择。"}]},
+    "table_name": {"header": "表格名称", "question": "新建表格使用哪个名称？自定义名称请直接在自定义答案中填写。", "options": [
+      {"value": "suggested", "label": "使用建议名称", "description": "使用本轮展示的项目建议名称。"},
+      {"value": "custom", "label": "自定义名称", "description": "在自定义答案填写名称；仅选此项时继续等待实际名称。"}]},
+    "summary_location": {"header": "测试汇总", "question": "测试汇总放在哪里？", "options": [
+      {"value": "same_document", "label": "同一文档内", "description": "检查或按所选创建范围建立测试汇总子表。"},
+      {"value": "separate", "label": "独立汇总表", "description": "下一轮通过输入框提供独立汇总表链接。"}]},
+    "summary_url": {"header": "汇总表链接", "question": "请通过自定义答案粘贴独立测试汇总表链接。", "options": [
+      {"value": "paste", "label": "粘贴汇总链接", "description": "仅选择按钮不算提供链接，需要输入实际地址。"},
+      {"value": "same_document", "label": "改为同一文档", "description": "使用 Bug 文档内的测试汇总。"}]},
+    "evidence_policy": {"header": "证据保存", "question": "在线记录如何附带截图、Trace 或日志？", "options": [
+      {"value": "attachments", "label": "上传附件", "description": "验证附件权限并读回，上传失败时再询问替代方式。"},
+      {"value": "links", "label": "可访问的证据链接", "description": "验证协作者能访问，不把本地路径当在线链接。"}]},
+    "local_format": {"header": "本地格式", "question": "本地表格使用什么格式？", "options": [
+      {"value": "csv", "label": "CSV", "description": "配套脚本直接支持，可用 Excel 或 Numbers 打开。"},
+      {"value": "xlsx", "label": "Excel", "description": "需要当前宿主具备工作簿生成和验证能力。"}]}
+  }
+}
