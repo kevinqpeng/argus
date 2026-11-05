@@ -2,6 +2,62 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/argus/contracts-v1",
   "$defs": {
+    "GenerationPlan": {
+      "type": "object",
+      "required": ["schemaVersion", "runId", "inputHash", "baselineHash", "scenarioIds", "inputArtifacts", "tasks"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "runId": {"type": "string", "minLength": 1},
+        "inputHash": {"$ref": "#/$defs/GenerationHash"},
+        "baselineHash": {"$ref": "#/$defs/GenerationHash"},
+        "scenarioIds": {"$ref": "#/$defs/GenerationIds"},
+        "inputArtifacts": {"$ref": "#/$defs/GenerationFiles"},
+        "tasks": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["taskId", "scenarioIds", "caseIds", "dependsOn", "outputFiles"],
+            "properties": {
+              "taskId": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+              "scenarioIds": {"$ref": "#/$defs/GenerationIds"},
+              "caseIds": {"$ref": "#/$defs/GenerationIds"},
+              "dependsOn": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+              "outputFiles": {"$ref": "#/$defs/GenerationIds"}
+            }
+          }
+        }
+      }
+    },
+    "GenerationState": {
+      "type": "object",
+      "required": ["schemaVersion", "planHash", "attempts", "running", "failed"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "planHash": {"$ref": "#/$defs/GenerationHash"},
+        "attempts": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "integer", "minimum": 1}},
+        "running": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "failed": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "GenerationResult": {
+      "type": "object",
+      "required": ["schemaVersion", "runId", "planHash", "taskId", "attempt", "state", "dependencyHashes", "files", "cases", "resultHash"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "runId": {"type": "string", "minLength": 1},
+        "planHash": {"$ref": "#/$defs/GenerationHash"},
+        "taskId": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "attempt": {"type": "integer", "minimum": 1},
+        "state": {"const": "completed"},
+        "dependencyHashes": {"type": "object", "additionalProperties": {"$ref": "#/$defs/GenerationHash"}},
+        "files": {"$ref": "#/$defs/GenerationFiles"},
+        "cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/TestCase"}},
+        "resultHash": {"$ref": "#/$defs/GenerationHash"}
+      }
+    },
+    "GenerationHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "GenerationIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "GenerationFiles": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/GenerationHash"}},
     "RequirementAC": {
       "type": "object",
       "required": [
@@ -514,6 +570,17 @@
         },
         "shards": {
           "type": "array"
+        },
+        "generation": {
+          "type": "object",
+          "required": ["planRef", "planHash", "stateRef", "status", "resultRef"],
+          "properties": {
+            "planRef": {"type": "string", "minLength": 1},
+            "planHash": {"$ref": "#/$defs/GenerationHash"},
+            "stateRef": {"type": "string", "minLength": 1},
+            "status": {"enum": ["PENDING", "PASSED", "BLOCKED"]},
+            "resultRef": {"type": "string", "minLength": 1}
+          }
         },
         "results": {
           "type": "array"

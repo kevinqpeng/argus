@@ -2,6 +2,16 @@
 
 内置 `scripts/jev.py` 使用官方 `POST https://api.typesafe.ai/v1/systemone`、Bearer `TYPESAFE_API_KEY`；文本使用 `jev-latest`，图片使用冻结的 `jev-1.14.0`。输入 JSON 形如 `{"state":"脱敏证据","questions":{"ui":"Does scenario S1 require observing UI behavior?"}}`。题目 ID 来自 questions.json；脚本补齐类型和 criteria，输出原始响应与归一化结果到仓库外私有路径。协议依据 [官方 OpenAPI](https://api.typesafe.ai/openapi.json)。
 
+同一文本模板判断多个主体时，以独立实例 ID 为键，使用 `{"questionId":"模板 ID","subject":"具体主体及证据引用"}`。脚本保留集中模板的 instructions 和 criteria，仅追加 subject；实例 ID 本身不向模型传递含义，主体必须明确写入 subject。独立问题批量提交，不能让某题依赖同批另一题的答案。例如：
+
+```json
+{"state":{"evidence":"已脱敏的任务输入、输出所有权和冻结契约"},"questions":{"A_depends_B":{"questionId":"generation_dependency","subject":"A=审批脚本，B=公共 fixture；证据 tasks.A、tasks.B；判断 A 是否依赖 B"},"B_depends_A":{"questionId":"generation_dependency","subject":"A=公共 fixture，B=审批脚本；证据 tasks.B、tasks.A；判断公共 fixture 是否依赖审批脚本"},"A_conflicts_B":{"questionId":"generation_conflict","subject":"A=审批脚本，B=公共 fixture；输出所有权见 tasks.A.outputs、tasks.B.outputs"}}}
+```
+
+`generation_dependency` 的 yes 表示 A 的生成依赖 B 尚未冻结的产物；业务执行先后不自动构成生成依赖。`generation_conflict` 判断共享输出写冲突，共读冻结输入不构成冲突。两题沿用 questions.json 的集中 noul 阈值，中间带交宿主核查；不确定不能当作可安全并行。主 Agent 根据证据和这些判断构建调度图、检查环和分配独占输出，Jev 不调度或生成脚本。
+
+归一化输出增加 `questionBindings: {"实例 ID":"模板 ID"}`，answers 与 bindings 的键集合必须一致；`decisions.py` 通过 bindings 选择模板与阈值并按实例 ID 返回 outcomes。没有 bindings 的旧格式仍将答案键解释为模板 ID，但题集版本必须是当前版本。旧文本字符串输入保持原有行为；图片仍仅接受原来的模板 ID 和字符串选择格式，不支持结构绑定或与文本混批。
+
 模型别名和协议可能更新；API 返回结构变化时阻断并对照官方 OpenAPI 修复适配。不能把 HTTP 200 或聊天文本当概率结果。
 
 调用前核对数据范围和预算。固定无敏感合成样例验证 choice/score/noul 的正例、负例、不确定例，并验证 401/429/超时/HTML 200/缺字段/缺模型/NaN/越界/分布不合法的诊断。需新增实验预算且当前未授权时向用户说明数据与预算；已有授权不重问。
@@ -11,7 +21,7 @@
 ```json
 {
   "schemaVersion": 1,
-  "questionSetVersion": "1.4.0",
+  "questionSetVersion": "1.5.0",
   "answers": {
     "ui": {"noul": 0.9, "probabilityKind": "calibrated"},
     "failure": {

@@ -20,6 +20,8 @@ PRD sourceHash 是源文件原始字节的 SHA-256；同一来源的 Requirement
 
 分片使用独立文件；expectedShards、inputHash 在执行前冻结。inputHash 绑定 PRD、基线、代码版本及本地改动摘要、配置/环境指纹、矩阵和选中用例。每个分片完成后 resultHash 绑定该分片的全部 attempts，聚合脚本验证哈希和唯一性。哈希只检查一致性，不证明来源真实性；宿主需保存 runner 原始输出和构造过程。
 
+以上为执行分片；用例/脚本生成使用独立的 [生成计划、调度与合并契约](../../prd-to-cases/references/parallel-generation.md)。同 run 生成 worker 共用 runId，主 Agent 唯一写计划、调度状态和最终材料，worker 按 taskId/attempt 隔离。manifest.generation 保存生成计划和结果引用，不复用执行 shards/attempts。全部分配任务完成且产物校验通过才算生成完整；95% 计划覆盖不豁免缺失生成分片。
+
 ## 人工用例评审门禁
 
 所有测试执行入口均受本门禁约束，包括主流程、直接调用平台或非功能 Skill、缺陷修复回归、恢复和重试。只读准备、用例生成、runner discovery 与计划覆盖检查可先完成；discovery 仅列出入口，不执行测试。业务验证、用例所需数据库核验、负载和安全测试必须等待门禁通过。
