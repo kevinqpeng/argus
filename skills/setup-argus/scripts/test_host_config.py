@@ -1,9 +1,24 @@
 import json
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from pathlib import Path
 
 from host_config import configure, project_settings, runtime_overrides
+
+
+class RunIdTests(unittest.TestCase):
+    def test_generated_ids_are_unique_with_concurrent_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "项目 name"
+            project.mkdir()
+            options = dict(runtime_dir=root / "runtime", state_dir=root / "state", initialize=True)
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                runs = list(executor.map(lambda _: configure(project, "codex", **options), range(4)))
+            self.assertEqual({run[4] for run in runs}, {f"项目-name-{n:02d}" for n in range(1, 5)})
+            self.assertTrue(all(run[3].is_file() for run in runs))
+            self.assertEqual(configure(project, "codex", run_id=runs[0][4], **options)[4], runs[0][4])
 
 
 class HumanCaseReviewConfigTests(unittest.TestCase):
