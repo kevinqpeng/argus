@@ -58,6 +58,11 @@ def workspace_paths(project, host, runtime_dir=None, state_dir=None, project_id=
 def project_settings(data):
     if set(data) - PROJECT_KEYS - {"schemaVersion"}:
         raise ValueError("personal project settings contain unknown fields")
+    if "execution" in data and (not isinstance(data["execution"], dict) or
+            type(data["execution"].get("requireHumanCaseReview", True)) is not bool):
+        raise ValueError("execution.requireHumanCaseReview must be a boolean")
+    if data.get("execution", {}).get("webAssistant", "none") not in ("none", "ego"):
+        raise ValueError("execution.webAssistant must be none or ego")
     delivery = data.get("delivery", {})
     if (not isinstance(delivery, dict) or delivery.get("mode", "online") not in {"online", "local", "both"}
             or delivery.get("requiresReadback", True) is not True
@@ -121,6 +126,10 @@ def runtime_overrides(data):
         raise ValueError("runtime sheet contains project or unknown fields")
     if any(not isinstance(data[k], dict) for k in RUNTIME_KEYS - {"defaultEffort"} if k in data):
         raise ValueError("invalid runtime override")
+    if type(data.get("execution", {}).get("requireHumanCaseReview", True)) is not bool:
+        raise ValueError("execution.requireHumanCaseReview must be a boolean")
+    if data.get("execution", {}).get("webAssistant", "none") not in ("none", "ego"):
+        raise ValueError("execution.webAssistant must be none or ego")
     if "defaultEffort" in data:
         effort_value(data["defaultEffort"])
     result = dict(data)
@@ -310,7 +319,7 @@ def initial_config():
               "roles": {r: {"mode": "delegate", "model": "inherit-parent"} for r in ["reasoning", "generation", "bug_analysis", "vision"]},
               "decision": {"activeProvider": "jev", "transport": "api", "verification": "required", "visualModel": "jev-1.14.0", "maxCallsPerRun": 100, "maxRetries": 2, "timeoutMs": 10000},
               "coverage": {"scenarioThreshold": 0.95, "p0Threshold": 1, "failOnFlaky": True},
-              "execution": {"workers": 2, "retries": 1},
+              "execution": {"workers": 2, "retries": 1, "requireHumanCaseReview": True},
               "delivery": {"mode": "online", "requiresReadback": True},
               "bugPublisher": {"provider": "none", "enabled": False}}
     config["roles"]["vision"]["requires"] = ["image-input"]

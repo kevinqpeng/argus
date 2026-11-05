@@ -25,9 +25,7 @@ setup 不产生项目 Git 改动。
 
 仅配置或测试 MySQL 时，直接按 [MySQL 项目配置](references/storage.md#mysql-项目配置) 执行，跳过下面的完整 setup 步骤。
 
-其他 setup 提出选择即暂停 setup 及主流程，实际回答后再继续。
-
-工具选择、空回答与恢复统一按阻塞问答执行。
+其他 setup 在收集选择前必须读取 [阻塞问答](references/interaction.md#工具选择)，调用本轮允许的真实问答工具，再等待实际回答。暂停的是 setup 的后续步骤，不是无条件结束当前轮；工具返回请求已接受不等于用户已回答或弹窗已显示。
 
 ## 1. 识别当前宿主
 
@@ -55,12 +53,15 @@ setup 不产生项目 Git 改动。
 
 ## 4. 收集缺失选择
 
-- 按阻塞问答展示完整模型映射，逐轮收集尚缺选择。
+- 按阻塞问答展示完整模型映射，优先调用允许的同步问答工具，逐轮收集尚缺选择；只有同步工具不适用时才使用异步或文本回退。
+- 按 [阻塞问答](references/interaction.md#问答顺序) 引导选择用例是否需要人工评审，推荐“是”。
+- Web 或 both 范围确定后，按 [ego 辅助引导](references/ego.md) 检测本机系统；仅 macOS 收集尚缺的辅助选择与后续安装选择。API-only、移动端和非 macOS 跳过该问卷。
 - Bug 问卷由 `scripts/bug_questions.py` 和 `references/bug-questions.json` 驱动。面向用户显示表格平台名称，技术通道留在内部配置。
 
 ## 5. 校验并保存已确认配置
 
 - 选择收到后校验模型、每模型强度、执行模式和图片能力。
+- 按 [配置规范的开关规则](references/config.md#人工用例评审开关) 保存已确认的人工评审选择，并展示新 run 的最终生效值。
 - --model-catalog 传宿主发现值，--session-effort 传本轮真实强度。--format markdown 可生成完整映射表。
 - --overrides 传 roles/defaultEffort/decision/execution。--project-overrides 传目标等个人设置。
 - --init 在当前 Agent 命名空间锁内保存，不改其原有 config.toml/settings.json。仅本次用临时覆盖和 --run-id。
@@ -83,6 +84,7 @@ setup 不产生项目 Git 改动。
 
 - 每次普通 setup 都按 [MySQL 项目配置](references/storage.md#mysql-项目配置) 检查当前项目的配置并引导补齐；只配置状态，不因此认定测试用例需要查库。缺项不阻断非数据库用例。
 - Web 范围已确定时，按 [Playwright 安装引导](references/playwright.md) 检查 Node.js/npm、隔离 harness 内的 Playwright 和所需浏览器；缺少组件时先取得安装授权，再安装并验证。Web/API-only 跳过移动依赖检查。
+- 已选择 ego 辅助时，按 [ego 辅助引导](references/ego.md) 检查 Ego Lite、按明确授权安装并验证；doctor 只读报告，不弹选择或安装。
 - 按范围探测其他测试工具与所选记录通道；Playwright 目标和账号文件按 [存储规则](references/storage.md) 指引用户自行填写，缺项只报字段名，不在聊天收集值。
 - 仅在测试用例执行前判断该用例是否需要 MySQL；需要时按 [数据库核验规则](../argus/references/mysql.md) 调用可用的 MySQL 工具并执行受审查的只读核验。不需要时仅将该用例的数据库核验标为 N/A，用例本身继续执行。
 - 本地 CSV 验证私有目录、表头、写入与读回能力，不要求企微/飞书授权。
@@ -98,6 +100,23 @@ setup 不产生项目 Git 改动。
 ## 9. 展示配置与诊断结果
 
 - 展示更新后完整角色—模型—强度映射和各配置文件位置，doctor 区分默认/角色覆盖、请求/解析/实际值及执行缺口。
+- 普通 setup、安装结束和只读 doctor 的结果均按下方格式展示；仅配置 MySQL 时只展示相关项。先用独立加粗行说明结论：有缺项为「⚠️ Argus 配置待补齐」，配置完整但未验证为「⚠️ Argus 配置已保存，能力待验证」，所选能力全部验证通过才为「✅ Argus 配置与验证完成」。doctor 使用「Argus 诊断结果」，不暗示本轮保存或安装。
+- 紧接配置状态表，列为「配置项｜是否已配置｜验证状态｜下一步」，每项一行。覆盖当前范围的 Web/移动端、MySQL、Jev、所选工具与 Bug 记录通道，以及人工用例评审开关的生效值。缺项和失败项排在前面；未选项标「未选择／不适用」。用中文短句呈现，必要时括注原始状态码；配置存在、字段完整与实际验证成功分开表达，空模板不算已配置。
+- 路径另列「文件／用途｜绝对路径」表，包含实际 configPath、相关私有配置文件及已生成的 runConfigPath、workspacePath。使用本轮返回的真实路径，已有文件使用可点击链接；缺失文件注明「待创建」。每个路径独占一行，不把长路径、缺失字段和操作说明挤进同一单元格，不展示占位路径或凭据。
+- 保留独立的「角色｜当前映射｜强度｜状态」完整模型表。最后用简短编号列表给出待办，引用路径表中的文件名，仅列缺失字段名和必要操作；Web 公开页面注明 `accounts` 可为 `{}`，MySQL 缺项注明只影响需要查库的用例，Jev Key 存在但未调用注明「Key 已配置，API 未验证」。没有待办时省略列表。
+- 上述表格直接渲染为 Markdown，不放进代码块，不退回长段落。以下仅示范排版，实际行、状态和待办必须来自本轮检查，路径表和模型表按实际结果补充：
+
+  **⚠️ Argus 配置待补齐**
+
+  | 配置项 | 是否已配置 | 验证状态 | 下一步 |
+  | --- | --- | --- | --- |
+  | Web 目标与账号 | 待补齐 | 未验证 | 填写 `web-private.json` |
+  | MySQL | 未配置（NOT_CONFIGURED） | 未连接 | 填写 `mysql-private.json`；仅查库用例需要 |
+  | Jev | Key 已配置 | API 未验证 | 首次实际调用后更新状态 |
+
+  1. 在 `web-private.json` 填写 `baseUrl` 和默认账号字段；公开页面可设 `accounts: {}`。
+  2. 在 `mysql-private.json` 补齐 `host`、`database`、`username`、`password`；不影响无需查库的用例。
+
 - 原生目录内本 Skill 的配置在每次启动时显式读取，不依赖把某个宿主的模型名注入所有宿主的全局指令。
 - 交付/能力和 Git 检查沿用当前 run 规则。未调用验证不能报模型切换成功。
 

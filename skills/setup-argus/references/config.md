@@ -10,6 +10,18 @@
 
 configPath 是唯一配置文件位置，runConfigPath 是产物目录的不可变 argus-model.json 快照。当前 Agent 原有全局设置与业务项目只读；JSON 记录选择不表示主会话已切换。继承别名规范化为 mode=delegate、model=inherit-parent，角色条目整体替换。
 
+## 人工用例评审开关
+
+`execution.requireHumanCaseReview` 默认 `true`，旧配置缺少字段时同样开启。普通 setup 对尚未明确选择的用户按 [阻塞问答](interaction.md#问答顺序) 引导选择，推荐“是”；等待实际回答后才保存。开启时生成用例后按 [人工用例评审门禁](../../argus/references/contracts.md#人工用例评审门禁) 等待人员批准。
+
+用户确认选择后，Agent 通过现有 `--overrides` 或 `--project-overrides` 写入 `{"schemaVersion":1,"execution":{"requireHumanCaseReview":true}}`；选择“否”时写 `false`。加 `--init` 保存后续默认值，不加只用于新 run。沿用现有配置优先级，展示最终生效值与来源；运行时顶层 execution 覆盖项目同名字段，若覆盖导致结果与用户选择冲突，先明确保存范围并解决冲突。
+
+开关随 runConfigPath 冻结，运行中不可修改快照；更改开关须新建 runId。关闭后自动继续其余已授权流程，原有覆盖、语义映射和安全门禁仍须通过。
+
+## Web 辅助选择
+
+`execution.webAssistant` 仅接受 `none` 或 `ego`，缺省执行效果为 `none`。缺失字段与明确选择 none 不同：仅 macOS 的 Web/both setup 对缺失字段按 [ego 引导](ego.md) 提问；未回答不保存默认答案。通过现有 --project-overrides 保存项目偏好，沿用 execution 优先级并展示最终来源；若顶层覆盖与回答冲突，先澄清覆盖范围。配置选择随新 run 冻结，不代表依赖 READY 或安装授权。系统限制与能力状态按 ego 引导单独记录，不改写历史快照。
+
 ## 并发与恢复
 
 不同 Agent 各有独立配置文件。同一 Agent 配置的并发更新以稳定锁在锁内读取、合并、原子替换，唯一临时文件结束清理。Python 3.11+、macOS/Linux POSIX 本地文件系统；不满足则阻断自动持久化。
@@ -44,7 +56,7 @@ python3 <skill>/scripts/host_config.py --host claude --project <仓库> --projec
 | decision | activeProvider=jev、transport=api 默认且内置；旧配置的 Jev MCP 映射在新 run 改用内置 API；verification 不等于 READY；maxCallsPerRun 正整数，timeoutMs 正整数，maxRetries 0..2 |
 | decision.providers | 自定义时使用；activeProvider 要指向已验证条目，protocol/adapterVersion/model/targetFingerprint/概率类型变化后重验 |
 | coverage | scenarioThreshold 0.95..1，p0Threshold 固定 1，failOnFlaky=true |
-| execution | workers 正整数，retries 0..1，资源与数据隔离实测 |
+| execution | workers 正整数，retries 0..1，资源与数据隔离实测；requireHumanCaseReview 为布尔值，默认 true |
 | bugPublisher | provider 与 method 分开；provider 可为企微、飞书、其他实际平台或 local，method=auto/mcp/api/cli/browser/webhook/local，tableAction=create/existing/import；默认未启用，所选方式需能力验证 |
 | delivery | mode=online/local/both，requiresReadback=true；本地也是正式交付，both 两边均需完成；onFailure=ask/local/stop，默认 ask；本地专用通道不能充当 online/both |
 

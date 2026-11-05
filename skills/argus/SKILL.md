@@ -67,6 +67,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 纯 API 走现有接口执行路径。
 - Jev 低置信度时补证据或澄清，Jev 不可用则 BLOCKED。具体截图条件可按 decision-router 批量并行比对，当前所有视觉结果均须冻结的 vision 复核，冲突由 bug_analysis 核查。
 - 按路由读取 [web-e2e-test](../web-e2e-test/SKILL.md) 或 [mobile-e2e-test](../mobile-e2e-test/SKILL.md)，分别执行隔离的 Playwright 或 Appium 流程。
+- Web 的冻结配置选择 ego 时，按 web-e2e-test 的辅助流程使用；Playwright 仍负责真实断言与通过结果。
 - 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时调用 [数据库核验规则](references/mysql.md) 指定的 MySQL 工具并冻结本用例查询与断言。生成场景和用例时不做数据库核验。
 - 移动端只支持 Android/iOS 本地真机，本期不接云真机。
 
