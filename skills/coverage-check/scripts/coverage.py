@@ -24,6 +24,90 @@ def index(rows, key):
     return result
 
 
+def check_impact(data, acs):
+    analysis = data.get("impactAnalysis")
+    if not isinstance(analysis, dict) or analysis.get("schemaVersion") != 1:
+        return ["missing impact analysis or unsupported version"], {}
+    errors = []
+    if digest(analysis) != data.get("impactHash"):
+        errors.append("impact hash mismatch")
+    sources = index(analysis["sources"], "sourceId")
+    units = index(analysis["sourceUnits"], "unitId")
+    objects = index(analysis["objects"], "objectId")
+    checks = index(analysis["checks"], "checkId")
+    obligations = index(analysis["obligations"], "obligationId")
+    if not sources or not units or not objects or not obligations:
+        errors.append("empty source inventory, objects or obligations")
+    current = data.get("currentSourceHashes", {})
+    if set(current) != set(sources):
+        errors.append("source inventory fingerprint set mismatch")
+    for sid, source in sources.items():
+        fingerprint = source.get("sourceHash", "")
+        if (not isinstance(fingerprint, str) or len(fingerprint) != 64
+                or any(c not in "0123456789abcdef" for c in fingerprint)
+                or fingerprint != current.get(sid) or not source.get("sourceRef")
+                or source.get("kind") not in {"prd", "business_rule", "contract", "history", "code", "observation"}):
+            errors.append(f"invalid or stale source: {sid}")
+    if not any(s.get("kind") == "prd" for s in sources.values()):
+        errors.append("source inventory missing PRD")
+
+    def refs(row, key, targets):
+        ids = row.get(key)
+        return (isinstance(ids, list) and bool(ids) and all(isinstance(i, str) for i in ids)
+                and len(set(ids)) == len(ids) and all(i in targets for i in ids))
+
+    resolved = {"sources": set(), "impacts": set(), "obligations": set()}
+    for group, rows in (("sources", units), ("impacts", checks)):
+        for ident, row in rows.items():
+            disposition = row.get("disposition")
+            valid = (refs(row, "sourceIds", sources) and bool(row.get("evidenceRef"))
+                     and bool(row.get("reason")) and bool(row.get("reviewRef")))
+            if disposition == "covered":
+                valid = valid and refs(row, "obligationIds", obligations)
+            elif disposition == "not_applicable":
+                valid = valid and row.get("obligationIds") == []
+            else:
+                valid = False
+            if disposition == "out_of_scope":
+                errors.append(f"out of scope obligation retained: {ident}")
+            if valid:
+                resolved[group].add(ident)
+            else:
+                errors.append(f"unresolved {group}: {ident}")
+    inventoried = {sid for row in units.values() for sid in row.get("sourceIds", [])}
+    if set(sources) - inventoried:
+        errors.append("sources without source inventory: " + ",".join(sorted(set(sources) - inventoried)))
+    dimensions = {"data", "inflight", "lifecycle", "permission", "side_effect", "ordering"}
+    for oid, obj in objects.items():
+        found = {c.get("dimension") for c in checks.values() if c.get("objectId") == oid}
+        if not obj.get("description") or dimensions - found:
+            errors.append(f"incomplete impact dimensions: {oid}: " + ",".join(sorted(dimensions - found)))
+    for cid, check in checks.items():
+        if check.get("objectId") not in objects or check.get("dimension") not in dimensions:
+            errors.append(f"invalid impact check: {cid}")
+    linked = {o for row in list(units.values()) + list(checks.values()) for o in row.get("obligationIds", [])}
+    for oid, obligation in obligations.items():
+        if (oid not in linked or not refs(obligation, "sourceIds", sources)
+                or not refs(obligation, "acIds", acs) or not obligation.get("text")
+                or not obligation.get("expected") or not obligation.get("approvalRef")
+                or obligation.get("reviewStatus") != "approved"):
+            errors.append(f"unresolved obligation: {oid}")
+        else:
+            resolved["obligations"].add(oid)
+    mapped = {aid for o in obligations.values() for aid in o.get("acIds", [])}
+    if set(acs) - mapped:
+        errors.append("ACs without obligations: " + ",".join(sorted(set(acs) - mapped)))
+    for aid, ac in acs.items():
+        source = sources.get(ac.get("sourceId"), {})
+        if not source or ac.get("sourceHash") != source.get("sourceHash"):
+            errors.append(f"invalid AC source: {aid}")
+    summary = {}
+    for group, rows in (("sources", units), ("impacts", checks), ("obligations", obligations)):
+        summary[group] = {"numerator": len(resolved[group]), "denominator": len(rows),
+                          "missingIds": sorted(set(rows) - resolved[group])}
+    return errors, summary
+
+
 def evaluate(data, phase="execution"):
     if data.get("schemaVersion") != 1:
         raise ValueError("schemaVersion must be 1")
@@ -34,7 +118,8 @@ def evaluate(data, phase="execution"):
     scenarios = index(data["scenarios"], "scenarioId")
     cases = index(data["cases"], "caseId")
     baseline_hash = digest(data["scenarios"])
-    errors = []
+    errors, analysis_summary = check_impact(data, acs)
+    analysis_status = "BLOCKED" if errors else "PASSED"
     if not data.get("runId"):
         errors.append("missing runId")
     if not acs or not scenarios:
@@ -44,7 +129,7 @@ def evaluate(data, phase="execution"):
     if not data["sourceHash"] or data["sourceHash"] != data["currentSourceHash"]:
         errors.append("PRD hash mismatch")
     for a in acs.values():
-        if a.get("sourceHash") != data["sourceHash"] or not a.get("sourceRef") or a.get("reviewStatus") != "approved":
+        if not a.get("sourceRef") or a.get("reviewStatus") != "approved":
             errors.append(f"unreviewed or stale AC: {a['acId']}")
     for s in scenarios.values():
         if s.get("priority") not in {"P0", "P1", "P2", "P3"}:
@@ -79,7 +164,7 @@ def evaluate(data, phase="execution"):
                       and all(found.get((cid, m)) == c["automationRef"] for m in required))
     associations = {sid: [cid for cid, c in cases.items() if sid in c.get("scenarioIds", [])]
                     for sid in scenarios}
-    planned = {sid for sid, ids in associations.items() if any(valid[c] for c in ids)}
+    planned = {sid for sid, ids in associations.items() if ids and all(valid[c] for c in ids)}
     p0 = {sid for sid, s in scenarios.items() if s["priority"] == "P0"}
     attempts = {}
     statuses = {"passed", "failed", "error", "blocked", "skipped", "flaky", "cancelled"}
@@ -133,6 +218,7 @@ def evaluate(data, phase="execution"):
                       "baselineHash": baseline_hash})
     all_ids = set(scenarios)
     gate("planned", planned, all_ids, threshold)
+    gate("required_planned", planned, all_ids)
     gate("p0_planned", planned, p0)
     if phase == "execution":
         if not data.get("inputHash"):
@@ -154,6 +240,7 @@ def evaluate(data, phase="execution"):
         if any(r.get("shardId") not in expected_shards for r in data.get("results", [])):
             errors.append("result from unexpected shard")
         gate("executed", complete, all_ids, threshold)
+        gate("required_executed", complete, all_ids)
         gate("passed", passed, all_ids, Fraction(0))
         gate("p0_passed", passed, p0)
         if any(s != "passed" for s in effective.values()):
@@ -161,6 +248,8 @@ def evaluate(data, phase="execution"):
     return {"schemaVersion": 1, "phase": phase, "status": "BLOCKED" if errors or any(
         g["status"] == "BLOCKED" for g in gates) else "PASSED", "gates": gates,
         "reasons": sorted(set(errors)), "baselineHash": baseline_hash,
+        "impactAnalysis": {"status": analysis_status, "impactHash": data.get("impactHash"),
+                           "coverage": analysis_summary},
         "statusCounts": {s: list(effective.values()).count(s) for s in sorted(statuses)}}
 
 

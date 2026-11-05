@@ -5,7 +5,7 @@ description: Argus 子技能。按决策路由对事件交错、并发、重试�
 
 # 形式化验证与边界用例
 
-先读 [共享契约](../../references/contracts.md) 和 [形式化路由](../../../decision-router/references/formal-routing.md)。由 Argus 或 prd-to-cases 调用，复用冻结角色与预算，不新增模型角色。输入为 AC、候选场景、源码或协议证据、版本和本 run 的 workspacePath。
+先读 [共享契约](../../references/contracts.md) 和 [形式化路由](../../../decision-router/references/formal-routing.md)。由 Argus 或 prd-to-cases 调用，复用冻结角色与预算，不新增模型角色。输入为影响分析中的关联对象、在途状态、已确认义务，以及 AC、候选场景、源码或协议证据、版本和本 run 的 workspacePath。
 
 reasoning 负责性质与边界分析，generation 生成模型和用例，bug_analysis 核查模型偏差与反例归因；按 setup 的冻结角色映射调用，不由主会话冒充缺失角色。
 

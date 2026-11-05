@@ -2,12 +2,360 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/argus/contracts-v1",
   "$defs": {
+    "ImpactSource": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "sourceId",
+        "kind",
+        "sourceRef",
+        "sourceHash"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "prd",
+            "business_rule",
+            "contract",
+            "history",
+            "code",
+            "observation"
+          ]
+        },
+        "sourceRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceHash": {
+          "$ref": "#/$defs/GenerationHash"
+        }
+      }
+    },
+    "SourceUnit": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "unitId",
+        "sourceIds",
+        "evidenceRef",
+        "disposition",
+        "obligationIds",
+        "reason",
+        "reviewRef"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "unitId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "evidenceRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "disposition": {
+          "enum": [
+            "covered",
+            "not_applicable",
+            "unknown",
+            "out_of_scope"
+          ]
+        },
+        "obligationIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reviewRef": {
+          "type": "string"
+        }
+      }
+    },
+    "ImpactObject": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "objectId",
+        "description"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "objectId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ImpactCheck": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "checkId",
+        "objectId",
+        "dimension",
+        "sourceIds",
+        "evidenceRef",
+        "disposition",
+        "obligationIds",
+        "reason",
+        "reviewRef"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "checkId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "objectId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimension": {
+          "enum": [
+            "data",
+            "inflight",
+            "lifecycle",
+            "permission",
+            "side_effect",
+            "ordering"
+          ]
+        },
+        "sourceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "evidenceRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "disposition": {
+          "enum": [
+            "covered",
+            "not_applicable",
+            "unknown",
+            "out_of_scope"
+          ]
+        },
+        "obligationIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reviewRef": {
+          "type": "string"
+        }
+      }
+    },
+    "TestObligation": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "obligationId",
+        "sourceIds",
+        "text",
+        "expected",
+        "acIds",
+        "reviewStatus",
+        "approvalRef"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "obligationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected": {
+          "type": "string"
+        },
+        "acIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "reviewStatus": {
+          "enum": [
+            "draft",
+            "approved",
+            "needs_clarification"
+          ]
+        },
+        "approvalRef": {
+          "type": "string"
+        }
+      }
+    },
+    "ImpactAnalysis": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "sources",
+        "sourceUnits",
+        "objects",
+        "checks",
+        "obligations"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImpactSource"
+          }
+        },
+        "sourceUnits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SourceUnit"
+          }
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImpactObject"
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImpactCheck"
+          }
+        },
+        "obligations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TestObligation"
+          }
+        }
+      }
+    },
+    "GenerationPlan": {
+      "type": "object",
+      "required": ["schemaVersion", "runId", "inputHash", "baselineHash", "scenarioIds", "inputArtifacts", "tasks"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "runId": {"type": "string", "minLength": 1},
+        "inputHash": {"$ref": "#/$defs/GenerationHash"},
+        "baselineHash": {"$ref": "#/$defs/GenerationHash"},
+        "scenarioIds": {"$ref": "#/$defs/GenerationIds"},
+        "inputArtifacts": {"$ref": "#/$defs/GenerationFiles"},
+        "tasks": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["taskId", "scenarioIds", "caseIds", "dependsOn", "outputFiles"],
+            "properties": {
+              "taskId": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+              "scenarioIds": {"$ref": "#/$defs/GenerationIds"},
+              "caseIds": {"$ref": "#/$defs/GenerationIds"},
+              "dependsOn": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+              "outputFiles": {"$ref": "#/$defs/GenerationIds"}
+            }
+          }
+        }
+      }
+    },
+    "GenerationState": {
+      "type": "object",
+      "required": ["schemaVersion", "planHash", "attempts", "running", "failed"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "planHash": {"$ref": "#/$defs/GenerationHash"},
+        "attempts": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "integer", "minimum": 1}},
+        "running": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "failed": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "GenerationResult": {
+      "type": "object",
+      "required": ["schemaVersion", "runId", "planHash", "taskId", "attempt", "state", "dependencyHashes", "files", "cases", "resultHash"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "runId": {"type": "string", "minLength": 1},
+        "planHash": {"$ref": "#/$defs/GenerationHash"},
+        "taskId": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "attempt": {"type": "integer", "minimum": 1},
+        "state": {"const": "completed"},
+        "dependencyHashes": {"type": "object", "additionalProperties": {"$ref": "#/$defs/GenerationHash"}},
+        "files": {"$ref": "#/$defs/GenerationFiles"},
+        "cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/TestCase"}},
+        "resultHash": {"$ref": "#/$defs/GenerationHash"}
+      }
+    },
+    "GenerationHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "GenerationIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "GenerationFiles": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/GenerationHash"}},
     "RequirementAC": {
       "type": "object",
       "required": [
         "schemaVersion",
         "acId",
         "requirementId",
+        "sourceId",
         "sourceHash",
         "text",
         "sourceRef",
@@ -26,6 +374,7 @@
           "type": "string",
           "minLength": 1
         },
+        "sourceId": {"type": "string", "minLength": 1},
         "sourceHash": {
           "type": "string",
           "minLength": 1
@@ -514,6 +863,17 @@
         },
         "shards": {
           "type": "array"
+        },
+        "generation": {
+          "type": "object",
+          "required": ["planRef", "planHash", "stateRef", "status", "resultRef"],
+          "properties": {
+            "planRef": {"type": "string", "minLength": 1},
+            "planHash": {"$ref": "#/$defs/GenerationHash"},
+            "stateRef": {"type": "string", "minLength": 1},
+            "status": {"enum": ["PENDING", "PASSED", "BLOCKED"]},
+            "resultRef": {"type": "string", "minLength": 1}
+          }
         },
         "results": {
           "type": "array"

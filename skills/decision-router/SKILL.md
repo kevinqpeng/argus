@@ -11,6 +11,7 @@ description: Routes semantic test judgments using typed Jev or verified Laya res
 
 ## 1. 绑定问题与证据
 
+- 变更影响阶段按 prd-to-cases 的影响分析契约使用 impact_relevance、obligation_equivalence、rule_support；绑定具体依赖路径或规则证据。缺证据先补齐；no 不自动排除，低置信度保留 unknown，高置信度不代替业务确认。
 - 形式化验证适用性按 [形式化路由](references/formal-routing.md) 处理，选中后调用 Argus 子技能；不与平台路由互斥。
 - 选当前步骤需要的题目。绑定明确 AC/场景/用例 ID 与可定位证据。
 - 只发送已授权且脱敏的相关 state。
@@ -21,7 +22,7 @@ description: Routes semantic test judgments using typed Jev or verified Laya res
 
 - 内置 Jev 使用宿主安全环境中的 `TYPESAFE_API_KEY`。
 - 用户只需填写该 Key，不配置 Provider、模型或端点。
-- 将脱敏 state 和 `{题目ID:绑定主体后的 instructions}` 写入仓库外私有 JSON，执行 `python3 <本目录>/scripts/jev.py <input.json> --raw <raw.json> --output <normalized.json>`。
+- 将脱敏 state 和 `{实例ID:{questionId:模板ID,subject:具体主体及证据引用}}` 写入仓库外私有 JSON，同一模板可绑定多个主体，措辞与 criteria 保留集中定义。旧 `{题目ID:绑定主体后的 instructions}` 文本格式仍兼容。执行 `python3 <本目录>/scripts/jev.py <input.json> --raw <raw.json> --output <normalized.json>`。
 - 独立问题一次提交，有依赖的分阶段。截图判断按 [图片协议与并行复核](references/protocol.md#图片请求与并行复核) 准备证据并传冻结 run 配置。
 
 ## 3. 处理调用前置条件缺失
