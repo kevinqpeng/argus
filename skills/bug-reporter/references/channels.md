@@ -61,7 +61,7 @@ python3 <本Skill>/scripts/local_table.py --run-config <runConfigPath> --input <
 
 输入 schemaVersion=1、runId、bugs（共享 Bug 契约数组）、summary。summary 保留 status、scope、coverage、p0、counts、cleanup、limitations，并提供 featureOverview、caseCount、executedCount、passedCount、incompleteCases（每项含 caseId、status）、executor、executedAt（带时区的 ISO 时间）。三个计数来自冻结用例与最终运行结果，满足 `0 ≤ passedCount ≤ executedCount ≤ caseCount`；incompleteCases 恰好列出其余用例。零缺陷传空 bugs，仍有汇总。
 
-输出本机项目目录下 tables/bugs.csv、tables/runs.csv，可用 Excel/Numbers 打开；bugs.csv 只含上述 8 列，runs.csv 只含上述 8 列。去重指纹、runId 和完整汇总事实分别放在同目录私有 bugs.meta.json、runs.meta.json。CSV 不保存下拉或布局；按表格工具生成并验证带优先级单选下拉、固定列宽和自动换行的 Excel 工作簿，CSV 仅作数据源，不能单独作为正式交付。单次输入重复指纹拒绝；跨 run 同指纹更新原行，保留创建时间、原编号和人工优先级等内部信息，累积关联运行。使用 UTF-8 BOM 和标准 CSV 转义，用户内容防公式注入。旧版或被改动的表头拒绝覆盖，保留并报告，迁移现有表须另行核对数据。
+累计数据保存在本机项目目录下 tables/bugs.csv、tables/runs.csv；每次发布生成并回读本 run 的 `delivery/YYYYMMDD-功能名称-Bug列表.csv` 和 `delivery/YYYYMMDD-功能名称-测试汇总表.csv`，交付路径取回执的 bugDelivery 和 summaryDelivery。测试汇总表只含本 run，Bug 列表只含本 run 关联缺陷；累计表保留历史。日期和功能名称与用例表一致，测试汇总表与测试报告、执行结果表分别命名。bugs.csv 只含上述 8 列，runs.csv 只含上述 8 列。去重指纹、runId 和完整汇总事实分别放在同目录私有 bugs.meta.json、runs.meta.json。CSV 不保存下拉或布局；按表格工具生成并验证带优先级单选下拉、固定列宽和自动换行的 Excel 工作簿，CSV 仅作数据源，不能单独作为正式交付。单次输入重复指纹拒绝；跨 run 同指纹更新原行，保留创建时间、原编号和人工优先级等内部信息，累积关联运行。使用 UTF-8 BOM 和标准 CSV 转义，用户内容防公式注入。旧版或被改动的表头拒绝覆盖，保留并报告，迁移现有表须另行核对数据。
 
 并发发布使用稳定锁，每个文件原子替换后读回；两个表之间中断不承诺事务原子性，可幂等重跑恢复。输出哈希和行数，并在本 run 写 local-publish.json，与远端回执分开。退出 0 表示 CSV 读回完成，2 表示阻断；Excel 生成并验证后才标记本地交付完成。
 

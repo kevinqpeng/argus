@@ -47,7 +47,7 @@ description: Records reproducible bugs in user-selected online or local tables u
 
 ## 7. 生成并验证本地表格
 
-- 本地 CSV 调用配套 local_table.py，以指纹维护累计 Bug 表、以 runId 维护汇总。
+- 本地 CSV 调用配套 local_table.py，以指纹维护累计 Bug 表、以 runId 维护汇总；传入本 run 已冻结的 `--delivery-date`（YYYYMMDD）和 `--feature-name`，生成本次 Bug 列表与测试汇总表交付副本。报告交付副本路径，不把累计表路径冒充本次交付。
 - 按通道规范生成并验证带优先级下拉的 Excel 工作簿；CSV 仅作数据源，不能单独满足正式交付。所选本地交付物回读及字段验证通过后才标 LOCAL_COMPLETED。
 - Excel 按可用表格工具生成验证，不伪造扩展名。
 - 保留人工状态/优先级。表头变更先报告，不清空重建。

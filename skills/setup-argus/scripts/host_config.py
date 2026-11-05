@@ -8,6 +8,7 @@ import re
 import shutil
 import tomllib
 import tempfile
+import uuid
 import fcntl
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,20 +31,50 @@ RUNTIME_KEYS = {"roles", "decision", "execution", "defaultEffort"}
 PROJECT_KEYS = {"prdPath", "baseUrlEnv", "allowedHosts", "coverage", "execution", "bugPublisher", "delivery"}
 
 
-def workspace_paths(project, host, runtime_dir=None, state_dir=None, project_id=None):
+def workspace_paths(project, host, runtime_dir=None, state_dir=None, project_id=None, allocate=False):
     project = project.resolve()
     root = (state_dir or Path(os.environ.get("ARGUS_HOME") or
             str(Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "argus"))).expanduser().resolve()
     if root.is_relative_to(project) or any((parent / ".git").exists() for parent in [root, *root.parents]):
         raise ValueError("personal state must be outside project and Git repositories")
+    projects = root / "projects"
     if project_id is not None:
-        if not re.fullmatch(r"[0-9a-f]{24}", project_id):
+        if not re.fullmatch(r"[\w][\w.-]{0,127}", project_id) or project_id in {".", ".."}:
             raise ValueError("invalid project ID")
-        existing = root / "projects" / project_id
+        existing = projects / project_id
         if existing.is_symlink() or not existing.is_dir():
             raise ValueError("existing project directory not found")
     else:
-        project_id = hashlib.sha256(str(project).encode()).hexdigest()[:24]
+        fingerprint = hashlib.sha256(str(project).encode()).hexdigest()[:24]
+        legacy = projects / fingerprint
+        if legacy.is_dir() and not legacy.is_symlink():
+            project_id = fingerprint
+        else:
+            name = re.sub(r"[^\w.-]+", "-", project.name, flags=re.UNICODE).strip("-._")[:110] or "project"
+            def find_project():
+                if projects.is_dir():
+                    for entry in projects.iterdir():
+                        marker = entry / ".project-id"
+                        if not entry.is_symlink() and marker.is_file() and marker.read_text().strip() == fingerprint:
+                            return entry.name
+                sequence = 1
+                while os.path.lexists(projects / f"{name}-{sequence:02d}"):
+                    sequence += 1
+                return f"{name}-{sequence:02d}"
+            if allocate:
+                projects.mkdir(parents=True, exist_ok=True, mode=0o700)
+                with (projects / ".lock").open("a") as lock:
+                    os.chmod(lock.name, 0o600)
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    project_id = find_project()
+                    directory = projects / project_id
+                    if not directory.exists():
+                        directory.mkdir(mode=0o700)
+                        marker = directory / ".project-id"
+                        marker.write_text(fingerprint + "\n")
+                        marker.chmod(0o600)
+            else:
+                project_id = find_project()
     native_dir = runtime_directory(host, runtime_dir) if host != "unknown" or runtime_dir else None
     config_path = native_dir / "argus-model.json" if native_dir else None
     if config_path:
@@ -63,7 +94,8 @@ def project_settings(data):
     if data.get("execution", {}).get("webAssistant", "none") not in ("none", "ego"):
         raise ValueError("execution.webAssistant must be none or ego")
     delivery = data.get("delivery", {})
-    if (not isinstance(delivery, dict) or delivery.get("mode", "online") not in {"online", "local", "both"}
+    if (not isinstance(delivery, dict) or set(delivery) - {"mode", "requiresReadback", "onFailure"}
+            or delivery.get("mode", "online") not in {"online", "local", "both"}
             or delivery.get("requiresReadback", True) is not True
             or delivery.get("onFailure", "ask") not in {"ask", "local", "stop"}):
         raise ValueError("delivery requires readback and a valid fallback policy")
@@ -96,7 +128,7 @@ def agent_settings(data):
     if not isinstance(projects, dict):
         raise ValueError("invalid project settings map")
     for project_id, settings in projects.items():
-        if not re.fullmatch(r"[0-9a-f]{24}", project_id) or not isinstance(settings, dict) or settings.get("schemaVersion") != 1:
+        if not re.fullmatch(r"[\w][\w.-]{0,127}", project_id) or project_id in {".", ".."} or not isinstance(settings, dict) or settings.get("schemaVersion") != 1:
             raise ValueError("invalid project entry")
         project_settings(settings)
     return {**runtime, "projects": projects}
@@ -197,7 +229,7 @@ def configure(project, host, runtime_dir=None, overrides=None, initialize=False,
               state_dir=None, project_overrides=None, model_catalog=None, project_id=None):
     if run_id is not None and not re.fullmatch(r"[\w][\w.-]{0,127}", run_id):
         raise ValueError("invalid runId")
-    paths = workspace_paths(project, host, runtime_dir, state_dir, project_id)
+    paths = workspace_paths(project, host, runtime_dir, state_dir, project_id, initialize or run_id is not None)
     runtime_path = paths["configPath"]
     if initialize and runtime_path is None:
         raise ValueError("select a runtime before initializing")
@@ -238,17 +270,15 @@ def configure(project, host, runtime_dir=None, overrides=None, initialize=False,
     snapshot = None
     if initialize or run_id is not None:
         if run_id is None:
-            name = re.sub(r"[^\w.-]+", "-", project.resolve().name, flags=re.UNICODE).strip("-._")[:120] or "project"
             runs = paths["projectDir"] / "runs"
             runs.mkdir(parents=True, exist_ok=True, mode=0o700)
-            sequence = 1
             while True:
-                run_id = f"{name}-{sequence:02d}"
+                run_id = str(uuid.uuid4())
                 try:
                     (runs / run_id).mkdir(mode=0o700)
                     break
                 except FileExistsError:
-                    sequence += 1
+                    continue
         snapshot = paths["projectDir"] / "runs" / run_id / "argus-model.json"
         write_json(snapshot, {"schemaVersion": 1, "runId": run_id, "host": host,
                               "config": effective, "sources": sources, "sessionEffective": session or {}}, immutable=True)
@@ -429,6 +459,20 @@ def mapping_markdown(report):
     return "\n".join(lines)
 
 
+def load_override(value):
+    if value is None:
+        return None
+    if value.lstrip().startswith("{"):
+        data = json.loads(value)
+        if not isinstance(data, dict) or data.get("schemaVersion") != 1:
+            raise ValueError("unsupported config")
+        return data
+    path = Path(value)
+    if not path.is_file():
+        raise FileNotFoundError("override file missing")
+    return load_json(path)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--host", choices=[*PATHS, "unknown"], default="unknown", help="Use session metadata, not model-name guesses")
@@ -443,9 +487,9 @@ def main():
     p.add_argument("--project-id", help="Reuse an existing private project ID when the source path is unavailable")
     p.add_argument("--runtime-dir", type=Path, help="Native agent home; setup settings go in argus-model.json")
     p.add_argument("--state-dir", type=Path, help="Private state root outside all Git repositories; defaults to ARGUS_HOME or XDG state/argus")
-    p.add_argument("--project-overrides", type=Path, help="Private project targets, coverage and bug publisher settings as JSON")
-    p.add_argument("--overrides", type=Path, help="JSON containing roles/defaultEffort/decision/execution overrides")
-    p.add_argument("--run-id", help="Freeze this execution's immutable config; omitted with --init creates a project-name sequence")
+    p.add_argument("--project-overrides", help="JSON file path or nonsecret inline JSON for project settings")
+    p.add_argument("--overrides", help="JSON file path or nonsecret inline JSON for runtime settings")
+    p.add_argument("--run-id", help="Freeze this execution's immutable config; omitted with --init creates a random UUID")
     p.add_argument("--init", action="store_true", help="Initialize this agent's argus-model.json; repository stays untouched")
     args = p.parse_args()
     stage = "host-config-discovery"
@@ -471,14 +515,16 @@ def main():
                 session["sources"][field] = "codex-last-recorded-turn-context"
         if session["sources"] and all(v == "codex-last-recorded-turn-context" for v in session["sources"].values()):
             session["source"] = "codex-last-recorded-turn-context"
-        if any(path and not path.is_file() for path in [args.overrides, args.project_overrides, args.model_catalog]):
+        if args.model_catalog and not args.model_catalog.is_file():
             raise FileNotFoundError("override file missing")
+        overrides = load_override(args.overrides)
+        project_overrides = load_override(args.project_overrides)
         catalog = load_json(args.model_catalog) if args.model_catalog else None
         stage = "workspace-and-argus-config"
         config, sources, runtime_path, snapshot, run_id = configure(
             args.project, args.host, args.runtime_dir,
-            load_json(args.overrides) if args.overrides else None, args.init, args.run_id, session,
-            args.state_dir, load_json(args.project_overrides) if args.project_overrides else None, catalog, args.project_id)
+            overrides, args.init, args.run_id, session,
+            args.state_dir, project_overrides, catalog, args.project_id)
         stage = "report-generation"
         delivery_status = publication_status(config)
         report = {"schemaVersion": 1, "host": args.host, "testedAt": datetime.now(timezone.utc).isoformat(),
@@ -495,7 +541,7 @@ def main():
                   "executables": {k: {"path": shutil.which(k), "status": "found-not-verified" if shutil.which(k) else "not-found"} for k in ["node", "npx", "k6", "sysbench", "docker"]},
                   "integrationStatus": "NOT_VERIFIED", "configWritten": str(runtime_path) if args.init else None}
         explicit_roles = merge({k: v for k, v in agent_settings(load_json(runtime_path)).items() if k != "projects"} if runtime_path else {},
-                               load_json(args.overrides) if args.overrides else {}).get("roles", {})
+                               overrides or {}).get("roles", {})
         report.update({"defaultEffort": config["defaultEffort"], "modelMapping": model_mapping(config, session, catalog, explicit_roles),
                        "detectedModels": list(model_catalog_entries(catalog)) if catalog is not None else []})
         print(mapping_markdown(report) if args.format == "markdown" else json.dumps(report, ensure_ascii=False, indent=2))

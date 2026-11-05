@@ -140,7 +140,32 @@ def ratio(numerator, denominator):
     return f"{numerator} / {denominator} ({percent}%)"
 
 
-def publish(run_config, data, fallback_approved=False):
+def delivery_csv(path, columns, rows):
+    fd, temporary = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(columns.values()))
+            writer.writeheader()
+            writer.writerows({label: row[key] for key, label in columns.items()} for row in rows)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        if list(csv.DictReader(stream)) != [{label: row[key] for key, label in columns.items()} for row in rows]:
+            raise ValueError("delivery readback mismatch")
+
+
+def publish(run_config, data, fallback_approved=False, *, delivery_date, feature_name):
+    try:
+        if not isinstance(delivery_date, str) or not re.fullmatch(r"[0-9]{8}", delivery_date):
+            raise ValueError("invalid delivery date")
+        datetime.strptime(delivery_date, "%Y%m%d")
+    except (ValueError, TypeError):
+        raise ValueError("invalid delivery date")
+    if not isinstance(feature_name, str) or not feature_name.strip() or len(feature_name) > 100 or re.search(r"[/\\\x00-\x1f]", feature_name) or feature_name in {".", ".."}:
+        raise ValueError("invalid delivery feature name")
     snapshot = json.loads(run_config.read_text())
     if snapshot.get("schemaVersion") != 1 or data.get("schemaVersion") != 1:
         raise ValueError("unsupported version")
@@ -150,7 +175,7 @@ def publish(run_config, data, fallback_approved=False):
     sources = snapshot["sources"]
     state = Path(sources["stateRoot"]).resolve()
     project_id = sources["projectId"]
-    if not re.fullmatch(r"[0-9a-f]{24}", project_id):
+    if not re.fullmatch(r"[\w][\w.-]{0,127}", project_id) or project_id in {".", ".."}:
         raise ValueError("invalid project scope")
     project = (state / "projects" / project_id).resolve()
     table_dir = (project / "tables").resolve()
@@ -241,8 +266,14 @@ def publish(run_config, data, fallback_approved=False):
                         "summary": summary}
         write_bugs(bug_path, metadata_path, existing)
         write_runs(run_path, runs_metadata_path, runs)
+        delivery_dir = run_config.resolve().parent / "delivery"
+        delivery_dir.mkdir(mode=0o700, exist_ok=True)
+        bug_delivery = delivery_dir / f"{delivery_date}-{feature_name}-Bug列表.csv"
+        summary_delivery = delivery_dir / f"{delivery_date}-{feature_name}-测试汇总表.csv"
+        delivery_csv(bug_delivery, BUG_COLUMNS, [existing[bug["fingerprint"]] for bug in bugs])
+        delivery_csv(summary_delivery, RUN_COLUMNS, [runs[run_id]])
         receipt = {"schemaVersion": 1, "runId": run_id, "status": "CSV_READY", "onlineStatus": "NOT_CONFIRMED",
-                   "bugTable": str(bug_path), "runTable": str(run_path), "bugRows": len(existing), "runRows": len(runs),
+                   "bugTable": str(bug_path), "runTable": str(run_path), "bugDelivery": str(bug_delivery), "summaryDelivery": str(summary_delivery), "bugRows": len(existing), "runRows": len(runs),
                    "hashes": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in [bug_path, run_path]}}
         receipt_path = run_config.resolve().parent / "local-publish.json"
         fd, temporary = tempfile.mkstemp(prefix=".local-publish.", dir=receipt_path.parent)
@@ -261,10 +292,12 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--run-config", type=Path, required=True)
     p.add_argument("--input", type=Path, required=True, help="schemaVersion/runId/bugs/summary JSON")
+    p.add_argument("--delivery-date", required=True, help="Frozen delivery date YYYYMMDD")
+    p.add_argument("--feature-name", required=True, help="Frozen feature name for this run")
     p.add_argument("--fallback-approved", action="store_true", help="Use only after the user selected local fallback for this run")
     args = p.parse_args()
     try:
-        result = publish(args.run_config, json.loads(args.input.read_text()), args.fallback_approved)
+        result = publish(args.run_config, json.loads(args.input.read_text()), args.fallback_approved, delivery_date=args.delivery_date, feature_name=args.feature_name)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:

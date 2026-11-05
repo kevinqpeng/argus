@@ -35,6 +35,8 @@ setup 不产生项目 Git 改动。
 
 ## 2. 只读发现配置
 
+普通 setup 记录宿主发现、配置读取、各前置检查、问答等待、保存各阶段的单调时钟耗时，区分实际工作与等待用户的时间；仅报告实际测得的结果。提问前并发执行互不依赖的只读宿主发现、Jev 工具/Key 状态、MySQL 配置检查及已知范围的依赖探测；确定范围或路径后立即并发启动剩余独立检查，合并结果再展示。单次 setup 中相同输入的发现与验证结果复用，输入变化或安装后只重验受影响项；实际连接和 smoke 检查仍执行。普通 setup 必须独立检查 Jev、当前项目 MySQL，以及所选 Playwright 的前置条件；即使配置发现、问卷或保存失败，也先完成不依赖失败步骤的检查并展示实际结果。需要已创建 harness 的检查在具备路径后执行，暂不可执行时明确报告原因和后续操作，不以「稍后检查」代替可执行的检查。
+
 - 先运行 `python3 <本目录>/scripts/host_config.py --help`。
 - --host 选实际宿主，--runtime-dir/原生环境变量确定 Agent 根目录。只使用根目录的一份 argus-model.json，顶层保存模型设置，projects 保存各项目设置。
 - 没有人员 profile 或 --tester。
@@ -53,7 +55,7 @@ setup 不产生项目 Git 改动。
 
 ## 4. 收集缺失选择
 
-- 按阻塞问答展示完整模型映射，优先调用允许的同步问答工具，逐轮收集尚缺选择；只有同步工具不适用时才使用异步或文本回退。
+- 按阻塞问答的 [问题去重与恢复](references/interaction.md#问题去重与恢复) 合并所有来源、校验每轮候选和保存回答；再展示完整模型映射，优先调用允许的同步问答工具，逐轮收集尚缺选择；只有同步工具不适用时才使用异步或文本回退。
 - 按 [阻塞问答](references/interaction.md#问答顺序) 引导选择用例是否需要人工评审，推荐“是”。
 - Web 或 both 范围确定后，按 [ego 辅助引导](references/ego.md) 检测本机系统；仅 macOS 收集尚缺的辅助选择与后续安装选择。API-only、移动端和非 macOS 跳过该问卷。
 - Bug 问卷由 `scripts/bug_questions.py` 和 `references/bug-questions.json` 驱动。面向用户显示表格平台名称，技术通道留在内部配置。
@@ -63,9 +65,9 @@ setup 不产生项目 Git 改动。
 - 选择收到后校验模型、每模型强度、执行模式和图片能力。
 - 按 [配置规范的开关规则](references/config.md#人工用例评审开关) 保存已确认的人工评审选择，并展示新 run 的最终生效值。
 - --model-catalog 传宿主发现值，--session-effort 传本轮真实强度。--format markdown 可生成完整映射表。
-- --overrides 传 roles/defaultEffort/decision/execution。--project-overrides 传目标等个人设置。
+- --overrides 传 roles/defaultEffort/decision/execution。--project-overrides 传目标等个人设置；二者接受私有 JSON 文件路径或不含敏感信息的内联 JSON。使用实际 schema（本地记录使用 `delivery.mode=local` 和 `bugPublisher.localFormat=csv`），不得使用 `delivery.channel` 或 `delivery.format`。
 - --init 在当前 Agent 命名空间锁内保存，不改其原有 config.toml/settings.json。仅本次用临时覆盖和 --run-id。
-- 选择待定就停在第 4 步，不提前保存。
+- 选择待定就停在第 4 步，不提前保存。收到本轮回答后继续收集缺项；所有必需选择已确认时立即保存并继续独立检查。缺失检查或保存未完成本身不是结束理由。遇到覆盖文件缺失、参数或 schema 错误，依据实际错误修正并重试；无需用户提供的信息不得交由用户操作。仅当需要实际用户输入、授权、不可自行恢复的外部条件或明确取消时暂停，并给出具体阻塞和下一步。
 
 ## 6. 冻结本次运行快照
 
@@ -76,7 +78,7 @@ setup 不产生项目 Git 改动。
 
 ## 7. 检查 Jev 决策能力
 
-- decision 使用 [decision-router](../decision-router/SKILL.md) 内置 Jev API。只检查宿主安全环境中是否有 `TYPESAFE_API_KEY`，缺失时引导用户填写 Key。
+- decision 使用 [decision-router](../decision-router/SKILL.md) 内置 Jev API。检查宿主安全环境中的 `TYPESAFE_API_KEY` 和 Jev 工具可用性；具备条件时执行一次最小实际调用验证，缺 Key 时引导用户设置。只报告状态，不输出 Key；调用失败或未验证不得标 READY。
 - 无需用户配置决策 Provider、模型或端点。
 - 自定义服务仅在用户明确要求时验证。
 
@@ -102,6 +104,7 @@ setup 不产生项目 Git 改动。
 - 展示更新后完整角色—模型—强度映射和各配置文件位置，doctor 区分默认/角色覆盖、请求/解析/实际值及执行缺口。
 - 普通 setup、安装结束和只读 doctor 的结果均按下方格式展示；仅配置 MySQL 时只展示相关项。先用独立加粗行说明结论：有缺项为「⚠️ Argus 配置待补齐」，配置完整但未验证为「⚠️ Argus 配置已保存，能力待验证」，所选能力全部验证通过才为「✅ Argus 配置与验证完成」。doctor 使用「Argus 诊断结果」，不暗示本轮保存或安装。
 - 紧接配置状态表，列为「配置项｜是否已配置｜验证状态｜下一步」，每项一行。覆盖当前范围的 Web/移动端、MySQL、Jev、所选工具与 Bug 记录通道，以及人工用例评审开关的生效值。缺项和失败项排在前面；未选项标「未选择／不适用」。用中文短句呈现，必要时括注原始状态码；配置存在、字段完整与实际验证成功分开表达，空模板不算已配置。
+- setup 尚未执行测试时，累计 `bugs.csv`、`runs.csv` 仅标「内部累计表」，不称为本次交付；本 run 交付完成后展示回执中的命名交付副本，尚未生成则标「待测试后生成」。
 - 路径另列「文件／用途｜绝对路径」表，包含实际 configPath、相关私有配置文件及已生成的 runConfigPath、workspacePath。使用本轮返回的真实路径，已有文件使用可点击链接；缺失文件注明「待创建」。每个路径独占一行，不把长路径、缺失字段和操作说明挤进同一单元格，不展示占位路径或凭据。
 - 保留独立的「角色｜当前映射｜强度｜状态」完整模型表。最后用简短编号列表给出待办，引用路径表中的文件名，仅列缺失字段名和必要操作；Web 公开页面注明 `accounts` 可为 `{}`，MySQL 缺项注明只影响需要查库的用例，Jev Key 存在但未调用注明「Key 已配置，API 未验证」。没有待办时省略列表。
 - 上述表格直接渲染为 Markdown，不放进代码块，不退回长段落。以下仅示范排版，实际行、状态和待办必须来自本轮检查，路径表和模型表按实际结果补充：
