@@ -1,9 +1,80 @@
 import json
+import hashlib
+import runpy
+from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import unittest
 from pathlib import Path
 
-from host_config import configure, project_settings, runtime_overrides
+from host_config import configure, project_settings, runtime_overrides, workspace_paths
+
+
+class ProjectDirectoryTests(unittest.TestCase):
+    def test_concurrent_names_do_not_overwrite_existing_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            occupied = root / "state" / "projects" / "example"
+            occupied.mkdir(parents=True)
+            def paths(index):
+                return workspace_paths(root / str(index) / "example", "unknown",
+                                       state_dir=root / "state")["projectDir"]
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                results = list(pool.map(paths, range(4)))
+            self.assertEqual({p.name for p in results}, {f"example-{i}" for i in range(2, 6)})
+            self.assertEqual(list(occupied.iterdir()), [])
+
+    def test_named_directory_publishes_tables_and_rejects_wrong_identity(self):
+        publish = runpy.run_path(str(Path(__file__).resolve().parents[2] /
+                                    "bug-reporter/scripts/local_table.py"))["publish"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, sources, _, snapshot, _ = configure(root / "example", "unknown",
+                state_dir=root / "state", run_id="run", project_overrides={
+                    "schemaVersion": 1, "delivery": {"mode": "local"}})
+            summary = dict.fromkeys(("status", "scope", "coverage", "p0", "counts", "cleanup", "limitations"), "test")
+            summary.update(featureOverview="test", caseCount=0, executedCount=0, passedCount=0,
+                           incompleteCases=[], executor="", executedAt="2026-11-05T00:00:00+00:00")
+            data = {"schemaVersion": 1, "runId": "run", "summary": summary, "bugs": []}
+            receipt = publish(snapshot, data)
+            self.assertEqual(Path(receipt["runTable"]).parent.parent, Path(sources["projectDir"]))
+            (Path(sources["projectDir"]) / ".project-id").write_text("0" * 24)
+            with self.assertRaisesRegex(ValueError, "invalid project scope"):
+                publish(snapshot, data)
+
+    def test_names_collisions_and_reuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            options = dict(host="unknown", state_dir=root / "state")
+            first = workspace_paths(root / "one" / "项目", **options)
+            second = workspace_paths(root / "two" / "项目", **options)
+            self.assertEqual(first["projectDir"].name, "项目")
+            self.assertEqual(second["projectDir"].name, "项目-2")
+            self.assertNotEqual(first["projectId"], second["projectId"])
+            self.assertEqual(workspace_paths(root / "one" / "项目", **options), first)
+            self.assertEqual(workspace_paths(root / "elsewhere", project_id=first["projectId"],
+                                             **options), first)
+
+    def test_legacy_migration_preserves_files_and_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = (root / "example").resolve()
+            project_id = hashlib.sha256(str(project).encode()).hexdigest()[:24]
+            legacy = root / "state" / "projects" / project_id
+            legacy.mkdir(parents=True)
+            (legacy / "web-private.json").write_text("{}")
+            _, _, _, snapshot, _ = configure(project, "codex", runtime_dir=root / "runtime",
+                state_dir=root / "state", project_id=project_id, initialize=True, run_id="old",
+                project_overrides={"schemaVersion": 1, "execution": {"requireHumanCaseReview": False}})
+            frozen = snapshot.read_bytes()
+            result = workspace_paths(project, "unknown", state_dir=root / "state")
+            self.assertEqual(result["projectId"], project_id)
+            self.assertEqual(result["projectDir"].name, "example")
+            self.assertEqual((result["projectDir"] / "web-private.json").read_text(), "{}")
+            self.assertTrue(legacy.is_symlink())
+            self.assertEqual(legacy.resolve(), result["projectDir"])
+            self.assertEqual(snapshot.read_bytes(), frozen)
+            config = configure(project, "codex", runtime_dir=root / "runtime", state_dir=root / "state")[0]
+            self.assertIs(config["execution"]["requireHumanCaseReview"], False)
 
 
 class HumanCaseReviewConfigTests(unittest.TestCase):

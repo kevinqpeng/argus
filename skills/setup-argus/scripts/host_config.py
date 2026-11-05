@@ -33,6 +33,42 @@ RUNTIME_KEYS = {"roles", "decision", "execution", "defaultEffort"}
 PROJECT_KEYS = {"prdPath", "baseUrlEnv", "allowedHosts", "coverage", "execution", "bugPublisher", "delivery"}
 
 
+def project_directory(root, project_id, name=None):
+    projects = root / "projects"
+    projects.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (root / "projects.lock").open("a") as lock:
+        os.chmod(lock.name, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        for candidate in projects.iterdir():
+            marker = candidate / ".project-id"
+            if not candidate.is_symlink() and candidate.is_dir() and marker.is_file():
+                if marker.read_text().strip() == project_id:
+                    return candidate
+        legacy = projects / project_id
+        if name is None:
+            if legacy.is_dir() and legacy.resolve().parent == projects:
+                return legacy.resolve()
+            raise ValueError("existing project directory not found")
+        name = re.sub(r"[^\w.-]+", "-", name).strip(".-")[:80] or "project"
+        candidate = projects / name
+        suffix = 2
+        while candidate.exists() or candidate.is_symlink():
+            candidate = projects / f"{name}-{suffix}"
+            suffix += 1
+        if legacy.is_symlink() or (legacy.exists() and not legacy.is_dir()):
+            raise ValueError("invalid legacy project directory")
+        if legacy.exists():
+            legacy.rename(candidate)
+            # Frozen snapshots still reference the original path.
+            legacy.symlink_to(candidate.name, target_is_directory=True)
+        else:
+            candidate.mkdir(mode=0o700)
+        marker = candidate / ".project-id"
+        marker.touch(mode=0o600)
+        marker.write_text(project_id + "\n")
+        return candidate
+
+
 def workspace_paths(project, host, runtime_dir=None, state_dir=None, project_id=None):
     project = project.resolve()
     root = (state_dir or Path(os.environ.get("ARGUS_HOME") or
@@ -42,18 +78,16 @@ def workspace_paths(project, host, runtime_dir=None, state_dir=None, project_id=
     if project_id is not None:
         if not re.fullmatch(r"[0-9a-f]{24}", project_id):
             raise ValueError("invalid project ID")
-        existing = root / "projects" / project_id
-        if existing.is_symlink() or not existing.is_dir():
-            raise ValueError("existing project directory not found")
-    else:
-        project_id = hashlib.sha256(str(project).encode()).hexdigest()[:24]
     native_dir = runtime_directory(host, runtime_dir) if host != "unknown" or runtime_dir else None
     config_path = native_dir / "argus-model.json" if native_dir else None
     if config_path:
         resolved = config_path.resolve()
         if resolved.is_relative_to(project) or any((parent / ".git").exists() for parent in [resolved, *resolved.parents]):
             raise ValueError("agent setup configuration must be outside Git repositories")
-    return {"stateRoot": root, "projectId": project_id, "projectDir": root / "projects" / project_id,
+    explicit_id = project_id is not None
+    project_id = project_id or hashlib.sha256(str(project).encode()).hexdigest()[:24]
+    directory = project_directory(root, project_id, None if explicit_id else project.name)
+    return {"stateRoot": root, "projectId": project_id, "projectDir": directory,
             "configPath": config_path}
 
 

@@ -152,10 +152,15 @@ def publish(run_config, data, fallback_approved=False):
     project_id = sources["projectId"]
     if not re.fullmatch(r"[0-9a-f]{24}", project_id):
         raise ValueError("invalid project scope")
-    project = (state / "projects" / project_id).resolve()
+    project = Path(sources["projectDir"]).resolve()
+    legacy = (state / "projects" / project_id).resolve()
+    marker = project / ".project-id"
+    if (project.parent != state / "projects" or
+            (project != legacy and (not marker.is_file() or marker.read_text().strip() != project_id))):
+        raise ValueError("invalid project scope")
     table_dir = (project / "tables").resolve()
     expected = (project / "runs" / run_id / "argus-model.json").resolve()
-    if (Path(sources["projectDir"]).resolve() != project or run_config.resolve() != expected
+    if (run_config.resolve() != expected
             or not table_dir.is_relative_to(state) or not expected.is_relative_to(state)
             or any((parent / ".git").exists() for parent in [table_dir, *table_dir.parents, expected.parent])):
         raise ValueError("tables must stay in the private scope outside Git repositories")
