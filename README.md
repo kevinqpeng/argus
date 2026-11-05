@@ -44,6 +44,8 @@ npx skills add kevinqpeng/argus --list
 
 ### 使用插件安装
 
+**Cursor**：在 Customize 中选择 Plugins → From GitHub Repository，导入 `kevinqpeng/argus`，然后安装 `argus` 并选择用户或项目范围。若当前修改尚未推送，使用本地插件测试：将完整仓库复制到 `~/.cursor/plugins/local/argus`，重启 Cursor 或执行 Developer: Reload Window，然后在 Customize 中检查技能。企业版可能需要管理员允许本地插件导入。模型、子 Agent 和工具能力须在当前 Cursor 会话中验证。
+
 **Codex**：添加此仓库作为插件市场，再安装插件：
 
 ```bash

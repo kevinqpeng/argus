@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PATHS = {
+    "cursor": (),
     "codex": (".codex/config.toml",),
     "pi": (".pi/agent/settings.json",),
     "claude": (".claude/settings.json",),
@@ -21,6 +22,7 @@ PATHS = {
     "agy": (".gemini/settings.json",),
 }
 RUNTIME_DIRS = {
+    "cursor": (None, ".cursor"),
     "codex": ("CODEX_HOME", ".codex"),
     "pi": ("PI_CODING_AGENT_DIR", ".pi/agent"),
     "claude": ("CLAUDE_CONFIG_DIR", ".claude"),
@@ -447,7 +449,7 @@ def main():
             paths = [Path(os.environ["PI_CODING_AGENT_DIR"]) / "settings.json"]
         if args.host in {"claude", "grok"} and not args.config:
             paths = [runtime_directory(args.host) / ("config.toml" if args.host == "grok" else "settings.json")]
-        if args.runtime_dir and not args.config:
+        if args.runtime_dir and not args.config and args.host != "cursor":
             paths = [args.runtime_dir / ("config.toml" if args.host in {"codex", "grok"} else "settings.json")]
         records = inspect_config(args.host, paths, args.profile)
         discovered = codex_session(runtime_directory("codex", args.runtime_dir)) if args.host == "codex" else {}
