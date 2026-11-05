@@ -7,7 +7,7 @@ setup 的常规在线入口优先以真实选择控件提供“飞书表格 / �
 ## 选择与配置
 
 - delivery.mode：online（在线）、local（本地正式表格）、both（两者）。已有选择沿用；首次推荐已验证可用的在线通道，没有在线能力时推荐本地，不要求先安装某个平台 CLI。
-- bugPublisher.tableAction：create（新建）、existing（现有）、import（生成文件供导入）。收集空间、表名或链接，不让用户手写字段 ID。
+- bugPublisher.tableAction：create（新建）、existing（现有）、import（生成文件供导入）。收集空间、功能名称或现有表链接，不让用户手写字段 ID。
 - bugPublisher.provider/method 分开选择。provider 可为 wecom、feishu 或其他平台标识；method 为 auto/mcp/api/cli/browser/webhook。本地模式可设 provider=local、method=local。
 - delivery.onFailure：ask（默认）、local（已接受无权限时本地交付并保留待同步）、stop（停止发布保留证据）。不因权限错误换身份、换目标或扩大授权。
 
@@ -31,13 +31,13 @@ auto 只在已验证能力中选路由，不表示五种宿主均预装全部适
 
 ## 新建、复用、导入
 
-Bug 明细面向用户的列头及顺序固定为：bug标题、优先级、状态、处理人、业务模块、bug类型、复现路径、预期结果、证据(截图)、提交人、创建时间、备注。优先级、状态、业务模块、bug类型使用单选下拉；处理人、提交人使用平台的单人选择器，以人员身份而非同名文本入表。复用现有表的选项；新建表从已确认的项目配置、PRD 和测试范围取得选项，缺少选项时先收集，不能猜测或降成自由文本。复现路径写可操作的页面/接口路径和步骤；备注承载实际结果及必要的补充说明。证据使用可打开的附件/图片字段，创建时间使用平台时间字段。指纹、运行/用例关联、环境等用于查重和追溯的数据保存在内部记录或测试汇总，不增添 Bug 明细的可见列。
+Bug 明细列头及顺序固定为：序号、模块、标题描述、操作步骤、证据（截图）、期望、实际结果、优先级。序号按表内新增顺序显示 01、02，重复缺陷保留原序号；内部 Bug ID 和指纹继续用于追溯。标题简洁描述问题；操作步骤分行，包含复现所需前置条件。证据列仅放可打开的截图附件或图片链接，XML、日志等保留在内部证据中。优先级使用单选下拉 P0、P1、P2、P3，复用现有表时保留其已确认的选项和人工选择。列宽适度固定，长内容自动换行，行高随内容调整，避免横向拉得过宽；保存后检查实际展示。新建表格或工作簿名称使用 `YYYYMMDD-功能名称`，功能名称取本次测试范围的简短名称。指纹、运行/用例关联、环境和状态等保存在内部记录或测试汇总，不增添明细可见列。
 
 测试汇总面向用户的列头及顺序固定为：测试功能概述、用例数、覆盖率、通过率、测试bug数、未执行或失败的用例、执行人、执行时间。每个 run 一行；功能概述写本次测试的功能、范围及 full/partial，不把工具初始化记录当业务测试结果。用例数为本次范围内计划执行的唯一用例数；一个用例在所有必需矩阵上均有最终 passed/failed 结果才算已执行，在所有矩阵上均 passed 才算通过；重试不重复计数，flaky、error、blocked、skipped、cancelled 均列入未执行或失败的用例并注明状态。覆盖率显示“已执行用例数 / 用例数 (百分比)”，通过率显示“通过用例数 / 已执行用例数 (百分比)”，如 `9 / 10 (90%)`；分母为 0 时显示 `0 / 0 (N/A)`，不得写 100%。测试bug数为本次运行确认的唯一产品缺陷数，按指纹去重，不累计其他 run；没有则写 0。用例数和测试bug数使用整数列，两项比率使用文本列，未执行或失败的用例使用多行文本列；该列列出所有未通过用例 ID 及状态，没有则写“无”。执行人使用平台单人选择器，取本次实际执行身份；执行时间使用日期时间列，取本次运行完成时间。runId、门禁和完整 JSON 事实留在内部回执，不增加可见列。
 
-create：确认平台、授权空间和表名，创建 Bug 明细/测试汇总，按上述列头、顺序及字段类型配置两表；保存真实链接，首条写入后读回列头、顺序、字段类型、选项、比率数值与内容。
+create：确认平台、授权空间和功能名称，创建 Bug 明细/测试汇总，按上述列头、顺序及字段类型配置两表；保存真实链接，首条写入后读回列头、顺序、字段类型、选项、比率数值与内容。
 
-existing：读结构并匹配列/枚举/人员/附件，保留人工状态与现有数据；按授权调整展示列及顺序，缺列或类型不符时先核对现有数据再调整或询问，不清空表或暗改类型。
+existing：读结构并匹配列/枚举/附件，保留人工状态与现有数据；按授权调整展示列及顺序，缺列或类型不符时先核对现有数据再调整或询问，不清空表或暗改类型。
 
 import：先生成 CSV/Excel。可用浏览器且有权限时可完成导入并核对；否则交付文件并标 IMPORT_PENDING。文件生成不代表已导入；有远端记录/链接并读回才算在线完成。
 
@@ -61,10 +61,10 @@ python3 <本Skill>/scripts/local_table.py --run-config <runConfigPath> --input <
 
 输入 schemaVersion=1、runId、bugs（共享 Bug 契约数组）、summary。summary 保留 status、scope、coverage、p0、counts、cleanup、limitations，并提供 featureOverview、caseCount、executedCount、passedCount、incompleteCases（每项含 caseId、status）、executor、executedAt（带时区的 ISO 时间）。三个计数来自冻结用例与最终运行结果，满足 `0 ≤ passedCount ≤ executedCount ≤ caseCount`；incompleteCases 恰好列出其余用例。零缺陷传空 bugs，仍有汇总。
 
-输出本机项目目录下 tables/bugs.csv、tables/runs.csv，可用 Excel/Numbers 打开；bugs.csv 只含上述 12 列，runs.csv 只含上述 8 列。去重指纹、runId 和完整汇总事实分别放在同目录私有 bugs.meta.json、runs.meta.json。CSV 不保存下拉或人员选择器；要求本地表也可选择时，按表格工具生成并验证带 4 个单选下拉和 2 个人员候选下拉的 Excel 工作簿，CSV 仅作数据源，不能作为满足该要求的正式交付。单次输入重复指纹拒绝；跨 run 同指纹更新原行，保留创建时间、原编号和人工状态/优先级/处理人/备注，累积关联运行。使用 UTF-8 BOM 和标准 CSV 转义，用户内容防公式注入。旧版或被改动的表头拒绝覆盖，保留并报告，迁移现有表须另行核对数据。
+输出本机项目目录下 tables/bugs.csv、tables/runs.csv，可用 Excel/Numbers 打开；bugs.csv 只含上述 8 列，runs.csv 只含上述 8 列。去重指纹、runId 和完整汇总事实分别放在同目录私有 bugs.meta.json、runs.meta.json。CSV 不保存下拉或布局；按表格工具生成并验证带优先级单选下拉、固定列宽和自动换行的 Excel 工作簿，CSV 仅作数据源，不能单独作为正式交付。单次输入重复指纹拒绝；跨 run 同指纹更新原行，保留创建时间、原编号和人工优先级等内部信息，累积关联运行。使用 UTF-8 BOM 和标准 CSV 转义，用户内容防公式注入。旧版或被改动的表头拒绝覆盖，保留并报告，迁移现有表须另行核对数据。
 
-并发发布使用稳定锁，每个文件原子替换后读回；两个表之间中断不承诺事务原子性，可幂等重跑恢复。输出哈希和行数，并在本 run 写 local-publish.json，与远端回执分开。退出 0 表示本地读回完成，2 表示阻断。
+并发发布使用稳定锁，每个文件原子替换后读回；两个表之间中断不承诺事务原子性，可幂等重跑恢复。输出哈希和行数，并在本 run 写 local-publish.json，与远端回执分开。退出 0 表示 CSV 读回完成，2 表示阻断；Excel 生成并验证后才标记本地交付完成。
 
-脚本允许 local/both 或 onFailure=local。用户一次性同意回退后可加 --fallback-approved，在 manifest 记录选择；不能擅自传此参数。回执 LOCAL_COMPLETED 只证明本地完成，doctor 的 LOCAL_NOT_VERIFIED 不代表文件已生成。
+脚本允许 local/both 或 onFailure=local。用户一次性同意回退后可加 --fallback-approved，在 manifest 记录选择；不能擅自传此参数。脚本回执 CSV_READY 只证明数据源已读回，Excel 验证后才记录 LOCAL_COMPLETED，doctor 的 LOCAL_NOT_VERIFIED 不代表文件已生成。
 
 本地路径不是共享 URL。跨人共享需另选导入/上传/在线通道并验权。选 Excel 时按可用工具维护正式工作簿，不能把用户编辑的 .xlsx 静默覆盖成 CSV。

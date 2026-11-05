@@ -14,11 +14,13 @@
 
 ## 输入冻结与计算
 
-PRD sourceHash 是源文件原始字节的 SHA-256；同一来源的 RequirementAC 使用同一 sourceHash。多文件 PRD 先建立包含路径和各文件哈希的稳定来源清单，sourceHash 为该清单的规范化 JSON 哈希，每条 sourceRef 仍指向具体文件。场景 baselineHash 使用 coverage.py 的 digest：JSON sort_keys=True、ensure_ascii=False、separators=(",", ":") 的 UTF-8 SHA-256。冻结 baselineVersion，并记录审查依据。
+PRD sourceHash 是源文件原始字节的 SHA-256；RequirementAC 新增 sourceId，sourceHash 使用其实际来源原始字节哈希（单文件 PRD 与 PRD sourceHash 相同）。多来源与跨模块义务按 [影响分析契约](../../prd-to-cases/references/impact-analysis.md) 记录。多文件 PRD 先建立包含路径和各文件哈希的稳定来源清单，sourceHash 为该清单的规范化 JSON 哈希，每条 sourceRef 仍指向具体文件。场景 baselineHash 使用 coverage.py 的 digest：JSON sort_keys=True、ensure_ascii=False、separators=(",", ":") 的 UTF-8 SHA-256。冻结 baselineVersion，并记录审查依据。
 
-场景集合先冻结再生成用例。有效用例需已审查、语义映射通过、有真实步骤断言与 runner 实际发现入口。执行需要全部必需用例 × requiredMatrix。重试不增加分子或分母。子集展示 partial 和全量缺口。原分母不能被删失败项缩小；授权变更要另存原基线指标。
+来源清单与影响义务先核查，保存 cases/impact-analysis.json 和 impactHash，再冻结场景生成用例。旧输入缺少影响分析时新建 run 补齐，不改历史。有效用例需已审查、语义映射通过、有真实步骤断言与 runner 实际发现入口。计划门禁要求每个必需场景的全部关联用例有效；完整设计与执行均要求必需项 100%。执行需要全部必需用例 × requiredMatrix。重试不增加分子或分母。子集展示 partial 和全量缺口。原分母不能被删失败项缩小；授权变更要另存原基线指标。
 
-分片使用独立文件；expectedShards、inputHash 在执行前冻结。inputHash 绑定 PRD、基线、代码版本及本地改动摘要、配置/环境指纹、矩阵和选中用例。每个分片完成后 resultHash 绑定该分片的全部 attempts，聚合脚本验证哈希和唯一性。哈希只检查一致性，不证明来源真实性；宿主需保存 runner 原始输出和构造过程。
+分片使用独立文件；expectedShards、inputHash 在执行前冻结。inputHash 绑定 impactHash、所有来源哈希、影响判断题集版本、PRD、基线、代码版本及本地改动摘要、配置/环境指纹、矩阵和选中用例。每个分片完成后 resultHash 绑定该分片的全部 attempts，聚合脚本验证哈希和唯一性。哈希只检查一致性，不证明来源真实性；宿主需保存 runner 原始输出和构造过程。
+
+以上为执行分片；用例/脚本生成使用独立的 [生成计划、调度与合并契约](../../prd-to-cases/references/parallel-generation.md)。同 run 生成 worker 共用 runId，主 Agent 唯一写计划、调度状态和最终材料，worker 按 taskId/attempt 隔离。manifest.generation 保存生成计划和结果引用，不复用执行 shards/attempts。全部分配任务完成且产物校验通过才算生成完整；进度覆盖率不豁免缺失生成分片或必需用例。
 
 ## 人工用例评审门禁
 
@@ -30,7 +32,7 @@ PRD sourceHash 是源文件原始字节的 SHA-256；同一来源的 Requirement
 
 开关开启时，完成用例及计划覆盖检查后，交付按日期和功能命名的 Excel 评审副本及 `cases/cases.xlsx`、`cases/cases.md`、`cases/cases.json` 的可访问位置；确保 Excel 副本与固定路径内容一致，并明确请求人员评审本轮用例。将 `manifest.state` 设为 `awaiting_case_review`，`manifest.gates.humanCaseReview.status` 设为 `BLOCKED`，暂停验证流程。没有实际回复、超时、空回复、仅收到文件、模型或 Jev 审查通过、用例条目的 approved、覆盖达标，均不能解除此门禁。
 
-只有人员查看本轮评审材料后明确表示用例评审通过并允许验证，才记录 `status=PASSED`。同一门禁对象必须保存 `runId`、`baselineHash`、`inputHash`、`artifactHashes`、`reviewer`、`reviewedAt` 和 `approvalRef`。`artifactHashes` 是 requirements.json、acs.json、scenarios.json、cases.json、cases.md 和 cases.xlsx 原始字节的 SHA-256 映射；`approvalRef` 指向真实人员回复或可核验的人工审批记录，不能由 Agent、子 Agent 或 Jev 代签。审批必须覆盖本轮全部选中用例与必需矩阵，未完整覆盖保持 BLOCKED。
+只有人员查看本轮评审材料后明确表示用例评审通过并允许验证，才记录 `status=PASSED`。同一门禁对象必须保存 `runId`、`baselineHash`、`inputHash`、`artifactHashes`、`reviewer`、`reviewedAt` 和 `approvalRef`。`artifactHashes` 是 impact-analysis.json、requirements.json、acs.json、scenarios.json、cases.json、cases.md 和 cases.xlsx 原始字节的 SHA-256 映射；`approvalRef` 指向真实人员回复或可核验的人工审批记录，不能由 Agent、子 Agent 或 Jev 代签。审批必须覆盖本轮全部选中用例与必需矩阵，未完整覆盖保持 BLOCKED。
 
 人员要求调整时先修改并重新生成评审材料，重跑计划覆盖检查，再提交人员评审。恢复、重试、启动分片和实际执行前，核对审批对象的 runId、baselineHash、inputHash 和 artifactHashes；缺记录、记录不完整或任一内容变化时重新评审。新 run 必须取得本轮审批，不能直接复用旧 run 的通过状态。
 

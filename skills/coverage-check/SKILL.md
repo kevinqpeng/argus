@@ -1,6 +1,6 @@
 ---
 name: coverage-check
-description: Computes frozen-scenario design and execution coverage with 95 percent and strict P0 gates. Use to validate test mappings, merged runs, retries, matrices or partial scope.
+description: Checks source and change-impact obligations, mandatory design and execution coverage, and strict P0 gates. Use to validate test mappings, merged runs, retries, matrices or partial scope.
 ---
 
 # 覆盖门禁
@@ -9,10 +9,11 @@ description: Computes frozen-scenario design and execution coverage with 95 perc
 
 读 [共享契约](../argus/references/contracts.md) 和 [输入格式](references/input.md)。
 
-输入：冻结 AC/场景/用例、PRD 哈希、runner 发现清单；执行阶段另需 runId、矩阵、全部 attempts、分片及哈希。
+输入：impactAnalysis、impactHash、currentSourceHashes、冻结 AC/场景/用例、PRD 哈希、runner 发现清单；执行阶段另需 runId、矩阵、全部 attempts、分片及哈希。
 
 ## 1. 核对来源与审查证据
 
+- 先按 [影响分析契约](../prd-to-cases/references/impact-analysis.md) 核对独立来源单元清单、真实依赖和规则批准依据；脚本检查处置与映射，不能发现从未提交的来源或依赖。缺失、未知、越范围和指纹漂移保持 BLOCKED，旧 run 新建基线补齐。
 - 宿主核对 PRD 内容哈希、冻结场景范围、实际源码断言及 runner discovery。semanticReview 必须有审查证据，不能只凭模型标签。
 - 脚本只能验证提交的结构和对应关系，无法证明来源文件是真实业务事实。
 
@@ -32,7 +33,8 @@ description: Computes frozen-scenario design and execution coverage with 95 perc
 ## 4. 分别报告覆盖与通过情况
 
 - 报告 planned/executed/passed 分开。P0 计划与执行通过分别展示，缺口列 ID。
-- 95% 按原始分数计算，不按四舍五入百分比。
+- planned/executed 的 95% 按原始分数计算，仅作进度指标；required_planned/required_executed 要求全部必需场景 100%，同一场景全部关联用例均有效。
+- 单列 impactAnalysis.status 与 sources/impacts/obligations 的分子、分母和 missingIds；相关原因在 reasons 中。100% 仅指已登记集合处置完成。
 - P0 无跳过、错误、阻塞、取消或 flaky。
 - 非 P0 失败也阻断功能结论。
 
@@ -45,3 +47,4 @@ description: Computes frozen-scenario design and execution coverage with 95 perc
 - 空场景阻断，无 P0 为 N/A。
 - 门禁输出不代表外部工具、性能、安全或发布已验收。
 - 由主 Skill 汇总。
+- 形式化模型状态、迁移、反例和 TLC 通过不计入业务覆盖或 attempts。由模型导出的真实 ui/api 用例按原规则计数；主 Skill 单独检查 formalVerification 门禁，不能仅凭本脚本通过宣称形式化验证或全量验收通过。

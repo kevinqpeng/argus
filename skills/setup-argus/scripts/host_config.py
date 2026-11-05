@@ -8,7 +8,6 @@ import re
 import shutil
 import tomllib
 import tempfile
-import uuid
 import fcntl
 from datetime import datetime, timezone
 from pathlib import Path
@@ -90,6 +89,11 @@ def workspace_paths(project, host, runtime_dir=None, state_dir=None, project_id=
 def project_settings(data):
     if set(data) - PROJECT_KEYS - {"schemaVersion"}:
         raise ValueError("personal project settings contain unknown fields")
+    if "execution" in data and (not isinstance(data["execution"], dict) or
+            type(data["execution"].get("requireHumanCaseReview", True)) is not bool):
+        raise ValueError("execution.requireHumanCaseReview must be a boolean")
+    if data.get("execution", {}).get("webAssistant", "none") not in ("none", "ego"):
+        raise ValueError("execution.webAssistant must be none or ego")
     delivery = data.get("delivery", {})
     if (not isinstance(delivery, dict) or delivery.get("mode", "online") not in {"online", "local", "both"}
             or delivery.get("requiresReadback", True) is not True
@@ -153,6 +157,10 @@ def runtime_overrides(data):
         raise ValueError("runtime sheet contains project or unknown fields")
     if any(not isinstance(data[k], dict) for k in RUNTIME_KEYS - {"defaultEffort"} if k in data):
         raise ValueError("invalid runtime override")
+    if type(data.get("execution", {}).get("requireHumanCaseReview", True)) is not bool:
+        raise ValueError("execution.requireHumanCaseReview must be a boolean")
+    if data.get("execution", {}).get("webAssistant", "none") not in ("none", "ego"):
+        raise ValueError("execution.webAssistant must be none or ego")
     if "defaultEffort" in data:
         effort_value(data["defaultEffort"])
     result = dict(data)
@@ -219,7 +227,7 @@ def write_json(path, data, immutable=False):
 
 def configure(project, host, runtime_dir=None, overrides=None, initialize=False, run_id=None, session=None,
               state_dir=None, project_overrides=None, model_catalog=None, project_id=None):
-    if run_id is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", run_id):
+    if run_id is not None and not re.fullmatch(r"[\w][\w.-]{0,127}", run_id):
         raise ValueError("invalid runId")
     paths = workspace_paths(project, host, runtime_dir, state_dir, project_id, initialize or run_id is not None)
     runtime_path = paths["configPath"]
@@ -261,7 +269,18 @@ def configure(project, host, runtime_dir=None, overrides=None, initialize=False,
                "projectDir": str(paths["projectDir"]), "stateRoot": str(paths["stateRoot"])}
     snapshot = None
     if initialize or run_id is not None:
-        run_id = run_id or uuid.uuid4().hex
+        if run_id is None:
+            name = re.sub(r"[^\w.-]+", "-", project.resolve().name, flags=re.UNICODE).strip("-._")[:120] or "project"
+            runs = paths["projectDir"] / "runs"
+            runs.mkdir(parents=True, exist_ok=True, mode=0o700)
+            sequence = 1
+            while True:
+                run_id = f"{name}-{sequence:02d}"
+                try:
+                    (runs / run_id).mkdir(mode=0o700)
+                    break
+                except FileExistsError:
+                    sequence += 1
         snapshot = paths["projectDir"] / "runs" / run_id / "argus-model.json"
         write_json(snapshot, {"schemaVersion": 1, "runId": run_id, "host": host,
                               "config": effective, "sources": sources, "sessionEffective": session or {}}, immutable=True)
@@ -342,7 +361,7 @@ def initial_config():
               "roles": {r: {"mode": "delegate", "model": "inherit-parent"} for r in ["reasoning", "generation", "bug_analysis", "vision"]},
               "decision": {"activeProvider": "jev", "transport": "api", "verification": "required", "visualModel": "jev-1.14.0", "maxCallsPerRun": 100, "maxRetries": 2, "timeoutMs": 10000},
               "coverage": {"scenarioThreshold": 0.95, "p0Threshold": 1, "failOnFlaky": True},
-              "execution": {"workers": 2, "retries": 1},
+              "execution": {"workers": 2, "retries": 1, "requireHumanCaseReview": True},
               "delivery": {"mode": "online", "requiresReadback": True},
               "bugPublisher": {"provider": "none", "enabled": False}}
     config["roles"]["vision"]["requires"] = ["image-input"]
@@ -458,7 +477,7 @@ def main():
     p.add_argument("--state-dir", type=Path, help="Private state root outside all Git repositories; defaults to ARGUS_HOME or XDG state/argus")
     p.add_argument("--project-overrides", type=Path, help="Private project targets, coverage and bug publisher settings as JSON")
     p.add_argument("--overrides", type=Path, help="JSON containing roles/defaultEffort/decision/execution overrides")
-    p.add_argument("--run-id", help="Freeze this execution's immutable config; omitted with --init creates a UUID")
+    p.add_argument("--run-id", help="Freeze this execution's immutable config; omitted with --init creates a project-name sequence")
     p.add_argument("--init", action="store_true", help="Initialize this agent's argus-model.json; repository stays untouched")
     args = p.parse_args()
     stage = "host-config-discovery"

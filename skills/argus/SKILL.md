@@ -26,14 +26,14 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 涉及状态、并发、重试或已有模型的 Bug，先按 [形式化路由](../decision-router/references/formal-routing.md) 核对修复版本与模型漂移。新发现的边界义务按输入变更新建基线并评审，保留原 Bug、原用例和原基线指标；未授权扩展的关联场景报告为范围外缺口。
 
 1. 读取原 Bug 表、原 run 的 manifest、冻结 PRD/场景/用例、执行结果和证据。确定用户指定的 Bug；未指定时收集本次待回归范围。逐条关联原 Bug ID 或稳定指纹、原 run、caseIds、复现步骤、预期结果及首次失败证据；缺少关键关联或断言时标记该问题 blocked，说明缺口。
-2. 记录修复后的实际应用/服务或代码版本、环境及目标，按 setup 创建新 runId 并冻结配置和输入指纹，保留原 run。原 PRD 和场景未变时复用原冻结基线与用例；输入变化按现行规则重新冻结并保留原始关联。冻结本次选中的 Bug、关联用例和必需矩阵；额外关联场景仅按用户指定范围加入。
+2. 记录修复后的实际应用/服务或代码版本、环境及目标，按 setup 创建新 runId 并冻结配置和输入指纹，保留原 run。原 PRD、影响分析及全部来源指纹和场景未变时复用原冻结基线与用例；旧 run 缺少影响分析时先补分析，按输入变化处理；输入变化按现行规则重新冻结并保留原始关联。冻结本次选中的 Bug、关联用例和必需矩阵；额外关联场景仅按用户指定范围加入。
 3. 先完成第 4 阶段及第 4.1 阶段的人工评审门禁，再按第 5 阶段执行原复现路径及关联用例的真实业务断言，并留存原始输出和必要证据。每个 Bug 的所有关联用例在必需矩阵均 passed 且原预期得到验证，才标「已验证修复」；原问题仍复现标「未修复」；error、blocked、skipped、cancelled、flaky、缺断言或证据不足标「未确认」，记录原因。出现不同问题时另行分类、查重和记录，保留原 Bug 的回归结论。
 4. 调用 coverage-check 计算并报告原冻结基线的覆盖和缺口；仅回归部分问题标 partial，不把子集结果当全量验收通过。生成回归报告，逐项列原 Bug 标识、原 run 和用例、修复版本与环境、实际结果、结论、证据及新 runId；结果来自本次结构化执行事实，保留历史。
 5. 按 bug-reporter 和已选交付策略将回归结论与证据关联原记录并读回。保留人工信息和原报告；状态仅在用户授权的更新范围内、现有状态枚举与结论明确对应且通道支持时更新。否则在报告注明待同步及原因，不宣称表格已更新。原问题复现复用原记录，避免重复建 Bug。写入本次测试汇总并报告发布状态；失败只恢复发布，不重跑业务测试。
 
 ## 1. 登记输入与运行身份
 
-- 读取完整 PRD 和已有测试设施。有源码项目时只读 AGENTS.md、源码及 Git 状态并记录代码版本。
+- 读取完整 PRD 和已有测试设施。有源码项目时只读 AGENTS.md、源码及 Git 状态并记录代码版本；按 [变更归属规则](../prd-to-cases/references/impact-analysis.md#自动识别共享分支中的变更归属) 自动识别本需求提交与共享分支上的并行改动，不能将整个分支差异归入本需求。
 - 没有源码项目也可测试，记录应用或服务版本、PRD 哈希、目标与预算，不要求用户提供项目路径。
 - 读 [setup-argus](../setup-argus/SKILL.md)，先取得唯一 runId 和仓库外 workspacePath，再写 manifest。
 
@@ -46,14 +46,17 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 3. 冻结场景并生成用例
 
-- 读 [prd-to-cases](../prd-to-cases/SKILL.md)，提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。按其指引做语义映射并核对表格、Markdown 与 JSON 一致。
+- 读 [prd-to-cases](../prd-to-cases/SKILL.md)，先完成多来源与跨模块影响分析、明确测试义务及未知规则，再提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。按其指引做语义映射并核对表格、Markdown 与 JSON 一致。
+- 影响探索按 prd-to-cases 的复杂度规则采用单 Agent 或 reasoning 子 Agent 并行，完成跨任务依赖合并与复核后才冻结场景；此调度独立于后续用例生成。
 - 此阶段只设计和生成用例，不判断或执行 MySQL 核验；在执行每条用例前再判断是否需要数据库配合。
+- 用例及脚本按 prd-to-cases 的并行生成流程分组：主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。
-- 业务歧义留记录，未澄清 P0 阻断执行。
+- 范围内业务义务预期未明确、影响分析缺口或未授权关联范围保留记录并阻断全量执行；可交付 partial 材料，不通过删除义务提高覆盖。
 
 ## 4. 检查计划覆盖门禁
 
-- 读 [coverage-check](../coverage-check/SKILL.md)，跑计划门禁：有效场景覆盖至少 95%，P0 100%。
+- 读 [coverage-check](../coverage-check/SKILL.md)，跑计划门禁：来源/影响/规则门禁通过，全部必需场景及关联用例 100% 有效，P0 100%。95% 仅保留为进度指标，不豁免必需项。
+- 将覆盖输出的 impactAnalysis 状态和缺口写入 manifest.gates.impactAnalysis，evidenceRef 指向 coverage-plan.json；缺失或 BLOCKED 不能进入全量执行。
 - 最多补齐两轮，仍不足交付缺口。
 
 ## 4.1. 等待人工用例评审
@@ -67,6 +70,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 纯 API 走现有接口执行路径。
 - Jev 低置信度时补证据或澄清，Jev 不可用则 BLOCKED。具体截图条件可按 decision-router 批量并行比对，当前所有视觉结果均须冻结的 vision 复核，冲突由 bug_analysis 核查。
 - 按路由读取 [web-e2e-test](../web-e2e-test/SKILL.md) 或 [mobile-e2e-test](../mobile-e2e-test/SKILL.md)，分别执行隔离的 Playwright 或 Appium 流程。
+- Web 的冻结配置选择 ego 时，按 web-e2e-test 的辅助流程使用；Playwright 仍负责真实断言与通过结果。
 - 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时调用 [数据库核验规则](references/mysql.md) 指定的 MySQL 工具并冻结本用例查询与断言。生成场景和用例时不做数据库核验。
 - 移动端只支持 Android/iOS 本地真机，本期不接云真机。
 
@@ -87,7 +91,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 恢复
 
-继续前核对 manifest、冻结配置、真实文件及 PRD/代码/目标指纹，并按共享契约重新核对人工用例评审门禁。awaiting_case_review 保持等待，不因恢复或“继续”自动通过。
+继续前核对影响分析与所有来源指纹（缺失时按输入变化新建 run 补齐）、manifest、冻结配置、真实文件及 PRD/代码/目标指纹，并按共享契约重新核对人工用例评审门禁。awaiting_case_review 保持等待，不因恢复或“继续”自动通过。
 
 存在形式化路由或模型时核对其来源、模型、配置和工具版本哈希，以及 formalVerification 门禁与未完成回放；旧 run 缺少路由记录时补做适用性检查，不能默认 N/A。指纹变化按子技能的漂移与重新冻结规则处理。
 
@@ -107,6 +111,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 report.md 从同一 JSON 事实生成，包含：
 
+- 来源单元处置、影响检查处置、义务明确程度及 impactHash；未知、排除、检索边界和关联模块。已登记项处理完整不代表未知依赖不存在。
 - full/partial 范围、版本、时间、环境；计划/执行/通过分子分母、missingIds、P0 计划与执行。
 - passed/failed/error/blocked/skipped/flaky/cancelled；非功能范围与结论。
 - 失败复现、根因事实或假设、真实证据与 Bug 链接。

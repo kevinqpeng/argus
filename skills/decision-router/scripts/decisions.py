@@ -58,7 +58,12 @@ def main():
         data = json.loads(args.input.read_text())
         if data.get("schemaVersion") != 1 or data["questionSetVersion"] != DEFINITIONS["questionSetVersion"] or not data["answers"]:
             raise ValueError("missing answers or stale question version")
-        result = {k: route(v, DEFINITIONS["questions"][k]) for k, v in data["answers"].items()}
+        bindings = data.get("questionBindings", {name: name for name in data["answers"]})
+        if not isinstance(bindings, dict) or set(bindings) != set(data["answers"]):
+            raise ValueError("question binding set mismatch")
+        if any(not isinstance(qid, str) or qid not in DEFINITIONS["questions"] for qid in bindings.values()):
+            raise ValueError("unknown question template")
+        result = {k: route(v, DEFINITIONS["questions"][bindings[k]]) for k, v in data["answers"].items()}
         print(json.dumps({"schemaVersion": 1, "outcomes": result}, ensure_ascii=False))
         return 2 if any(r["route"] in ("host-analysis", "vision-review") for r in result.values()) else 0
     except (ValueError, KeyError, TypeError, AttributeError, IndexError, OSError) as exc:

@@ -35,19 +35,35 @@ def normalize(response, questions):
 
 def build_request(data, visual_model=None):
     requested = data["questions"]
-    if not isinstance(requested, dict) or not requested or any(name not in DEFINITIONS["questions"] for name in requested):
+    if not isinstance(requested, dict) or not requested:
         raise ValueError("unknown or empty question set")
-    if any(not isinstance(value, str) or not value.strip() for value in requested.values()):
-        raise ValueError("question instructions must bind a subject")
-    visual = any(DEFINITIONS["questions"][name].get("visual") for name in requested)
-    if visual and any(not DEFINITIONS["questions"][name].get("visual") for name in requested):
+    bindings = {}
+    for name, value in requested.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("question instance ID must be nonempty")
+        if isinstance(value, dict):
+            if set(value) != {"questionId", "subject"}:
+                raise ValueError("question binding requires questionId and subject")
+            question_id, subject = value["questionId"], value["subject"]
+        else:
+            question_id, subject = name, value
+        if not isinstance(question_id, str) or question_id not in DEFINITIONS["questions"]:
+            raise ValueError("unknown question template")
+        if not isinstance(subject, str) or not subject.strip():
+            raise ValueError("question instructions must bind a subject")
+        if isinstance(value, dict) and DEFINITIONS["questions"][question_id].get("visual"):
+            raise ValueError("structured bindings support text questions only")
+        bindings[name] = question_id
+    visual = any(DEFINITIONS["questions"][qid].get("visual") for qid in bindings.values())
+    if visual and any(not DEFINITIONS["questions"][qid].get("visual") for qid in bindings.values()):
         raise ValueError("visual and text questions must use separate requests")
     questions = {}
     for name, instruction in requested.items():
-        definition = DEFINITIONS["questions"][name]
+        definition = DEFINITIONS["questions"][bindings[name]]
         questions[name] = {k: v for k, v in definition.items() if k in ("type", "instructions", "criteria")}
         if not visual:
-            questions[name]["instructions"] = instruction
+            questions[name]["instructions"] = (definition["instructions"] + "\nSubject: " + instruction["subject"]
+                                                 if isinstance(instruction, dict) else instruction)
     payload = {"model": "jev-latest", "state": data["state"], "questions": questions}
     hashes = {}
     if visual:
@@ -132,8 +148,10 @@ def main():
         if image_hashes and response.get("model") != payload["model"]:
             raise ValueError("visual response model mismatch")
         normalized = normalize(response, payload["questions"])
+        normalized["questionBindings"] = {name: value["questionId"] if isinstance(value, dict) else name
+                                          for name, value in data["questions"].items()}
         for name, answer in normalized["answers"].items():
-            route(answer, DEFINITIONS["questions"][name])
+            route(answer, DEFINITIONS["questions"][normalized["questionBindings"][name]])
         normalized["request"] = {"requestedModel": payload["model"], "actualModel": response["model"],
                                  "inputHash": hashlib.sha256(body).hexdigest(), "imageHashes": image_hashes,
                                  "durationMs": round((time.monotonic() - started) * 1000),

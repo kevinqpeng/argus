@@ -11,10 +11,9 @@ import re
 import tempfile
 from datetime import datetime, timezone
 
-BUG_COLUMNS = {"title": "bug标题", "priority": "优先级", "status": "状态",
-               "assignee": "处理人", "module": "业务模块", "bugType": "bug类型",
-               "reproduction": "复现路径", "expected": "预期结果", "evidence": "证据(截图)",
-               "reporter": "提交人", "createdAt": "创建时间", "notes": "备注"}
+BUG_COLUMNS = {"number": "序号", "module": "模块", "title": "标题描述",
+               "reproduction": "操作步骤", "evidence": "证据（截图）",
+               "expected": "期望", "actual": "实际结果", "priority": "优先级"}
 RUN_COLUMNS = {"featureOverview": "测试功能概述", "caseCount": "用例数",
                "coverage": "覆盖率", "passRate": "通过率", "bugCount": "测试bug数",
                "incompleteCases": "未执行或失败的用例", "executor": "执行人",
@@ -45,7 +44,7 @@ def read_bugs(path, metadata_path):
     for record, row in zip(records, rows):
         if None in row or any(value is None for value in row.values()):
             raise ValueError("malformed existing CSV row")
-        if any(record[key] != row[BUG_COLUMNS[key]] for key in ("title", "reproduction", "createdAt")):
+        if any(record[key] != row[BUG_COLUMNS[key]] for key in ("number",)):
             raise ValueError("bug rows were reordered or identifiers changed; preserve and review")
         fingerprint = record["fingerprint"]
         if not fingerprint or fingerprint in result:
@@ -208,12 +207,16 @@ def publish(run_config, data, fallback_approved=False):
             item = dict(previous) if previous else {"fingerprint": bug["fingerprint"]}
             item.update({key: cell(bug[key]) for key in BUG_COLUMNS if key in bug})
             item["title"] = cell(bug["title"])
-            item["status"] = cell(bug["status"])
-            item["reproduction"] = cell(bug["reproduction"])
+            item["reproduction"] = cell("\n".join(bug["reproduction"]))
             item["expected"] = cell(bug["expected"])
-            item["evidence"] = cell(bug["evidence"])
+            evidence_paths = [e if isinstance(e, str) else e.get("path", "") if isinstance(e, dict) else "" for e in bug["evidence"]]
+            screenshots = [e for e in evidence_paths if isinstance(e, str) and re.search(r"\.(png|jpe?g|webp)(?:[?#].*)?$", e, re.I)]
+            item["rawEvidence"] = bug["evidence"]
+            item["evidence"] = cell("\n".join(screenshots))
+            item["actual"] = cell(bug["actual"])
             item["notes"] = cell(bug.get("notes", {"actual": bug["actual"], "analysis": bug["analysis"]}))
             item["createdAt"] = previous["createdAt"] if previous else cell(bug.get("createdAt", bug.get("firstSeenAt", now)))
+            item["number"] = previous["number"] if previous else f"{len(existing) + 1:02d}"
             for key in BUG_COLUMNS:
                 item.setdefault(key, "")
             run_ids = json.loads(previous["runIds"]) if previous else []
@@ -225,7 +228,7 @@ def publish(run_config, data, fallback_approved=False):
             if previous:
                 # Preserve human triage and the original stable ID when a failure recurs.
                 for key in ["bugId", "status", "priority", "assignee", "notes"]:
-                    if previous[key]:
+                    if previous.get(key):
                         item[key] = previous[key]
             else:
                 item["bugId"] = cell(bug["bugId"])
@@ -238,7 +241,7 @@ def publish(run_config, data, fallback_approved=False):
                         "summary": summary}
         write_bugs(bug_path, metadata_path, existing)
         write_runs(run_path, runs_metadata_path, runs)
-        receipt = {"schemaVersion": 1, "runId": run_id, "status": "LOCAL_COMPLETED", "onlineStatus": "NOT_CONFIRMED",
+        receipt = {"schemaVersion": 1, "runId": run_id, "status": "CSV_READY", "onlineStatus": "NOT_CONFIRMED",
                    "bugTable": str(bug_path), "runTable": str(run_path), "bugRows": len(existing), "runRows": len(runs),
                    "hashes": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in [bug_path, run_path]}}
         receipt_path = run_config.resolve().parent / "local-publish.json"
