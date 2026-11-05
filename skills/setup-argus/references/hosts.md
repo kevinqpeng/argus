@@ -4,6 +4,7 @@
 
 | 宿主 | 用户级安装入口 | 调用 | 默认模型发现 |
 | --- | --- | --- | --- |
+| Cursor | ~/.cursor/skills 或插件 | 在 Agent 中请求使用 argus | 当前会话公开的模型信息；无法确认时为 unknown |
 | Codex | ~/.agents/skills；安装器另给 ~/.codex/skills 链接兼容旧版本 | `$argus` 或直接要求读取文件 | CODEX_HOME/config.toml 或 ~/.codex/config.toml，活动 profile；会话覆盖从宿主元信息读取 |
 | pi | ~/.pi/agent/skills；亦支持 ~/.agents/skills | `/skill:argus`；修改后 `/reload` | PI_CODING_AGENT_DIR 或 ~/.pi/agent/settings.json 的 defaultProvider/defaultModel，项目 .pi/settings.json 及当前会话另核对 |
 | Claude Code | ~/.claude/skills | `/argus` | settings.json 的 model，managed/project/local/env/启动覆盖按实际版本解析；具体会话模型通过宿主公开信息 |
@@ -16,6 +17,7 @@
 
 | 宿主 | Agent 根解析 | 模型与强度执行规则 |
 | --- | --- | --- |
+| Cursor | ~/.cursor；可用 --runtime-dir 覆盖 | 从当前会话和工具发现模型、推理强度及委派能力；无法确认时为 unknown |
 | Codex | CODEX_HOME 或 ~/.codex | 配置默认可读 model/model_provider/model_reasoning_effort 与活动 profile；当前会话和工具 model/reasoning_effort 参数以实际元信息为准 |
 | pi | PI_CODING_AGENT_DIR 或 ~/.pi/agent | 模型/推理档位从当前会话目录及工具参数发现；不能假设沿用 Codex 的字段或同一组档位 |
 | Claude Code | CLAUDE_CONFIG_DIR 或 ~/.claude | 模型 slug 用当前 Agent 工具接受的名称，强度按实际 effort 能力，不把完整 API ID 与工具别名混用 |
