@@ -13,6 +13,8 @@ setup 的常规在线入口优先以真实选择控件提供“飞书表格 / �
 
 设置只存本机私有配置。一次性回退在 manifest/publication 记录 requestedDelivery、acceptedDelivery、reason 与用户选择，不改冻结配置。both 要两边验证；只完成本地必须单列在线未完成，除非用户改为本地正式交付。
 
+setup 阶段只按 [产物边界](../../setup-argus/SKILL.md#setup-产物边界) 探测，不执行本节的建表、导入或发布；正式表格在测试后的发布阶段创建。
+
 ## 通道与证据
 
 | 方式 | 能力与完成条件 |

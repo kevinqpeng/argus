@@ -23,6 +23,28 @@ class RunIdTests(unittest.TestCase):
             self.assertEqual(configure(project, "codex", run_id=runs[0][4], **options)[4], runs[0][4])
 
 
+class SetupArtifactTests(unittest.TestCase):
+    def test_initialization_does_not_create_or_change_tables(self):
+        for mode, publisher in (("local", {"method": "local", "localFormat": "csv"}),
+                                ("local", {"method": "local", "localFormat": "xlsx"}),
+                                ("online", {"method": "auto"})):
+            with self.subTest(mode=mode, publisher=publisher), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                project = root / "project"
+                project.mkdir()
+                state = root / "state"
+                existing = state / "projects" / "existing" / "tables" / "bugs.csv"
+                existing.parent.mkdir(parents=True)
+                existing.write_text("historical data\n")
+                before = {p.relative_to(state): p.read_bytes() for p in state.rglob("*") if p.is_file()}
+                configure(project, "codex", runtime_dir=root / "runtime", state_dir=state,
+                          initialize=True, project_overrides={"schemaVersion": 1,
+                          "delivery": {"mode": mode}, "bugPublisher": publisher})
+                tables = {p.relative_to(state): p.read_bytes() for p in state.rglob("*")
+                          if p.is_file() and p.suffix in {".csv", ".xlsx"}}
+                self.assertEqual(tables, before)
+
+
 class HumanCaseReviewConfigTests(unittest.TestCase):
     def test_default_legacy_config_and_frozen_switch(self):
         with tempfile.TemporaryDirectory() as directory:
