@@ -4,7 +4,7 @@
 
 ## 每个 Agent 一份配置
 
-直接保存到当前 Agent 根的 argus-model.json：Codex 为 ${CODEX_HOME:-~/.codex}/argus-model.json，Grok 为 ${GROK_HOME:-~/.grok}/argus-model.json；pi、Claude、agy 的根目录按 [宿主规范](hosts.md) 解析。--runtime-dir 可显式适配安装位置。
+直接保存到当前 Agent 根的 argus-model.json：Codex 为 ${CODEX_HOME:-~/.codex}/argus-model.json，Grok 为 ${GROK_HOME:-~/.grok}/argus-model.json；pi、Claude、agy、Cursor 的根目录按 [宿主规范](hosts.md) 解析。--runtime-dir 可显式适配安装位置。
 
 该文件顶层保存 roles、defaultEffort、decision、execution 和 projects。projects.<projectId> 保存该项目的环境、目标、覆盖、发布及交付设置；不同项目不会互相覆盖，但不再单独生成项目配置文件。每次 Skill 启动显式读取此文件，不改 Agent 原有 config.toml/settings.json/AGENTS.md。
 
