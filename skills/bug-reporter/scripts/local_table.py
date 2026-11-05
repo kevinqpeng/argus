@@ -150,7 +150,7 @@ def publish(run_config, data, fallback_approved=False):
     sources = snapshot["sources"]
     state = Path(sources["stateRoot"]).resolve()
     project_id = sources["projectId"]
-    if not re.fullmatch(r"[0-9a-f]{24}", project_id):
+    if not re.fullmatch(r"[\w][\w.-]{0,127}", project_id) or project_id in {".", ".."}:
         raise ValueError("invalid project scope")
     project = (state / "projects" / project_id).resolve()
     table_dir = (project / "tables").resolve()
