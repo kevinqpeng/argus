@@ -4,7 +4,7 @@
 
 ## 1. 准备和判断依赖
 
-主 Agent 先完成完整 PRD/AC 理解、形式化路由和场景冻结；准备公共 harness、fixture 接口、认证与数据隔离约定。公共文件由主 Agent 唯一维护。worker 读取完整基线索引、相关来源及跨组业务规则，只生成分配范围。
+主 Agent 先完成来源与影响义务核查、完整 PRD/AC 理解、形式化路由和场景冻结；准备公共 harness、fixture 接口、认证与数据隔离约定。公共文件由主 Agent 唯一维护。worker 读取完整基线索引、相关来源及跨组业务规则，只生成分配范围。
 
 按业务内聚性提出候选组，核对所有跨组输入/输出、共享 fixture、状态和全局约束；跨模块依赖也必须纳入，不能把“没有候选边”当作独立证据。显式文件读写关系由主 Agent 直接确定；需要语义判断的候选关系按 decision-router 批量提交 `generation_dependency` 和 `generation_conflict`，正反向依赖分开提问。使用 `{questionId, subject}` 绑定具体任务与证据；记录 DecisionRecord、概率、题集版本及宿主最终处理依据。
 
@@ -19,7 +19,7 @@
 
 在私有 run 的 `cases/generation/` 保存 plan.json、state.json、冻结输入副本和各组产物。共享 JSON 定义见 [schemas.json](../../argus/references/schemas.json) 的 GenerationPlan、GenerationState、GenerationResult。
 
-plan.json 包含 schemaVersion、runId、inputHash、baselineHash、完整 scenarioIds、inputArtifacts 和 tasks。inputArtifacts 是相对此目录的冻结输入文件路径 → 原始字节 SHA-256，至少包含来源清单、AC/场景、run 配置、共享 harness/fixture 契约和分组决策记录。主 Agent 核对副本与本 run 源文件一致、scenarioIds 与冻结基线完全相等。inputHash 绑定这些输入、代码/目标指纹和必需矩阵；生成时还没有最终用例内容，用计划哈希另行绑定分配，不能冒用执行 inputHash。
+plan.json 包含 schemaVersion、runId、inputHash、baselineHash、完整 scenarioIds、inputArtifacts 和 tasks。inputArtifacts 是相对此目录的冻结输入文件路径 → 原始字节 SHA-256，至少包含来源清单、impact-analysis.json、AC/场景、run 配置、共享 harness/fixture 契约和分组决策记录。主 Agent 核对副本与本 run 源文件一致、scenarioIds 与冻结基线完全相等。inputHash 绑定这些输入、代码/目标指纹和必需矩阵；生成时还没有最终用例内容，用计划哈希另行绑定分配，不能冒用执行 inputHash。
 
 每项 task 为 `{taskId, scenarioIds, caseIds, dependsOn, outputFiles}`。outputFiles 是 worker 本次目录内的相对文件路径，不能包含 result.json、绝对路径、上级路径或符号链接。公共输入目录与 taskId 目录不重叠。计划哈希是 generation.digest(plan)，算法与 coverage.digest 一致。冻结后不原地改计划；新版本用新 generation 目录并保存旧版。
 

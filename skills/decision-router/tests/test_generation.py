@@ -15,6 +15,22 @@ import jev
 
 
 class GenerationRoutingTest(unittest.TestCase):
+    def test_impact_questions_batch_and_uncertain_evidence(self):
+        names = ("impact_relevance", "obligation_equivalence", "rule_support")
+        data = {"state": {"change": "owner A to B", "evidence": "synthetic work-order contract"},
+                "questions": {name: {"questionId": name, "subject": "O1; contract section 2"}
+                              for name in names}}
+        payload, _ = jev.build_request(data)
+        self.assertEqual(set(payload["questions"]), set(names))
+        for name in names:
+            question = decisions.DEFINITIONS["questions"][name]
+            self.assertEqual(payload["questions"][name]["criteria"], question["criteria"])
+            for probability, expected in ((.1, "no"), (.5, "host-analysis"), (.9, "yes")):
+                self.assertEqual(decisions.route(
+                    {"noul": probability, "probabilityKind": "calibrated"}, question
+                )["route"], expected)
+            self.assertEqual(decisions.route({"noul": .99}, question)["route"], "host-analysis")
+
     def request(self):
         return {"state": {"tasks": ["A", "B", "C"]}, "questions": {
             "A_needs_B": {"questionId": "generation_dependency", "subject": "A and B; evidence tasks/A.json and tasks/B.json"},
@@ -64,14 +80,14 @@ class GenerationRoutingTest(unittest.TestCase):
                 self.assertEqual(jev.main(), 0)
             normalized = json.loads(output.read_text())
             self.assertEqual(normalized["questionBindings"], {name: binding["questionId"] for name, binding in data["questions"].items()})
-            self.assertEqual(normalized["questionSetVersion"], "1.5.0")
+            self.assertEqual(normalized["questionSetVersion"], decisions.DEFINITIONS["questionSetVersion"])
             with mock.patch.object(sys, "argv", ["decisions.py", str(output)]), mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
                 self.assertEqual(decisions.main(), 2)
                 outcomes = json.loads(stdout.getvalue())["outcomes"]
             self.assertEqual([outcomes[name]["route"] for name in data["questions"]], ["yes", "no", "host-analysis"])
 
     def test_checker_rejects_invalid_bindings_and_old_version(self):
-        current = {"schemaVersion": 1, "questionSetVersion": "1.5.0", "answers": {"ui": {"noul": .9, "probabilityKind": "calibrated"}}}
+        current = {"schemaVersion": 1, "questionSetVersion": decisions.DEFINITIONS["questionSetVersion"], "answers": {"ui": {"noul": .9, "probabilityKind": "calibrated"}}}
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "input.json"
             for data in [current, {**current, "questionSetVersion": "1.4.0"},
