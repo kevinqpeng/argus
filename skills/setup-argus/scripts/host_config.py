@@ -31,20 +31,52 @@ RUNTIME_KEYS = {"roles", "decision", "execution", "defaultEffort"}
 PROJECT_KEYS = {"prdPath", "baseUrlEnv", "allowedHosts", "coverage", "execution", "bugPublisher", "delivery"}
 
 
-def workspace_paths(project, host, runtime_dir=None, state_dir=None, project_id=None):
+def workspace_paths(project, host, runtime_dir=None, state_dir=None, project_id=None, allocate=False):
     project = project.resolve()
     root = (state_dir or Path(os.environ.get("ARGUS_HOME") or
             str(Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "argus"))).expanduser().resolve()
     if root.is_relative_to(project) or any((parent / ".git").exists() for parent in [root, *root.parents]):
         raise ValueError("personal state must be outside project and Git repositories")
+    projects = root / "projects"
     if project_id is not None:
-        if not re.fullmatch(r"[0-9a-f]{24}", project_id):
+        if not re.fullmatch(r"[\w][\w.-]{0,127}", project_id) or project_id in {".", ".."}:
             raise ValueError("invalid project ID")
-        existing = root / "projects" / project_id
+        existing = projects / project_id
         if existing.is_symlink() or not existing.is_dir():
             raise ValueError("existing project directory not found")
     else:
-        project_id = hashlib.sha256(str(project).encode()).hexdigest()[:24]
+        fingerprint = hashlib.sha256(str(project).encode()).hexdigest()[:24]
+        legacy = projects / fingerprint
+        if legacy.is_dir() and not legacy.is_symlink():
+            project_id = fingerprint
+        else:
+            name = re.sub(r"[^\w.-]+", "-", project.name, flags=re.UNICODE).strip("-._")[:110] or "project"
+            def find_project():
+                if projects.is_dir():
+                    for entry in projects.iterdir():
+                        marker = entry / ".project-id"
+                        if not entry.is_symlink() and marker.is_file() and marker.read_text().strip() == fingerprint:
+                            return entry.name
+                if not os.path.lexists(projects / name):
+                    return name
+                sequence = 1
+                while os.path.lexists(projects / f"{name}-{sequence:02d}"):
+                    sequence += 1
+                return f"{name}-{sequence:02d}"
+            if allocate:
+                projects.mkdir(parents=True, exist_ok=True, mode=0o700)
+                with (projects / ".lock").open("a") as lock:
+                    os.chmod(lock.name, 0o600)
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    project_id = find_project()
+                    directory = projects / project_id
+                    if not directory.exists():
+                        directory.mkdir(mode=0o700)
+                        marker = directory / ".project-id"
+                        marker.write_text(fingerprint + "\n")
+                        marker.chmod(0o600)
+            else:
+                project_id = find_project()
     native_dir = runtime_directory(host, runtime_dir) if host != "unknown" or runtime_dir else None
     config_path = native_dir / "argus-model.json" if native_dir else None
     if config_path:
@@ -92,7 +124,7 @@ def agent_settings(data):
     if not isinstance(projects, dict):
         raise ValueError("invalid project settings map")
     for project_id, settings in projects.items():
-        if not re.fullmatch(r"[0-9a-f]{24}", project_id) or not isinstance(settings, dict) or settings.get("schemaVersion") != 1:
+        if not re.fullmatch(r"[\w][\w.-]{0,127}", project_id) or project_id in {".", ".."} or not isinstance(settings, dict) or settings.get("schemaVersion") != 1:
             raise ValueError("invalid project entry")
         project_settings(settings)
     return {**runtime, "projects": projects}
@@ -189,7 +221,7 @@ def configure(project, host, runtime_dir=None, overrides=None, initialize=False,
               state_dir=None, project_overrides=None, model_catalog=None, project_id=None):
     if run_id is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", run_id):
         raise ValueError("invalid runId")
-    paths = workspace_paths(project, host, runtime_dir, state_dir, project_id)
+    paths = workspace_paths(project, host, runtime_dir, state_dir, project_id, initialize or run_id is not None)
     runtime_path = paths["configPath"]
     if initialize and runtime_path is None:
         raise ValueError("select a runtime before initializing")
