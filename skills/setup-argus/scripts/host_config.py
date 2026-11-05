@@ -57,6 +57,8 @@ def workspace_paths(project, host, runtime_dir=None, state_dir=None, project_id=
                         marker = entry / ".project-id"
                         if not entry.is_symlink() and marker.is_file() and marker.read_text().strip() == fingerprint:
                             return entry.name
+                if not os.path.lexists(projects / name):
+                    return name
                 sequence = 1
                 while os.path.lexists(projects / f"{name}-{sequence:02d}"):
                     sequence += 1

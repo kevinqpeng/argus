@@ -8,4 +8,6 @@
 4. 授权后只在 `workspacePath/harness` 安装 `@playwright/test`，并通过 `npx playwright install <browser>` 安装缺失的所选浏览器。不要使用全局 npm 安装。操作系统依赖缺失时列明具体依赖；需要管理员权限的安装交由用户处理，不运行 `sudo`。
 5. 用 `npx playwright --version` 和 `npx playwright install --list` 核对实际版本与浏览器，再在 harness 中启动并关闭所选浏览器做 smoke check。记录退出码和脱敏输出；任何一步失败都标记 `BLOCKED`，不能仅凭包安装成功标记 READY。
 
+smoke check 的临时脚本、浏览器 profile 和输出按 setup 产物边界清理；保留经授权安装且后续执行需要的 harness 依赖和必要诊断证据。
+
 该检查只证明 Playwright 运行环境可用，不证明目标站点、账号或业务用例可执行。浏览器包名与安装参数以当前 Playwright CLI 的 `install --help` 为准。

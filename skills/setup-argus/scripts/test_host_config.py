@@ -1,14 +1,15 @@
+import hashlib
+import runpy
 import json
 import tempfile
 import uuid
-import hashlib
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 import unittest
 from pathlib import Path
 
-from host_config import configure, load_override, project_settings, runtime_overrides
+from host_config import configure, load_override, project_settings, runtime_overrides, workspace_paths
 
 
 class RunIdTests(unittest.TestCase):
@@ -22,7 +23,7 @@ class RunIdTests(unittest.TestCase):
                 runs = list(executor.map(lambda _: configure(project, "codex", **options), range(4)))
             self.assertEqual(len({run[4] for run in runs}), 4)
             self.assertTrue(all(uuid.UUID(run[4]).version == 4 for run in runs))
-            self.assertEqual({run[1]["projectId"] for run in runs}, {"项目-name-01"})
+            self.assertEqual({run[1]["projectId"] for run in runs}, {"项目-name"})
             self.assertTrue(all(run[3].is_file() for run in runs))
             self.assertEqual(configure(project, "codex", run_id=runs[0][4], **options)[4], runs[0][4])
 
@@ -35,12 +36,12 @@ class RunIdTests(unittest.TestCase):
             options = dict(runtime_dir=root / "runtime", state_dir=root / "state", initialize=True)
             one = configure(first, "codex", **options)
             two = configure(second, "codex", **options)
-            self.assertEqual(one[1]["projectId"], "app-01")
-            self.assertEqual(two[1]["projectId"], "app-02")
-            self.assertEqual(configure(first, "codex", **options)[1]["projectId"], "app-01")
+            self.assertEqual(one[1]["projectId"], "app")
+            self.assertEqual(two[1]["projectId"], "app-01")
+            self.assertEqual(configure(first, "codex", **options)[1]["projectId"], "app")
             third = root / "c" / "app"
             third.mkdir(parents=True)
-            self.assertEqual(configure(third, "codex", **options)[1]["projectId"], "app-03")
+            self.assertEqual(configure(third, "codex", **options)[1]["projectId"], "app-02")
             legacy = root / "legacy"
             legacy.mkdir()
             old_id = hashlib.sha256(str(legacy.resolve()).encode()).hexdigest()[:24]
@@ -91,6 +92,28 @@ class InlineOverridesTests(unittest.TestCase):
     def test_rejects_mistyped_delivery_keys(self):
         with self.assertRaises(ValueError):
             project_settings({"schemaVersion": 1, "delivery": {"channel": "local", "format": "csv"}})
+
+
+class SetupArtifactTests(unittest.TestCase):
+    def test_initialization_does_not_create_or_change_tables(self):
+        for mode, publisher in (("local", {"method": "local", "localFormat": "csv"}),
+                                ("local", {"method": "local", "localFormat": "xlsx"}),
+                                ("online", {"method": "auto"})):
+            with self.subTest(mode=mode, publisher=publisher), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                project = root / "project"
+                project.mkdir()
+                state = root / "state"
+                existing = state / "projects" / "existing" / "tables" / "bugs.csv"
+                existing.parent.mkdir(parents=True)
+                existing.write_text("historical data\n")
+                before = {p.relative_to(state): p.read_bytes() for p in state.rglob("*") if p.is_file()}
+                configure(project, "codex", runtime_dir=root / "runtime", state_dir=state,
+                          initialize=True, project_overrides={"schemaVersion": 1,
+                          "delivery": {"mode": mode}, "bugPublisher": publisher})
+                tables = {p.relative_to(state): p.read_bytes() for p in state.rglob("*")
+                          if p.is_file() and p.suffix in {".csv", ".xlsx"}}
+                self.assertEqual(tables, before)
 
 
 class HumanCaseReviewConfigTests(unittest.TestCase):
@@ -177,6 +200,55 @@ class WebAssistantConfigTests(unittest.TestCase):
                 "schemaVersion": 1, "execution": {"webAssistant": "none"}})[0]
             self.assertEqual(changed["execution"]["webAssistant"], "none")
             self.assertEqual(snapshot.read_bytes(), frozen)
+
+
+class ProjectNamingTests(unittest.TestCase):
+    def test_names_collisions_and_concurrent_reuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "a" / "todo-app"
+            options = dict(host="unknown", state_dir=root / "state", allocate=True)
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                paths = list(pool.map(lambda _: workspace_paths(first, **options), range(4)))
+            self.assertEqual({p["projectId"] for p in paths}, {"todo-app"})
+            for index, expected in enumerate(("todo-app-01", "todo-app-02")):
+                self.assertEqual(workspace_paths(root / str(index) / "todo-app", **options)["projectId"], expected)
+
+    def test_existing_numbered_and_legacy_projects_are_reused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "app"
+            project_id = hashlib.sha256(str(project.resolve()).encode()).hexdigest()[:24]
+            existing = root / "state" / "projects" / "app-01"
+            existing.mkdir(parents=True)
+            (existing / ".project-id").write_text(project_id)
+            options = dict(host="unknown", state_dir=root / "state", allocate=True)
+            self.assertEqual(workspace_paths(project, **options)["projectId"], "app-01")
+            legacy_project = root / "legacy"
+            legacy_id = hashlib.sha256(str(legacy_project.resolve()).encode()).hexdigest()[:24]
+            (root / "state" / "projects" / legacy_id).mkdir()
+            self.assertEqual(workspace_paths(legacy_project, **options)["projectId"], legacy_id)
+
+    def test_configure_persists_named_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            options = dict(runtime_dir=root / "runtime", state_dir=root / "state", initialize=True)
+            first = configure(root / "todo-app", "codex", **options)
+            self.assertEqual(first[1]["projectId"], "todo-app")
+            self.assertEqual(configure(root / "todo-app", "codex", **options)[1]["projectId"], "todo-app")
+
+    def test_local_publisher_accepts_named_project(self):
+        publish = runpy.run_path(str(Path(__file__).resolve().parents[2] / "bug-reporter/scripts/local_table.py"))["publish"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, sources, _, snapshot, run_id = configure(root / "todo-app", "codex", runtime_dir=root / "runtime",
+                state_dir=root / "state", initialize=True, project_overrides={"schemaVersion": 1,
+                    "delivery": {"mode": "local"}, "bugPublisher": {"method": "local"}})
+            summary = dict.fromkeys(("status", "scope", "coverage", "p0", "counts", "cleanup", "limitations"), "test")
+            summary.update(featureOverview="test", caseCount=0, executedCount=0, passedCount=0,
+                           incompleteCases=[], executor="", executedAt="2026-11-05T00:00:00+00:00")
+            result = publish(snapshot, {"schemaVersion": 1, "runId": run_id, "summary": summary, "bugs": []}, delivery_date="20261105", feature_name="test")
+            self.assertEqual(Path(result["runTable"]).parent.parent, Path(sources["projectDir"]))
 
 
 if __name__ == "__main__":
