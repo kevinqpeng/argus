@@ -47,6 +47,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 ## 3. 冻结场景并生成用例
 
 - 读 [prd-to-cases](../prd-to-cases/SKILL.md)，先完成多来源与跨模块影响分析、明确测试义务及未知规则，再提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。按其指引做语义映射并核对表格、Markdown 与 JSON 一致。
+- 影响探索按 prd-to-cases 的复杂度规则采用单 Agent 或 reasoning 子 Agent 并行，完成跨任务依赖合并与复核后才冻结场景；此调度独立于后续用例生成。
 - 此阶段只设计和生成用例，不判断或执行 MySQL 核验；在执行每条用例前再判断是否需要数据库配合。
 - 用例及脚本按 prd-to-cases 的并行生成流程分组：主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。

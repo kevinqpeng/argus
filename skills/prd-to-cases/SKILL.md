@@ -18,7 +18,7 @@ description: Turns PRDs, existing business rules and change impacts into a froze
 
 ## 1.1. 分析变更影响
 
-- 执行 [变更影响与测试义务](references/impact-analysis.md)，先登记来源单元和变更对象，再逐对象追踪六类影响，形成可定位的依赖、义务和待确认规则。无源码或证据缺失明确保留未知。
+- 执行 [变更影响与测试义务](references/impact-analysis.md)，先登记来源单元和变更对象，按其探索调度规则选择单 Agent 或多 Agent 并行追踪六类影响，合并并复核跨任务依赖后形成义务和待确认规则。无源码或证据缺失明确保留未知。
 - 完成条件：每个来源单元和发现的依赖均有处置；每项范围内义务有已确认预期。未决项可先交付评审材料，但阻断冻结完成与执行。
 
 ## 2. 提取验收条件

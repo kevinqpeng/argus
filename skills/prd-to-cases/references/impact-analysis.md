@@ -24,6 +24,8 @@ kind 为 prd / business_rule / contract / history / code / observation。代码�
 
 ## 2. 按对象追踪影响
 
+先按 [探索调度](impact-exploration.md) 核对复杂度和可拆分范围：简单需求单 Agent，复杂需求按冻结 reasoning 配置调度并行探索；发现新依赖时重新评估。该流程在本节六维追踪之前分工，在确认测试义务之前完成合并与边界复核。
+
 每个对象都检查以下六个 dimension，可有多条 check；每条实际依赖单独记录，不能用一条笼统“已检查”替代依赖清单。
 
 | dimension | 检查内容 |
