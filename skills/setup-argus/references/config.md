@@ -26,7 +26,7 @@ configPath 是唯一配置文件位置，runConfigPath 是产物目录的不可�
 
 不同 Agent 各有独立配置文件。同一 Agent 配置的并发更新以稳定锁在锁内读取、合并、原子替换，唯一临时文件结束清理。Python 3.11+、macOS/Linux POSIX 本地文件系统；不满足则阻断自动持久化。
 
-每个独立会话使用唯一 runId；相同内容可复用快照，异内容不可覆盖。doctor、capabilities、cases、harness、evidence、Bug 和回执都写本 run。后续偏好变更不影响已运行快照；切换宿主或需要新配置时新建 run。仅协调者合并同 run 的分片。
+每个独立测试任务使用唯一 runId；恢复、切换模型或跨 Agent 接管沿用原 run。原快照不可覆盖，doctor、capabilities、cases、harness、evidence、Bug 和回执都写本 run。配置差异按[配置变更路由](../../decision-router/references/config-changes.md)判断业务影响；通过的模型调整追加到原 run，仅影响后续调用，不清空历史或重跑已完成用例。仅协调者合并同 run 的分片。
 
 ```sh
 python3 <skill>/scripts/host_config.py --host codex --project <仓库> --init
