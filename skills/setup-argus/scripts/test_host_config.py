@@ -251,5 +251,17 @@ class ProjectNamingTests(unittest.TestCase):
             self.assertEqual(Path(result["runTable"]).parent.parent, Path(sources["projectDir"]))
 
 
+
+class ConcurrencyConfigTests(unittest.TestCase):
+    def test_independent_limits_and_legacy_workers(self):
+        for validate in (project_settings, runtime_overrides):
+            execution = {"generationConcurrency": 3, "executionConcurrency": 1, "workers": 2}
+            self.assertEqual(validate({"execution": execution})["execution"], execution)
+            for key in ("generationConcurrency", "executionConcurrency"):
+                for value in (True, 0, -1, 1.5, "2", None):
+                    with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                        validate({"execution": {key: value}})
+
+
 if __name__ == "__main__":
     unittest.main()

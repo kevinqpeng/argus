@@ -37,6 +37,8 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 ## 3. 调度与恢复
 
+按 [共享调度](../../argus/references/scheduling.md) 使用持久队列领取任务；下述 generation.py 保留产物校验职责。任务粒度及数量根据场景复杂度、依赖与启动成本确定。
+
 运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录>`。退出 0 仅表示检查有效；查看 status，PENDING 不表示生成完成。退出 2 为 BLOCKED。ready 是依赖已完成且不在 running/failed 的任务；按宿主当前可用子 Agent 槽位、冻结预算和限流取一批，一次派发。单个槽位按相同 ready 顺序串行；配置的角色无法调用则 BLOCKED，主会话不能冒充。
 
 每次派发先持久化 running，再把 planHash、任务范围、完整上下文指针、依赖结果哈希、独占目录 `任务ID/attempt/`、验收要求交给 worker。生成期间只操作私有文件；不连接业务目标执行测试。worker 只写该目录，只读共享输入和上游已完成产物，不写 manifest、state.json、最终 cases.json、Excel 或 Markdown。

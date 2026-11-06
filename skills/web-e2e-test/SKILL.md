@@ -48,6 +48,8 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 ## 4. 编写并审查业务断言
 
+按 [共享调度](../argus/references/scheduling.md) 领取文件生成任务；公共 fixture/Page Object 只生成一次。执行并发单独控制，各 runner 的 Playwright workers 总和不超过冻结 executionConcurrency。
+
 - 生成脚本前按 [页面探索与失败诊断](../argus/references/page-diagnostics.md) 建立和复用本 run 的页面地图；纯 API 用例跳过。地图未覆盖的页面状态先探针再写断言，不得把未验证定位器写入测试。
 - UI 用 role/label/testid，API 验证 HTTP、业务码、契约和后置状态。
 - 全部批准用例先运行 exploration.py plan；按 task 合并动作和断言需要的元素。优先 getByRole/getByLabel/getByTestId，其后稳定 CSS，XPath 兜底；选择依据为稳定性、唯一性和真实可用性。已验证候选先定点查询，不为单个元素重新 snapshot 整页。按 frame/弹窗/容器限定结构读取，相关状态未变时共享同次结构证据。

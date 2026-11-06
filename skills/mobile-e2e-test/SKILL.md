@@ -37,6 +37,8 @@ Read the [Argus contract](../argus/references/contracts.md), [private storage ru
 
 ## 4. Isolate device sessions
 
+Use the [shared scheduler](../argus/references/scheduling.md) for both generation and execution. Generate independent files using the existing Appium language/framework without leasing a device. Freeze page-map probes before consumers. Keep generationConcurrency separate from executionConcurrency. Before execution, claim the authorized physical device and driver-specific host ports in the host-wide registry; verify actual capabilities match the lease. Different isolated devices may run concurrently. On timeout/disconnect, retain the lease until the worker and Session are confirmed stopped; never reassign by age alone.
+
 - Run each device's mutable UI session serially.
 - Use stable accessibility or resource IDs.
 - Switch explicitly between native and WebView contexts.

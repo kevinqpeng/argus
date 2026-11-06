@@ -22,6 +22,8 @@ PRD sourceHash 是源文件原始字节的 SHA-256；RequirementAC 新增 source
 
 以上为执行分片；用例/脚本生成使用独立的 [生成计划、调度与合并契约](../../prd-to-cases/references/parallel-generation.md)。同 run 生成 worker 共用 runId，主 Agent 唯一写计划、调度状态和最终材料，worker 按 taskId/attempt 隔离。manifest.generation 保存生成计划和结果引用，不复用执行 shards/attempts。全部分配任务完成且产物校验通过才算生成完整；进度覆盖率不豁免缺失生成分片或必需用例。
 
+生成和平台执行按 [共享调度](scheduling.md) 领取任务；平台 runner、资源隔离和业务断言保持独立。
+
 ## 人工用例评审门禁
 
 所有测试执行入口均受本门禁约束，包括主流程、直接调用平台或非功能 Skill、缺陷修复回归、恢复和重试。只读准备、用例生成、runner discovery 与计划覆盖检查可先完成；discovery 仅列出入口，不执行测试。业务验证、用例所需数据库核验、负载和安全测试必须等待门禁通过。
