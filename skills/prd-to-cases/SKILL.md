@@ -37,6 +37,8 @@ description: Turns PRDs, existing business rules and change impacts into a froze
 
 ## 4. 冻结基线并生成用例
 
+用例及脚本任务按 [资源规划契约](../argus/references/scheduling.md#新-run-执行规划必需) 声明 requiresLogin、accountRequirements、业务隔离依据、共享可变资源和 dependsOn；凭据仅用私有文件引用。实际执行并发留给主 Agent 根据真实资源计算，生成并发保持独立。
+
 - 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。
 - 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（cases.json + notes.md），不写 spec。切分粒度按 AC 域，任务数 ≥ 5，并按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再进入语义审查。生成分片完整性独立于覆盖门禁；所有必需场景和用例均须完整。
 - 各用例有 fixtures、步骤、步骤绑定断言和 suite；脚本尚未生成时 automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`，文件在脚本阶段按此名落盘，标题逐字一致。
@@ -53,7 +55,7 @@ description: Turns PRDs, existing business rules and change impacts into a froze
 ## 6. 检查用例覆盖
 
 - 用例评审前跑计划门禁：来源、影响义务、场景/AC 关联与 P0 必须 100%，入口用声明式 automationRef；矩阵发现留到脚本阶段。
-- 脚本生成后再用 runner 实际发现结果复核关联与全部矩阵入口（见 [并行生成流程](references/parallel-generation.md#7-脚本阶段人工评审批准后)）；发现集合必须覆盖每条已批准用例。
+- 脚本生成后再用 runner 实际发现结果复核关联与全部矩阵入口（由 [脚本生成子技能](../argus/skills/script-generation/SKILL.md) 负责）；发现集合必须覆盖每条已批准用例。
 - 补全最多两轮，仍不足交付缺口。关键规则不明保持阻断。
 
 ## 7. 输出人工评审表
@@ -66,15 +68,12 @@ description: Turns PRDs, existing business rules and change impacts into a froze
 - 交付前打开并核对 Excel 的内容、布局、下拉选项和默认值，确认主表与追踪表的 caseId 一一对应，Excel、Markdown 与 JSON 的用例集合和内容一致，文件可读。缺失或不一致时修复后再交付。
 - 交付评审表只表示生成完成。按 [人工用例评审门禁](../argus/references/contracts.md#人工用例评审门禁) 等待人员批准后，调用方才能开启脚本生成与验证；语义审查 approved 不代表人工批准。
 
-## 7.5 评审通过后生成脚本（分批，不重写用例）
+## 7.5 交接脚本阶段
 
-- 只有人工评审批准（cases 的 reviewStatus 转 approved）后才调度脚本任务；脚本必须按**批准后的用例原文**实现，不改用例。发现用例本身有问题时回到第 4 阶段出新版用例并重新评审，不能在脚本里静默改期望值。
-- 切分粒度是 **spec 文件级**：一个任务一个 spec 文件，并把数据库/接口只读核验单列为一个不产脚本的任务；任务数 ≥ 5，避免最慢 worker 拖住整批。
-- 每个任务只把自己的用例 ID 映射到自己那一个 spec 文件，标题逐字一致；完成后主 Agent 跑 runner discovery，校验发现集合覆盖全部已批准用例，再把 automationRef 从声明式改为真实入口。
-- 调度证据同样落盘（`cases/scripts/plan.json`、每任务 `result.json`），并由 `phase_gate.py --phase scripts` 校验。
+人工评审门禁通过后，调用方将批准用例和矩阵交给 [脚本生成子技能](../argus/skills/script-generation/SKILL.md)。本技能只维护用例与评审材料；脚本生成发现预期需修改时返回第 4 阶段，生成新版并重新评审。
 
 ## 完成条件
 
-- 完成：每个场景可追到已确认的 PRD、业务规则或影响义务，全部必需用例有可执行入口和有效断言，范围内义务预期明确且影响门禁通过，JSON 与人工评审表一致且均已交付。
+- 完成：每个场景可追到已确认的 PRD、业务规则或影响义务，全部必需用例有声明式 planned 入口和有效断言，范围内义务预期明确且影响门禁通过，JSON 与人工评审表一致且均已交付。
 - 源变更后旧映射失效。
 - 调整范围要记录责任人、时间、理由和原基线指标，不能删失败场景提高覆盖。

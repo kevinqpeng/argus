@@ -263,5 +263,30 @@ class ConcurrencyConfigTests(unittest.TestCase):
                         validate({"execution": {key: value}})
 
 
+class ParallelConfigTests(unittest.TestCase):
+    def test_parallel_settings_validation(self):
+        for validator in (project_settings, runtime_overrides):
+            for field, value in [('parallelEnabled', 'true'), ('parallelEnabled', 1),
+                                 ('maxConcurrency', 0), ('maxConcurrency', True), ('workers', -1)]:
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    validator({'schemaVersion': 1, 'execution': {field: value}})
+            good = {'schemaVersion': 1, 'execution': {'parallelEnabled': True, 'maxConcurrency': 3}}
+            self.assertEqual(validator(good)['execution'], good['execution'])
+
+    def test_no_implicit_workers_and_override_precedence(self):
+        from host_config import initial_config
+        self.assertNotIn('workers', initial_config()['execution'])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / 'project'
+            project.mkdir()
+            result = configure(project, 'codex', runtime_dir=root / 'runtime', state_dir=root / 'state',
+                run_id='parallel', overrides={'schemaVersion': 1, 'execution': {'parallelEnabled': False}},
+                project_overrides={'schemaVersion': 1, 'execution': {'parallelEnabled': True, 'maxConcurrency': 3}})
+            self.assertFalse(result[0]['execution']['parallelEnabled'])
+            self.assertEqual(result[0]['execution']['maxConcurrency'], 3)
+
+
+
 if __name__ == "__main__":
     unittest.main()

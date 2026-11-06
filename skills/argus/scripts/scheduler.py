@@ -14,6 +14,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'prd-to-cases/scripts'))
 from generation import digest, require, path_names
+from execution import conflicts
 
 
 def positive(value):
@@ -26,6 +27,11 @@ def validate(plan):
         require(type(plan.get(name)) is int and plan[name] > 0, 'invalid ' + name)
     require(isinstance(plan.get('inputHash'), str) and len(plan['inputHash']) == 64
             and all(c in '0123456789abcdef' for c in plan['inputHash']), 'invalid input hash')
+    planning = plan.get('executionPlanning')
+    if planning is not None:
+        require(isinstance(planning, dict) and planning.get('version') == 1 and
+                type(planning.get('parallelEnabled')) is bool, 'invalid execution planning')
+        require(planning['parallelEnabled'] or plan['executionConcurrency'] == 1, 'parallel execution not enabled')
     tasks = plan['tasks']
     require(isinstance(tasks, list) and tasks, 'empty tasks')
     ids = [t['taskId'] for t in tasks]
@@ -44,7 +50,20 @@ def validate(plan):
         resources = task.get('resources', [])
         require(isinstance(resources, list) and all(isinstance(r, str) and r for r in resources), 'invalid resources')
         require(task['kind'] != 'execution' or task['platform'] != 'mobile' or
-                any(r.startswith('device:') for r in resources), 'mobile execution requires device lease')
+                (any(r.startswith('device:') for r in resources) or 'bindings' in task), 'mobile execution requires device lease')
+        require(planning is None or task['kind'] != 'execution' or 'bindings' in task, 'missing execution bindings')
+        if 'bindings' in task:
+            require(task['kind'] == 'execution' and isinstance(task['bindings'], list), 'invalid bindings')
+            for binding in task['bindings']:
+                require(isinstance(binding, dict) and isinstance(binding.get('resources'), list) and
+                        all(isinstance(r, str) and r for r in binding['resources']), 'invalid binding resources')
+                if planning is not None:
+                    require(any(r.startswith('host-slot:') for r in binding['resources']), 'missing host slot')
+                    require(planning['parallelEnabled'] or 'execution:serial' in binding['resources'], 'missing serial lease')
+                    require(isinstance(binding.get('accountRefs'), list) and isinstance(binding.get('routeId'), str),
+                            'invalid binding references')
+                require(task['platform'] != 'mobile' or any(r.startswith('device:') for r in binding['resources']),
+                        'mobile binding requires device lease')
         require(task['kind'] != 'generation' or not resources, 'generation must not lease execution resources')
         require(isinstance(task.get('outputs', []), list), 'invalid outputs')
         require(task['kind'] != 'generation' or task.get('outputs'), 'generation requires owned outputs')
@@ -105,6 +124,9 @@ class Queue:
             state = read(self.state_path, {'schemaVersion': 1, 'planHash': digest(self.plan),
                          'createdAt': now, 'tasks': {}, 'history': []})
             require(state['planHash'] == digest(self.plan), 'changed plan; create a new queue')
+            require(state.get('leaseRegistry', str(self.leases.resolve())) == str(self.leases.resolve()),
+                    'changed lease registry')
+            state['leaseRegistry'] = str(self.leases.resolve())
             leases = read(self.leases, {})
             rows = state['tasks']
             for tid in self.tasks:
@@ -120,15 +142,28 @@ class Queue:
                 for task in ready:
                     kind = task['kind']
                     active = sum(r['status'] == 'running' and self.tasks[tid]['kind'] == kind for tid, r in rows.items())
-                    if active >= self.plan[kind + 'Concurrency'] or any(r in leases for r in task.get('resources', [])):
+                    if active >= self.plan[kind + 'Concurrency']:
+                        continue
+                    if kind == 'execution' and self.plan.get('executionPlanning'):
+                        active_tokens = {owner['token'] for resource, owner in leases.items()
+                                         if resource.startswith('execution:active:')}
+                        # Old in-flight runs have no execution marker or verified account inventory.
+                        if any(owner['token'] not in active_tokens for owner in leases.values()):
+                            continue
+                    bindings = task.get('bindings', [{'resources': task.get('resources', [])}])
+                    bindings = [dict(b, resources=sorted(set(list(b['resources']) +
+                                (['execution:active:' + digest([self.plan['runId'], task['taskId']])]
+                                 if kind == 'execution' else [])))) for b in bindings]
+                    binding = next((b for b in bindings if not conflicts(b['resources'], leases)), None)
+                    if binding is None:
                         continue
                     tid = task['taskId']
                     row = {'status': 'running', 'attempt': rows[tid]['attempt'] + 1,
                            'worker': worker, 'token': uuid.uuid4().hex, 'startedAt': now,
-                           'deadline': now + task.get('timeoutSeconds', 600)}
+                           'deadline': now + task.get('timeoutSeconds', 600), 'binding': binding}
                     rows[tid] = row
                     owner = {'runId': self.plan['runId'], 'taskId': tid, 'token': row['token']}
-                    for resource in task.get('resources', []):
+                    for resource in binding['resources']:
                         leases[resource] = owner
                     result = {**task, **row}
                     break
@@ -142,7 +177,7 @@ class Queue:
                     require(now >= row['startedAt'], 'finish precedes start')
                     row.update(status=outcome, finishedAt=now, evidence=evidence, usage=usage or {})
                     state['history'].append({'taskId': task_id, **row})
-                    for resource in task.get('resources', []):
+                    for resource in row.get('binding', {'resources': task.get('resources', [])})['resources']:
                         owner = leases.get(resource)
                         require(owner and owner['token'] == token, 'resource ownership mismatch')
                         del leases[resource]

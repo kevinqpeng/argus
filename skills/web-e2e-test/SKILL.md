@@ -46,20 +46,28 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 - 优先业务 API 创建 fixtures，创建成功即登记精确资源 ID。
 - 测试级 fixture 管可变对象，worker 级只共享安全连接/只读资源。
 
-## 4. 编写并审查业务断言
+## 4. 接收脚本与执行断言
 
-按 [共享调度](../argus/references/scheduling.md) 领取文件生成任务；公共 fixture/Page Object 只生成一次。执行并发单独控制，各 runner 的 Playwright workers 总和不超过冻结 executionConcurrency。
+直接调用本技能时，先按 [脚本生成子技能](../argus/skills/script-generation/SKILL.md) 取得已发布脚本、discovery 与 scripts 门禁结果；UI 地图准备或缺口补探交给 [页面探索子技能](../argus/skills/page-exploration/SKILL.md)。从 Argus 进入时复用相同哈希的已完成交接，不重复生成。
 
-- 生成脚本前按 [页面探索与失败诊断](../argus/references/page-diagnostics.md) 建立和复用本 run 的页面地图；纯 API 用例跳过。地图未覆盖的页面状态先探针再写断言，不得把未验证定位器写入测试。
-- UI 用 role/label/testid，API 验证 HTTP、业务码、契约和后置状态。
-- 全部批准用例先运行 exploration.py plan；按 task 合并动作和断言需要的元素。优先 getByRole/getByLabel/getByTestId，其后稳定 CSS，XPath 兜底；选择依据为稳定性、唯一性和真实可用性。已验证候选先定点查询，不为单个元素重新 snapshot 整页。按 frame/弹窗/容器限定结构读取，相关状态未变时共享同次结构证据。
-- 探索截图默认关闭，仅视觉断言、歧义或必要证据启用；优先相关区域，全页截图需明确理由。用目标元素/业务状态等待及 Playwright actionability，避免固定 sleep 或对每步使用 networkidle。导航、结构读取、locator 查询、截图分别计时，失败也记；每次调用前检查 allow 的剩余预算并传入 timeout，不能用外层计时器伪装强制超时。
-- 运行 exploration.py check 后批量生成现有 spec；执行只局部验证，定位错误经 recover 分类后只补缺失元素。地图不保存 ElementHandle。用例必需截图、首次失败 trace/screenshot 的留存规则不变。
-- 可组合 API 造数、UI 操作、API/授权只读 DB 核对。
+- UI 断言验证真实行为；API 验证 HTTP、业务码、契约和后置状态。可组合 API 造数、UI 操作、API/授权只读 DB 核对。
 - 每条用例执行前才判断是否需要 MySQL 配合；需要时按 [数据库核验规则](../argus/references/mysql.md) 调用可用 MySQL 工具。不需要时不连接数据库。
 - 依据业务规则审查生成代码后执行。mock 依赖单独标注。
 
+### 页面探针
+
+以探针身份调用时仅完成平台准备和本节操作，返回观察回执；不进入脚本交接、业务执行或整套完成条件。
+
+供页面探索子技能调用；先完成本技能第 1–3 节的隔离、配置与授权检查。平台只操作浏览器并返回脱敏观察回执，计划、预算、共享地图和生成任务放行归探索协调者。
+
+- 优先 getByRole/getByLabel/getByTestId，其后稳定 CSS，XPath 兜底；按稳定性、唯一性和真实可用性验证候选。已验证候选先定点查询，不为单个元素重新 snapshot 整页。按 frame/弹窗/容器限定结构读取，相关状态未变时共享同次结构证据。
+- 探索截图默认关闭，仅视觉断言、歧义或必要证据启用；优先相关区域，全页截图需明确理由。用目标元素/业务状态等待及 Playwright actionability，避免固定 sleep 或对每步使用 networkidle。
+- 导航、结构读取、locator 查询、截图分别计时，失败也记；每次调用使用协调者按 allow 返回的剩余预算和 timeout，不能用外层计时器伪装强制超时。地图不保存 ElementHandle。
+- 执行时局部验证当前状态与必要定位器；定位错误按 [诊断契约](../argus/references/page-diagnostics.md) 分类后，向页面探索子技能提交定点补探请求。保留必需截图及首次失败 trace/screenshot。
+
 ## 5. 冻结执行清单并分片
+
+按 [资源规划契约](../argus/references/scheduling.md#新-run-执行规划必需) 冻结新 run 并领取 binding。每个执行任务使用 workers=1、独立 Context 和角色/租户账号组合；runner 从私有文件在内存解析凭据，退出且确认会话停止后才释放租约。
 
 - 从 runner 真实发现数据生成 caseId+matrixId+automationRef 清单。
 - 冻结用例、矩阵、预期分片、输入哈希，再按 suite/ID/标签/目录分片。资源无法隔离时串行。
