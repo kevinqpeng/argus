@@ -95,6 +95,7 @@ setup 不产生项目 Git 改动。
 ## 6. 冻结本次运行快照
 
 - 每个独立测试任务使用唯一 runId；恢复或接管同一任务保留原 runId。异内容不可覆盖同名快照。
+- 创建 run 时把返回的 runConfigHash 原样写入 manifest，保留 setup 回执；人工评审关闭授权按 [评审证据契约](../argus/references/case-review.md#本地证据契约) 留存。
 - 运行中只读 runConfigPath；需保留的诊断和运行证据写仓库外 workspacePath，一次性探测材料按上面的产物边界处理。
 - 旧名称/人员目录只做显式迁移，校验后移除旧活动入口，不并行保留两份配置。
 - 历史证据不改写。
