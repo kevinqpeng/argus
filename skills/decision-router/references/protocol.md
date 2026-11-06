@@ -1,12 +1,23 @@
 # 协议、归一化与实测
 
-内置 `scripts/jev.py` 使用官方 `POST https://api.typesafe.ai/v1/systemone`、Bearer `TYPESAFE_API_KEY`；文本使用 `jev-latest`，图片使用冻结的 `jev-1.14.0`。输入 JSON 形如 `{"state":"脱敏证据","questions":{"ui":"Does scenario S1 require observing UI behavior?"}}`。题目 ID 来自 questions.json；脚本补齐类型和 criteria，输出原始响应与归一化结果到仓库外私有路径。协议依据 [官方 OpenAPI](https://api.typesafe.ai/openapi.json)。
+内置 `scripts/jev.py` 使用官方 `POST https://api.typesafe.ai/v1/systemone`、Bearer `TYPESAFE_API_KEY`；文本使用 `jev-latest`，图片使用冻结的 `jev-1.14.0`。文本输入使用下面的 subjects 契约。题目 ID 来自 questions.json；脚本补齐类型和 criteria，输出原始响应与归一化结果到仓库外私有路径。协议依据 [官方 OpenAPI](https://api.typesafe.ai/openapi.json)。
 
 同一文本模板判断多个主体时，以独立实例 ID 为键，使用 `{"questionId":"模板 ID","subject":"具体主体及证据引用"}`。脚本保留集中模板的 instructions 和 criteria，仅追加 subject；实例 ID 本身不向模型传递含义，主体必须明确写入 subject。独立问题批量提交，不能让某题依赖同批另一题的答案。例如：
 
-```json
-{"state":{"evidence":"已脱敏的任务输入、输出所有权和冻结契约"},"questions":{"A_depends_B":{"questionId":"generation_dependency","subject":"A=审批脚本，B=公共 fixture；证据 tasks.A、tasks.B；判断 A 是否依赖 B"},"B_depends_A":{"questionId":"generation_dependency","subject":"A=公共 fixture，B=审批脚本；证据 tasks.B、tasks.A；判断公共 fixture 是否依赖审批脚本"},"A_conflicts_B":{"questionId":"generation_conflict","subject":"A=审批脚本，B=公共 fixture；输出所有权见 tasks.A.outputs、tasks.B.outputs"}}}
+```python
+# 在完整证据源读取后立即计算哈希；不要从终端预览或截断字符串恢复。
+from jev import evidence_hash, build_request
+evidence = {"tasks": {"A": {"outputs": ["a.spec.ts"]}, "B": {"outputs": ["fixture.ts"]}},
+            "contract": "完整的相关冻结契约"}
+data = {"questions": {"A_depends_B": {"questionId": "generation_dependency", "subject": "任务 A 是否依赖 B"}},
+        "state": {"subjects": {"A_depends_B": {"evidence": evidence, "evidenceHash": evidence_hash(evidence)}}}}
+payload, _ = build_request(data)
 ```
+
+文本 state 必须是 subjects 对象，按问题实例 ID 绑定非空 evidence 对象及其 evidenceHash。哈希算法由 jev.evidence_hash 定义；必须在证据完整组装时产生，传输前校验，不在发现缺失后重算来掩盖缺口。mapping 的 evidence 必须包含完整 acceptance、steps（id/action）和 assertions（stepId/expected）。其他题目的业务最小证据由题目定义与 subject 说明，Schema 无法证明业务证据充分。
+
+build_request 只保留本批问题的主体，移除外围诊断与未选主体；保留所选 evidence 的全部字段。精简后超过 questions.json 中本地 maxBytes 预算就拆分独立问题，不切断字段或 JSON。这个预算是本地策略，不声称等于 provider 的 Token 上限。校验不能识别在首次计算哈希前已被人手删去且仍符合 Schema 的业务内容，来源完整性仍需从冻结文件核对。
+
 
 `generation_dependency` 的 yes 表示 A 的生成依赖 B 尚未冻结的产物；业务执行先后不自动构成生成依赖。`generation_conflict` 判断共享输出写冲突，共读冻结输入不构成冲突。两题沿用 questions.json 的集中 noul 阈值，中间带交宿主核查；不确定不能当作可安全并行。主 Agent 根据证据和这些判断构建调度图、检查环和分配独占输出，Jev 不调度或生成脚本。
 

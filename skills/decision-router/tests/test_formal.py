@@ -30,7 +30,7 @@ class FormalRoutingTest(unittest.TestCase):
     def test_payload_uses_registered_criteria(self):
         question = decisions.DEFINITIONS["questions"]["formal_verification"]
         payload, _ = jev.build_request({
-            "state": {"scenarioId": "S1", "acceptance": "one debit per request"},
+            "state": {"subjects": {"formal_verification": {"evidence": {"scenarioId": "S1", "acceptance": "one debit per request"}, "evidenceHash": jev.evidence_hash({"scenarioId": "S1", "acceptance": "one debit per request"})}}},
             "questions": {"formal_verification": question["instructions"] + " Subject: S1."},
         }, None)
         sent = payload["questions"]["formal_verification"]

@@ -298,6 +298,7 @@
       "required": ["schemaVersion", "runId", "inputHash", "baselineHash", "scenarioIds", "inputArtifacts", "tasks"],
       "properties": {
         "schemaVersion": {"const": 1},
+        "phase": {"enum": ["cases", "legacy"]},
         "runId": {"type": "string", "minLength": 1},
         "inputHash": {"$ref": "#/$defs/GenerationHash"},
         "baselineHash": {"$ref": "#/$defs/GenerationHash"},

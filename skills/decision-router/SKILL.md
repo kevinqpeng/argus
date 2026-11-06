@@ -22,7 +22,7 @@ description: Routes semantic test judgments using typed Jev or verified Laya res
 
 - 内置 Jev 使用宿主安全环境中的 `TYPESAFE_API_KEY`。
 - 用户只需填写该 Key，不配置 Provider、模型或端点。
-- 将脱敏 state 和 `{实例ID:{questionId:模板ID,subject:具体主体及证据引用}}` 写入仓库外私有 JSON，同一模板可绑定多个主体，措辞与 criteria 保留集中定义。旧 `{题目ID:绑定主体后的 instructions}` 文本格式仍兼容。执行 `python3 <本目录>/scripts/jev.py <input.json> --raw <raw.json> --output <normalized.json>`。
+- 先按 [文本输入契约](references/protocol.md) 从完整证据构造 subjects/evidenceHash，再将脱敏 state 和 `{实例ID:{questionId:模板ID,subject:具体主体及证据引用}}` 写入仓库外私有 JSON，同一模板可绑定多个主体，措辞与 criteria 保留集中定义。旧 `{题目ID:绑定主体后的 instructions}` 问题格式仍兼容；旧字符串 state 要迁移为结构化证据。执行 `python3 <本目录>/scripts/jev.py <input.json> --raw <raw.json> --output <normalized.json>`。
 - 独立问题一次提交，有依赖的分阶段。截图判断按 [图片协议与并行复核](references/protocol.md#图片请求与并行复核) 准备证据并传冻结 run 配置。
 
 ## 3. 处理调用前置条件缺失
@@ -45,14 +45,14 @@ description: Routes semantic test judgments using typed Jev or verified Laya res
 
 ## 6. 保存决策与缓存依据
 
-- 写 DecisionRecord：题目/阈值版本、provider/model/protocol、inputHash、rawEvidenceRef、normalized、thresholds、route、fallbackReason、usage（不可得写 unknown）。
+- 传 --metrics RUN/metrics.jsonl 采集成功、失败及调用前拒绝。写 DecisionRecord：题目/阈值版本、provider/model/protocol、inputHash、rawEvidenceRef、normalized、thresholds、route、fallbackReason、usage（不可得写 unknown）。
 - 缓存键必须含来源/PRD 版本、模型、协议、输入哈希和题目阈值版本。
 
 ## 处理请求错误
 
 - 401、模型不存在、协议不兼容直接阻断。
 - 429、超时、暂时服务故障按 Retry-After 或抖动退避最多配置重试次数。
-- 默认最多 2 次重试，预算耗尽停止。
+- jev.py 不自动重试；只对 retryable=true 的传输故障由宿主按冻结预算重试，最多 2 次。输入或响应契约错误 retryable=false，先修对应输入或协议，不重复调用。
 - 不得将请求错误当作 no。
 
 ## 完成条件
