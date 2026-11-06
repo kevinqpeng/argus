@@ -63,7 +63,7 @@ Called by page exploration after this skill's configuration, authorization and d
 - Run normal, error/permission, and cross-page cases.
 - Create isolated data through the business API and record resource IDs.
 - Assert real UI behavior, then verify final business state through the API. Use the database only for cases whose acceptance criteria require it.
-- Before each case, decide whether its acceptance criteria require MySQL; if so, call an available MySQL tool and follow the [database verification rules](../argus/references/mysql.md). Otherwise, do not connect to the database.
+- Before each case, decide whether its acceptance criteria require MySQL; if so, the main agent dispatches a separate SQL agent and merges its receipt under the [database verification rules](../argus/references/mysql.md); the business runner does not perform SQL verification itself. Otherwise, do not connect to the database.
 - Wait for asynchronous final states.
 
 ## 6. Save attempt evidence

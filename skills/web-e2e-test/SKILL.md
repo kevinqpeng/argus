@@ -51,7 +51,7 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 直接调用本技能时，先按 [脚本生成子技能](../argus/skills/script-generation/SKILL.md) 取得已发布脚本、discovery 与 scripts 门禁结果；UI 地图准备或缺口补探交给 [页面探索子技能](../argus/skills/page-exploration/SKILL.md)。从 Argus 进入时复用相同哈希的已完成交接，不重复生成。
 
 - UI 断言验证真实行为；API 验证 HTTP、业务码、契约和后置状态。可组合 API 造数、UI 操作、API/授权只读 DB 核对。
-- 每条用例执行前才判断是否需要 MySQL 配合；需要时按 [数据库核验规则](../argus/references/mysql.md) 调用可用 MySQL 工具。不需要时不连接数据库。
+- 每条用例执行前才判断是否需要 MySQL 配合；需要时由主 Agent 按 [数据库核验规则](../argus/references/mysql.md) 调度独立 SQL agent 并汇总回执，业务 runner 不兼任 SQL 核实。不需要时不连接数据库。
 - 依据业务规则审查生成代码后执行。mock 依赖单独标注。
 
 ### 页面探针
