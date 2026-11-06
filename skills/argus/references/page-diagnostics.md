@@ -4,13 +4,7 @@
 
 ## 先规划，再按需探索
 
-人工评审通过后、脚本 worker 派发前，协调者一次读取全部批准用例与必需矩阵，按下述契约生成 `evidence/exploration-plan.json`。平台路由在此时完成；Web、Android、iOS 分开规划，纯 API 跳过。UI worker 是现有执行职责，不新增进程或角色。
-
-1. 将每个 UI 用例的每个 step 和 assertion 映射到页面状态、必要元素及矩阵。API/DB 断言或无元素的导航步骤写 `nonUIReason`，仍保留原索引；不能遗漏断言目标。动态需求写 `dynamic=true`，可在到达状态后补充元素，但仍必须关联原用例、受相同预算约束。
-2. 运行 `python3 <argus>/scripts/exploration.py plan <私有输入.json>`，保存 stdout；退出 2 或 BLOCKED 停止探索，补齐映射或在授权范围调整预算。脚本按平台、页面、状态、scope 合并需求，校验所有动作/断言×矩阵均有去向，检测未知依赖和依赖环。
-3. 按合并任务依赖顺序，只访问需要的页面状态。先查缓存候选，再用必要定位器探针验证；成功即复用，缺失才采集相关区域。相同稳定状态的结构证据仅取一次供多个元素使用。截图仅为明确视觉断言、歧义或必需证据采集。
-4. 执行命令前调用 `allow`；结束后立即记录事件，包括失败。协调者独占写计划、地图和事件，worker 只返回独立回执；同一个浏览器页面或 Appium session 串行，禁止先并行检查余额再执行。预算是执行前检查加实际客户端超时，不靠事后统计代替限制。
-5. 生成脚本前运行 `check`，仅消费通过校验的地图。返回 missing 时仅派发这些 taskId/element 的探针，不重建全部地图。脚本 worker 输入包含批准用例、计划、地图及证据指针；只生成分配的 spec，缺信息交协调者，不自行遍历页面。动态目标无法预先进入时，保留明确的运行时探针任务；对应脚本和用例保持未就绪，补齐后再校验，不能凭空生成定位器。
+页面探索的阶段入口、交接和完成条件由 [页面探索子技能](../skills/page-exploration/SKILL.md) 负责。本文件定义工具输入、地图、预算和失败诊断契约；平台 Skill 提供实际探针操作。
 
 ### 工具输入契约
 
@@ -33,7 +27,7 @@
 
 `dependsOn` 为上游任务 ID（`digest({platform,page,state,scope})`）；多步登录、弹窗、滚动或导航前置必须写依赖与进入条件，不能把不同状态只按 URL 合并。scope 绑定角色/租户、设备/浏览器、视口/方向/语言、frame/native/WebView context，用非敏感标识或哈希。
 
-- `check`：`{plan,cases,map}`，map 为 `{schemaVersion:1,runId,entries:[...]}`，每条含 taskId、element、platform/page/state/scope、runId、targetHash、buildHash、environmentHash、stateFingerprint、locator、strategy、confidence、evidenceRef、current、probe。测试用例关联由 task.needs 保存。confidence 未实测写 unknown，不伪造模型概率。
+- `check`：`{plan,cases,map,caseIds?}`；可选非空 caseIds 选择一个 spec 的全部用例，不缩减 cases 或矩阵，输出 scope=cases；省略时 scope=all。空、重复或未知 ID 拒绝。map 为本次校验的固定快照，结构为 `{schemaVersion:1,runId,entries:[...]}`，每条含 taskId、element、platform/page/state/scope、runId、targetHash、buildHash、environmentHash、stateFingerprint、locator、strategy、confidence、evidenceRef、current、probe。测试用例关联由 task.needs 保存。confidence 未实测写 unknown，不伪造模型概率。
 - `cache`：`{entry,current,probe,budgets}`。current 保存本次运行的完整身份和新 observationId；probe 必须来自本次真实探针，含相同 observationId、runId、observedAt（Last Validated）、stateFingerprint、locatorHash、matches=1、usable=true。唯一性以外的可见/可操作/状态条件由平台探针按实际动作验证。旧回执不能用作新观察。
 - `allow`：`{plan,events,operation}`；operation 含 taskId、category、elapsedMs、pageElapsedMs，开始一次页面探索置 visitStart=true；定位器重试加 locatorRetry=true 与 element；恢复加 caseId/matrixId。READY 返回 timeoutMs，平台调用 timeout 取自身上限与它的较小值。elapsedMs 是从分析开始累计的活跃探索墙钟，pageElapsedMs 是本次页面访问墙钟；暂停审批不计。恢复必须继承已用预算，不能通过重置时钟获得新预算。
 - `recover`：`{error,evidence,used,budgets}`；used 是该 caseId+matrixId 已用恢复次数。支持 LocatorNotFound/LocatorAmbiguous/StaleElement/NavigationFailure/Timeout/AssertionFailure/AppiumSessionFailure/ApplicationError，结果见下方恢复规则。

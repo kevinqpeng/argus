@@ -87,6 +87,16 @@ python3 <argus>/scripts/scheduler.py <plan> <state> report --leases <registry>
 5. 仅 failed 且 retrySafe=true、未超 maxAttempts 时可显式 `retry --task <id> --token <旧token>`；后续 claim 产生新 token 和 attempt，迟到旧回执拒绝。生成重试先停止旧写入者，使用新 attempt 目录；业务执行默认 maxAttempts=1/retrySafe=false，只有诊断、幂等/补偿和定向重跑条件已验证才重试。已完成上游不修改；必须修改则新建计划并按原契约使传递下游失效。
 6. 恢复先核对宿主、输入哈希、running worker 和真实 Session；不能因过期自动恢复 pending。队列采用原子写与跨 run 文件锁；崩溃可能留孤儿租约，核对 registry 的 runId/taskId/token、确证进程和 Session 已停止后，由协调者在相同 registry 锁内清理并留恢复证据。宁可 blocked，也不重复操作设备。
 
+## 探索与脚本生成重叠
+
+人工评审通过后，把页面探索与脚本生成放在同一阶段队列，复用 dependsOn，不新增并发配置。页面任务使用 kind=execution、taskType=exploration，计入 executionConcurrency；脚本仍为 kind=generation、taskType=script。宿主可用槽位不足时串行并记录实际方式，不声称已重叠。
+
+协调者按探索计划合并页面任务并保留进入状态的 dependsOn；每个脚本任务依赖其全部用例涉及的页面任务及公共 fixture。页面任务返回独立回执，协调者用真实探针校验本任务全部必要元素，写入共享地图后才 finish completed。随后对待派发 spec 的完整 caseIds 执行局部 check，保存不可变地图快照、哈希和回执；claim 后启动 worker 前再次核对，失败则停止并登记 failed，不启动生成。全量 cases 与 requiredMatrix 始终不变。纯 API 脚本没有页面依赖。
+
+同一浏览器会话或真机登记共享资源锁，页面有顺序依赖或后端数据无法隔离时串行；不同隔离会话才可并发。allow 检查、预算预约和事件合并由协调者串行处理，不能重复使用同一份剩余预算。页面完成即释放会话资源并补位，脚本生成不占设备。探索任务不计业务用例或通过数量。
+
+全量执行仍等待无 caseIds 的 check、全部脚本发布、discovery 和覆盖门禁。相关地图失效沿现有新计划规则重建受影响下游，保留无关且仍有效的产物。记录首个 spec 就绪时间、全量生成墙钟及探索/生成重叠区间；无真实时间记录不宣称提速。
+
 ## Web 执行
 
 生成槽位与 Playwright workers 独立。若队列同时启动多个 runner，各 runner 的 workers 总和不能超过 executionConcurrency（最简单是每领取一个执行任务启动 workers=1）。每 worker 独立 Browser Context、认证、租户数据和输出目录。共享可变账号/业务资源不能隔离时登记 resources 使其串行；保留原登录态管理、trace、reporter 和 retries=0。

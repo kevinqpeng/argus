@@ -78,12 +78,8 @@ manifest.generation 由主 Agent 记录计划路径/哈希、状态路径、任�
 
 ## 7. 脚本阶段（人工评审批准后）
 
-- 前置：`cases/cases.json` 全部 `reviewStatus=approved`；`phase_gate.py --phase review` 必须已 PASSED。未批准不得开始脚本，否则脚本对着会被改的用例写。
-- 计划写在 `cases/scripts/plan.json`：`{schemaVersion, runId, approvedCasesHash, tasks:[{taskId, caseIds, specFile, notesFile}]}`。`approvedCasesHash` 绑定批准时的 cases.json 摘要；用例再变，计划失效。
-- 切分：一个任务一个 spec 文件（`specFile` 唯一），任务数 ≥ 5；数据库/接口只读核验单列任务，不产脚本。任务里写明「只实现分配 caseIds，不改用例期望值」。
-- 回执：每任务写 `cases/scripts/<taskId>/result.json`（`runId`、`planHash`、`taskId`、`specFileHash`、`caseIds`、`discoveredTitles`（caseId → 完整标题））；主 Agent 汇总后用 runner `--list` 复核发现标题逐字等于用例标题，通过 lifecycle.py bind 生成 `cases/execution-cases.json`，保留原审批材料。
-- 门禁：`phase_gate.py <runDir> --phase scripts` 要求 plan 存在、每任务回执齐全、`approvedCasesHash` 与当前 cases 一致、discovery 覆盖全部已批准用例（不得多也不得少）、`manifest.scripts.generatedAfter` 晚于人工批准时间。
+评审门禁通过后交给 [脚本生成子技能](../../argus/skills/script-generation/SKILL.md)，由其负责脚本计划、分批生成、发布、discovery 和执行入口绑定。本文件只负责用例生成。
 
-## 8. 发布与清理的唯一入口
+## 8. 用例分片校验
 
-按 [产物生命周期](../../argus/references/lifecycle.md) 执行 `phase_gate.py --phase publish`、`lifecycle.py publish`、`lifecycle.py bind` 和 `lifecycle.py cleanup`。Worker 保留 result.json 和源 spec；临时内容只放 `run/tmp/<taskId>/<attempt>/`，由协调者确认进程停止后清理。禁止直接递归删除 worker、harness 或 run 目录。每个回执完成后立即运行 generation.py，确定性契约错误只修对应分片，不重新生成已校验通过的独立分片。
+每个用例回执完成后立即运行 generation.py，确定性契约错误只修对应分片，不重新生成已校验通过的独立分片。脚本发布和临时文件清理由脚本生成子技能按产物生命周期执行。

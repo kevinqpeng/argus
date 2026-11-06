@@ -39,18 +39,24 @@ Read the [Argus contract](../argus/references/contracts.md), [private storage ru
 
 按 [资源规划契约](../argus/references/scheduling.md#新-run-执行规划必需) 冻结新 run 并领取 binding，绑定已授权设备、实际端口与完整账号组合。设备、账号和业务资源跨 run 互斥；未显式启用固定串行，单设备始终最多一个 UI 会话。
 
-Use the [shared scheduler](../argus/references/scheduling.md) for both generation and execution. Generate independent files using the existing Appium language/framework without leasing a device. Freeze page-map probes before consumers. Keep generationConcurrency separate from executionConcurrency. Before execution, claim the authorized physical device and driver-specific host ports in the host-wide registry; verify actual capabilities match the lease. Different isolated devices may run concurrently. On timeout/disconnect, retain the lease until the worker and Session are confirmed stopped; never reassign by age alone.
+Use the [shared scheduler](../argus/references/scheduling.md) for execution leases. Before accessing a device, claim the authorized physical device and driver-specific host ports in the host-wide registry; verify actual capabilities match the lease. Different isolated devices may run concurrently. On timeout/disconnect, retain the lease until the worker and Session are confirmed stopped; never reassign by age alone.
+
+For direct invocation, obtain published scripts, discovery and scripts gate results from [script generation](../argus/skills/script-generation/SKILL.md); delegate UI map preparation and missing locators to [page exploration](../argus/skills/page-exploration/SKILL.md). When dispatched by Argus, reuse completed handoffs with matching hashes. Generation keeps the existing Appium language/framework and does not lease a device.
 
 - Run each device's mutable UI session serially.
 - Use stable accessibility or resource IDs.
 - Switch explicitly between native and WebView contexts.
 - A WebView that cannot be inspected blocks its cases; an external browser is not a substitute.
-- Before generating scripts, build and reuse the run's page map under the [page exploration and failure diagnostics rules](../argus/references/page-diagnostics.md).
-- Run exploration.py plan over all approved cases and required device matrices before collecting UI. Deduplicate by screen, state, role/tenant, device/OS/orientation/language and native/WebView context. Android and iOS have separate tasks and locators. Run check before batch script generation; keep the existing Appium language and runner.
+### 页面探针
+
+以探针身份调用时仅完成平台准备和本节操作，返回观察回执；不进入脚本交接、业务执行或整套完成条件。
+
+Called by page exploration after this skill's configuration, authorization and device/session checks. Return independent probe receipts; the exploration coordinator owns plans, budgets, shared maps and readiness checks. Android and iOS keep separate locators and native/WebView contexts.
+
 - Probe necessary controls first: accessibility ID, Android resource-id or stable native strategy; on iOS prefer accessibility ID, predicate or class chain. XPath is a fallback. Validate uniqueness and the action's actual usability. Cache locator descriptions, never Appium element IDs; reacquire after transitions or stale references.
 - Fetch page source only when targeted probes and existing scoped evidence cannot resolve required controls. Share that source among needs in the same stable screen; parse locally instead of fetching once per element. Full hierarchy may be unavoidable on a driver: record the real getPageSource cost, then retain only redacted relevant evidence. Do not claim subtree retrieval when the driver returned the whole tree.
 - Optional exploration screenshots require a planned visual check or ambiguity. Keep mandatory attempt/failure evidence below. Measure getPageSource, findElement/findElements, screenshot, navigation and session commands separately, identifying UiAutomator2 or XCUITest/WDA. Account for command transport time separately from host reasoning.
-- Before each command use exploration.py allow; bound client/transport and explicit waits by its timeoutMs, including implicit-wait cost. A hung in-flight command blocks that session until safely stopped; do not send overlapping recovery commands or start a new command merely because a host timer expired. The coordinator alone updates budgets; independent devices may proceed separately.
+- Before each command obtain the coordinator’s exploration.py allow result; bound client/transport and explicit waits by its timeoutMs, including implicit-wait cost. A hung in-flight command blocks that session until safely stopped; do not send overlapping recovery commands or start a new command merely because a host timer expired. The coordinator alone updates budgets; independent devices may proceed separately.
 
 ## 5. Run cases and verify business state
 
