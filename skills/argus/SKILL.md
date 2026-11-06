@@ -1,6 +1,6 @@
 ---
 name: argus
-description: Runs Argus PRD acceptance testing, verifies fixes for reported bugs, or resumes an interrupted run across models, sessions and agents, with coverage gates and evidence delivery.
+description: Orchestrates full PRD acceptance or selected test stages, including requirement-to-cases, execution of supplied cases, bug regression and cross-agent resume, with shared quality gates.
 ---
 
 # AI 测试主流程
@@ -9,7 +9,9 @@ description: Runs Argus PRD acceptance testing, verifies fixes for reported bugs
 
 先读 [共享契约](references/contracts.md)。本文件负责阶段顺序；各阶段细节在对应 Skill，同一 run 已读且未变化的规则无需重复加载。相对路径从本 SKILL.md 解析。
 
-输入：完整 PRD、测试范围、已有配置与授权。
+输入：PRD 或已有用例/运行材料、测试范围、已有配置与授权。
+
+先按 [独立调用与工作流组合](references/workflows.md) 确定入口和交付终点。仅生成用例、执行外部用例、只探索/生成脚本等请求走对应分支；未限定阶段的完整 PRD 验收继续下方 1–8。子技能共享本 run 和门禁，不重复初始化或生成有效产物。
 
 Web 与移动端目标配置按 [私有工作区](../setup-argus/references/storage.md) 在本机文件保存。
 
@@ -17,15 +19,15 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 移动端先自动探测补齐，只引导用户补充无法确定的必填项。
 
-目标是完成设计、执行、复现和表格交付。
+完整验收的目标是完成设计、执行、复现和表格交付；阶段任务按组合契约的完成边界交付。
 
-用户要求恢复、继续上次测试、切换模型后继续或跨 Agent 接管时，先执行[引导式恢复](references/resume.md)，再进入对应阶段。
-
-仅生成脚本不算完成。
+完整验收仅生成脚本不算完成；用户明确只要脚本时，脚本门禁和交付通过即该阶段完成，业务测试标未执行。
 
 每个阶段完成、等待用户及交接前，按[恢复材料落盘](references/resume.md#恢复材料落盘)保存检查点，使其他模型或 Agent 可从文件继续原 run。
 
 用户要求验证已报告问题的修复时，先执行下方「缺陷修复回归」分支；普通 PRD 验收仍按第 1–8 阶段执行。
+
+用户要求恢复、继续上次测试或查找未完成任务时，先执行[引导式恢复](references/resume.md)，找到并确定历史任务后再进入对应阶段；此入口先于 setup 和新 run 创建，不要求用户记住或输入 runId。
 
 ## 缺陷修复回归
 
@@ -65,8 +67,8 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 4. 检查计划覆盖门禁
 
-- 先跑 `phase_gate.py --phase dispatch`，再读 [coverage-check](../coverage-check/SKILL.md) 跑计划门禁：来源/影响/规则门禁通过，全部必需场景及关联用例 100% 有效，P0 100%。95% 仅保留为进度指标，不豁免必需项。
-- 将覆盖输出的 impactAnalysis 状态和缺口写入 manifest.gates.impactAnalysis，evidenceRef 指向 coverage-plan.json；缺失或 BLOCKED 不能进入全量执行。
+- 先跑 `phase_gate.py --phase dispatch`，再读 [coverage-check](../coverage-check/SKILL.md) 跑 `coverage.py --phase design`：来源/影响/规则门禁通过，全部必需场景及关联用例 100% 有效，P0 100%。95% 仅保留为进度指标，不豁免必需项。
+- 将覆盖输出的 impactAnalysis 状态和缺口写入 manifest.gates.impactAnalysis，evidenceRef 指向 coverage-design.json；缺失或 BLOCKED 不能进入全量执行。脚本发布后再以真实 discovery 跑 plan，更新执行就绪证据。
 - 最多补齐两轮，仍不足交付缺口。
 
 ## 4.1. 等待人工用例评审
@@ -80,7 +82,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 - 按平台路由完成 Web/Mobile 的隔离与授权检查，再调用 [页面探索子技能](skills/page-exploration/SKILL.md) 规划并采集批准用例所需地图；纯 API 跳过页面探索。
 - 调用 [脚本生成子技能](skills/script-generation/SKILL.md)，按已就绪 spec 分批生成、发布、discovery 并绑定执行入口。探索与生成按共享队列重叠，不等待全量地图才派发。
-- 主流程只检查交接结果：review、scripts 门禁及 UI 全量地图 check 通过后进入执行。未完成项保留阻断，用例变更回第 3 阶段重新评审。门禁见 [门禁三·六](references/gates.md#门禁三六脚本滞后评审阶段-42-必须-passed)。
+- 主流程只检查交接结果：review、scripts、真实 discovery 的 plan 门禁及 UI 全量地图 check 通过后进入执行。未完成项保留阻断，用例变更回第 3 阶段重新评审。门禁见 [门禁三·六](references/gates.md#门禁三六脚本滞后评审阶段-42-必须-passed)。
 
 ## 5. 选择平台并执行测试
 
@@ -91,7 +93,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 按路由读取 [web-e2e-test](../web-e2e-test/SKILL.md) 或 [mobile-e2e-test](../mobile-e2e-test/SKILL.md)，分别执行隔离的 Playwright 或 Appium 流程。
 - UI 执行复用第 4.2 阶段本 run 页面地图，使用前校验当前状态和必要定位器；定位器来源必须是地图条目或当场探针。状态变化只补充关联元素，按 exploration.py allow 检查预算并记录分平台事件。`manifest.execution.retries` 冻结为 0：首次失败即停，保留首次失败证据并出诊断包，再定向重跑该用例，禁止整文件重跑。
 - Web 的冻结配置选择 ego 时，按 web-e2e-test 的辅助流程使用；把适用性判定与理由写入 `manifest.execution.webAssistant`，受保护页面固定由隔离 Playwright 执行。Playwright 仍负责真实断言与通过结果。
-- 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时调用 [数据库核验规则](references/mysql.md) 指定的 MySQL 工具并冻结本用例查询与断言。生成场景和用例时不做数据库核验。
+- 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时由主 Agent 按 [数据库核验规则](references/mysql.md) 调度独立 SQL agent，冻结本用例查询与断言并汇总核验回执。生成场景和用例时不做数据库核验。
 - 移动端只支持 Android/iOS 本地真机，本期不接云真机。
 
 ## 6. 记录并交付 Bug
@@ -112,7 +114,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 恢复
 
-按[引导式恢复](references/resume.md)完成只读发现、任务选择和恢复校验。任务选择不代表用例评审通过或扩大执行授权。
+按[引导式恢复](references/resume.md)完成只读发现、工具选择和恢复校验。任务选择只确定恢复对象，不代表用例评审通过或扩大执行授权。
 
 ## 报告
 

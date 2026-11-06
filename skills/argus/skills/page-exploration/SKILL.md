@@ -1,6 +1,6 @@
 ---
 name: argus-page-exploration
-description: Argus 子技能。按批准用例探索 Web、Android 或 iOS 页面，交付已验证地图；脚本生成缺定位信息或执行确认地图失效时定点补探。
+description: 可独立或由 Argus 调用，按批准用例探索 Web、Android 或 iOS 页面并交付地图；支持脚本缺定位信息或地图失效时定点补探。
 ---
 
 # 页面探索
@@ -12,6 +12,8 @@ description: Argus 子技能。按批准用例探索 Web、Android 或 iOS 页�
 协调者负责探索计划、地图、事件和快照的唯一写入。平台探针沿用 [Web](../../../web-e2e-test/SKILL.md#页面探针) 或 [Mobile](../../../mobile-e2e-test/SKILL.md#页面探针) 的隔离、授权和操作规则；只返回探针回执，不接管阶段调度。本技能不生成业务脚本，不计算业务通过。
 
 ## 规划、探测与交接
+
+独立调用按 [工作流组合](../../references/workflows.md) 复用或补齐设计、评审、平台准备与资源规划；只有外部用例时先规范化。只探索时交付全量 check、地图和证据即结束，后续脚本交接仅在调用方选中时执行。平台探针不递归启动完整执行技能。
 
 人工评审通过后、脚本 worker 派发前，协调者一次读取全部批准用例与必需矩阵，按下述契约生成 `evidence/exploration-plan.json`。平台路由在此时完成；Web、Android、iOS 分开规划，纯 API 跳过。UI worker 是现有执行职责，不新增进程或角色。
 

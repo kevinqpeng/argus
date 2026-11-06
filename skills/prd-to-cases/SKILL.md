@@ -1,6 +1,6 @@
 ---
 name: prd-to-cases
-description: Turns PRDs, existing business rules and change impacts into a frozen scenario baseline and traceable UI/API test cases. Use for test design, cross-module regression scope or requirement changes.
+description: Generates reviewable test cases from requirements, or imports existing Excel, CSV, Markdown and JSON cases for standalone design or downstream execution; preserves source expectations and coverage gates.
 ---
 
 # PRD 到用例
@@ -9,7 +9,9 @@ description: Turns PRDs, existing business rules and change impacts into a froze
 
 先读 [共享契约](../argus/references/contracts.md)。
 
-输入：完整 PRD/AC、目标范围、现有测试结构及私有 workspacePath。产物写本次的 run/cases：impact-analysis.json、requirements.json、acs.json、scenarios.json、cases.json、cases.md、cases.xlsx、baselineHash 和 PRD sourceHash。现有用例库只读，生成测试代码写外部 harness，不写项目仓库。
+输入：完整 PRD/AC 或已有用例、目标范围、现有测试结构及私有 workspacePath。产物写本次的 run/cases：impact-analysis.json、requirements.json、acs.json、scenarios.json、cases.json、cases.md、cases.xlsx、baselineHash 和来源 sourceHash。现有用例库只读，生成测试代码写外部 harness，不写项目仓库。
+
+独立调用按 [工作流组合](../argus/references/workflows.md) 只准备设计阶段依赖；缺少 run/workspace 时调用 setup 的按需配置，不要求测试目标可达或账号就绪。输入为已有用例时先走 [外部用例接入](references/existing-cases.md)，按原步骤和预期规范化后复用本技能的生成校验、语义审查与评审交付，不重新设计已有业务内容。
 
 ## 1. 读取完整来源
 
@@ -54,7 +56,7 @@ description: Turns PRDs, existing business rules and change impacts into a froze
 
 ## 6. 检查用例覆盖
 
-- 用例评审前跑计划门禁：来源、影响义务、场景/AC 关联与 P0 必须 100%，入口用声明式 automationRef；矩阵发现留到脚本阶段。
+- 用例评审前先通过 dispatch，再跑 `coverage.py --phase design` 并保存 coverage-design.json：来源、影响义务、场景/AC 关联与 P0 必须 100%，入口用声明式 automationRef，discovered=[]；矩阵发现留到脚本阶段。
 - 脚本生成后再用 runner 实际发现结果复核关联与全部矩阵入口（由 [脚本生成子技能](../argus/skills/script-generation/SKILL.md) 负责）；发现集合必须覆盖每条已批准用例。
 - 补全最多两轮，仍不足交付缺口。关键规则不明保持阻断。
 
@@ -66,7 +68,7 @@ description: Turns PRDs, existing business rules and change impacts into a froze
 - 按 [影响分析评审规则](references/impact-analysis.md#4-冻结评审和复用) 增加关联影响与待确认规则工作表，并同步 Markdown。
 - 在同一工作簿的追踪工作表逐行提供用例 ID、场景 ID、AC ID、测试类型、优先级、评审状态和自动化入口，以 caseId 唯一关联主表行；Markdown 保留这些字段及主表内容。用例或关联信息变化后重新生成两份评审材料。
 - 交付前打开并核对 Excel 的内容、布局、下拉选项和默认值，确认主表与追踪表的 caseId 一一对应，Excel、Markdown 与 JSON 的用例集合和内容一致，文件可读。缺失或不一致时修复后再交付。
-- 交付评审表只表示生成完成。按 [人工用例评审门禁](../argus/references/contracts.md#人工用例评审门禁) 等待人员批准后，调用方才能开启脚本生成与验证；语义审查 approved 不代表人工批准。
+- 交付评审表只表示生成完成。用户只请求用例时在此结束；调用方还需脚本或验证时，按 [人工用例评审门禁](../argus/references/contracts.md#人工用例评审门禁) 等待人员批准后才能继续，语义审查 approved 不代表人工批准。
 
 ## 7.5 交接脚本阶段
 

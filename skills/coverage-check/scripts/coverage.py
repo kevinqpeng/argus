@@ -48,7 +48,16 @@ def check_impact(data, acs):
                 or fingerprint != current.get(sid) or not source.get("sourceRef")
                 or source.get("kind") not in {"prd", "business_rule", "contract", "history", "code", "observation"}):
             errors.append(f"invalid or stale source: {sid}")
-    if not any(s.get("kind") == "prd" for s in sources.values()):
+    basis = data.get("inputBasis", {"kind": "prd"})
+    if not isinstance(basis, dict) or basis.get("kind") not in {"prd", "cases"}:
+        errors.append("invalid input basis")
+    elif basis["kind"] == "cases":
+        ids = basis.get("sourceIds")
+        if (not isinstance(ids, list) or not ids or not all(isinstance(sid, str) for sid in ids)
+                or len(ids) != len(set(ids)) or not basis.get("approvalRef")
+                or any(sources.get(sid, {}).get("kind") != "history" for sid in ids)):
+            errors.append("supplied cases require source inventory and approval evidence")
+    elif not any(s.get("kind") == "prd" for s in sources.values()):
         errors.append("source inventory missing PRD")
 
     def refs(row, key, targets):
@@ -109,6 +118,8 @@ def check_impact(data, acs):
 
 
 def evaluate(data, phase="execution"):
+    if phase not in {"design", "plan", "execution"}:
+        raise ValueError("unknown coverage phase")
     if data.get("schemaVersion") != 1:
         raise ValueError("schemaVersion must be 1")
     threshold = Fraction(str(data.get("threshold", 0.95)))
@@ -158,10 +169,21 @@ def evaluate(data, phase="execution"):
         steps = c.get("steps", [])
         step_ids = {s.get("id") for s in steps}
         assertions = c.get("assertions", [])
+        ref = c.get("automationRef", "")
+        if not isinstance(ref, str):
+            ref = ""
+        if phase == "design":
+            path, separator, title = ref.removeprefix("planned:").partition("::")
+            entry_ready = (ref.startswith("planned:") and bool(separator) and bool(title.strip())
+                           and bool(Path(path).parts) and bool(path.strip()) and not Path(path).is_absolute()
+                           and ".." not in Path(path).parts and "\\" not in path and ":" not in path)
+        else:
+            entry_ready = (bool(ref) and not ref.startswith("planned:")
+                           and all(found.get((cid, m)) == ref for m in required))
         valid[cid] = (c.get("reviewStatus") == "approved" and c.get("semanticReview") == "approved"
                       and bool(c.get("automationRef")) and bool(steps) and bool(assertions)
                       and all(a.get("stepId") in step_ids and a.get("expected") for a in assertions)
-                      and all(found.get((cid, m)) == c["automationRef"] for m in required))
+                      and entry_ready)
     associations = {sid: [cid for cid, c in cases.items() if sid in c.get("scenarioIds", [])]
                     for sid in scenarios}
     planned = {sid for sid, ids in associations.items() if ids and all(valid[c] for c in ids)}
@@ -248,6 +270,7 @@ def evaluate(data, phase="execution"):
     return {"schemaVersion": 1, "phase": phase, "status": "BLOCKED" if errors or any(
         g["status"] == "BLOCKED" for g in gates) else "PASSED", "gates": gates,
         "reasons": sorted(set(errors)), "baselineHash": baseline_hash,
+        "inputBasis": data.get("inputBasis", {"kind": "prd"}),
         "impactAnalysis": {"status": analysis_status, "impactHash": data.get("impactHash"),
                            "coverage": analysis_summary},
         "statusCounts": {s: list(effective.values()).count(s) for s in sorted(statuses)}}
@@ -256,7 +279,7 @@ def evaluate(data, phase="execution"):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
-    parser.add_argument("--phase", choices=["plan", "execution"], default="execution")
+    parser.add_argument("--phase", choices=["design", "plan", "execution"], default="execution")
     args = parser.parse_args()
     try:
         result = evaluate(json.loads(args.input.read_text()), args.phase)
