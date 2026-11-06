@@ -62,7 +62,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 用例与脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取，分两阶段、不混批：本阶段**只生成用例**（按 AC 域切 ≥5 组，产出 cases.json + notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
 - 调度证据是产物的一部分：影响探索写 `cases/exploration.md`（方式判定、依据、任务与回执），生成写 `cases/generation/plan.json`、`state.json` 和每个任务 `result.json`。主会话直接写出 `cases.json` 而无任何任务回执时，产物无效，按 [门禁二](references/gates.md#门禁二并行调度阶段-3进入阶段-4-前必须-passed) BLOCKED。宿主无子 Agent 能力或冻结角色不可调用时保持 BLOCKED，主会话不能冒充。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。
-- 合并后先用 [decision-router](../decision-router/SKILL.md) 调 Jev 逐条审查「断言是否覆盖场景与 AC 的可观察结果」，回执写 `cases/semantic-review.json`，再生成 `cases/cases.xlsx` 与 `cases/cases.md`。低于阈值的用例要么改断言复测，要么在回执写处理理由；不做语义审查即无法通过 [门禁三·五](references/gates.md#门禁三·五五语义审查阶段-41-人工评审前必须-passed)。缺陷探测型用例按 PRD 写断言，不按实测行为写。
+- 合并后先用 [decision-router](../decision-router/SKILL.md) 调 Jev 逐条审查「断言是否覆盖场景与 AC 的可观察结果」，回执写 `cases/semantic-review.json`，再按 [评审表生成契约](../prd-to-cases/references/review-table.md) 调度干净上下文的独立 Agent 生成 `cases/cases.xlsx` 与 `cases/cases.md`，主 Agent 核对映射后发布。低于阈值的用例要么改断言复测，要么在回执写处理理由；不做语义审查即无法通过 [门禁三·五](references/gates.md#门禁三·五五语义审查阶段-41-人工评审前必须-passed)。缺陷探测型用例按 PRD 写断言，不按实测行为写。
 - 范围内业务义务预期未明确、影响分析缺口或未授权关联范围保留记录并阻断全量执行；可交付 partial 材料，不通过删除义务提高覆盖。
 
 ## 4. 检查计划覆盖门禁
