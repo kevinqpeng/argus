@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "questionSetVersion": "1.6.0",
   "thresholds": {"choiceTop": 0.8, "choiceMargin": 0.2, "noulYes": 0.8, "noulNo": 0.2, "sumTolerance": 1e-06, "scoreBoundaryMass": 0.2},
+  "textStateContract": {"version": 1, "maxBytes": 262144, "required": ["evidence", "evidenceHash"], "mappingRequired": ["acceptance", "steps", "assertions"]},
   "questions": {
     "impact_relevance": {"type": "noul", "instructions": "Does the supplied evidence connect the specified change to the specified dependent business behavior?", "criteria": {"true": "A concrete read/write, call, event or contract dependency connects the change to this behavior.", "false": "Evidence establishes that this behavior is independent of the changed data, state and contract; absence of evidence alone does not establish independence."}},
     "obligation_equivalence": {"type": "noul", "instructions": "Do the two supplied testing obligations require the same observable behavior under the same business conditions?", "criteria": {"true": "Conditions, affected objects, expected results and side effects are equivalent.", "false": "A state, actor, relationship, ordering condition or observable result differs."}},

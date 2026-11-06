@@ -14,13 +14,20 @@ import decisions
 import jev
 
 
+def complete_state(data):
+    evidence = data["state"]
+    data["state"] = {"subjects": {name: {"evidence": evidence, "evidenceHash": jev.evidence_hash(evidence)}
+                                  for name in data["questions"]}}
+    return data
+
+
 class GenerationRoutingTest(unittest.TestCase):
     def test_impact_questions_batch_and_uncertain_evidence(self):
         names = ("impact_relevance", "obligation_equivalence", "rule_support")
         data = {"state": {"change": "owner A to B", "evidence": "synthetic work-order contract"},
                 "questions": {name: {"questionId": name, "subject": "O1; contract section 2"}
                               for name in names}}
-        payload, _ = jev.build_request(data)
+        payload, _ = jev.build_request(complete_state(data))
         self.assertEqual(set(payload["questions"]), set(names))
         for name in names:
             question = decisions.DEFINITIONS["questions"][name]
@@ -32,10 +39,10 @@ class GenerationRoutingTest(unittest.TestCase):
             self.assertEqual(decisions.route({"noul": .99}, question)["route"], "host-analysis")
 
     def request(self):
-        return {"state": {"tasks": ["A", "B", "C"]}, "questions": {
+        return complete_state({"state": {"tasks": ["A", "B", "C"]}, "questions": {
             "A_needs_B": {"questionId": "generation_dependency", "subject": "A and B; evidence tasks/A.json and tasks/B.json"},
             "C_needs_B": {"questionId": "generation_dependency", "subject": "C and B; evidence tasks/C.json and tasks/B.json"},
-            "A_conflicts_C": {"questionId": "generation_conflict", "subject": "A and C; evidence outputs.json"}}}
+            "A_conflicts_C": {"questionId": "generation_conflict", "subject": "A and C; evidence outputs.json"}}})
 
     def test_batch_preserves_template_and_subjects(self):
         data = self.request()
@@ -45,7 +52,7 @@ class GenerationRoutingTest(unittest.TestCase):
         for name, binding in data["questions"].items():
             definition = jev.DEFINITIONS["questions"][binding["questionId"]]
             sent = payload["questions"][name]
-            self.assertEqual(sent["instructions"], definition["instructions"] + "\nSubject: " + binding["subject"])
+            self.assertTrue(sent["instructions"].startswith(definition["instructions"] + "\nSubject: " + binding["subject"]))
             self.assertEqual(sent["criteria"], definition["criteria"])
             self.assertEqual(sent["type"], "noul")
 
@@ -59,8 +66,8 @@ class GenerationRoutingTest(unittest.TestCase):
                 jev.build_request({"state": {}, "questions": {"instance": binding}})
 
     def test_legacy_text_stays_compatible(self):
-        payload, _ = jev.build_request({"state": "S1", "questions": {"ui": "Does S1 require observing UI?"}})
-        self.assertEqual(payload["questions"]["ui"]["instructions"], "Does S1 require observing UI?")
+        payload, _ = jev.build_request(complete_state({"state": {"scenario": "S1"}, "questions": {"ui": "Does S1 require observing UI?"}}))
+        self.assertTrue(payload["questions"]["ui"]["instructions"].startswith("Does S1 require observing UI?"))
 
     def test_batch_round_trip_and_uncertainty(self):
         data = self.request()

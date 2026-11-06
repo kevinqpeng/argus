@@ -108,3 +108,5 @@ Request a device setting or permission change only when the observed error or ve
 ```
 
 Add one target per authorized device. Use the Android application ID or iOS bundle ID for `appId`. The user fills `accounts` locally; add entries for each required role and optional `tenant`. Use `{}` when no login is needed. Preserve existing `credentialsRef` entries for compatibility; new account configuration uses `accounts`.
+
+两阶段脚本生成时，执行与执行覆盖使用 `cases/execution-cases.json` 中已发布入口；人工评审与原始计划仍绑定不可变的 `cases/cases.json`。先按 [产物生命周期](../argus/references/lifecycle.md) 完成 bind 和 scripts 门禁，不能手工改写审批文件来匹配 runner。

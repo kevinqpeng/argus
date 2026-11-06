@@ -13,6 +13,8 @@ description: Runs Argus PRD acceptance testing, verifies fixes for reported bugs
 
 Web 与移动端目标配置按 [私有工作区](../setup-argus/references/storage.md) 在本机文件保存。
 
+过程要求由 [阶段门禁](references/gates.md) 强制执行；每个阶段结束前运行 `python3 <本目录>/scripts/phase_gate.py <runDir> --phase <target|dispatch|cases|execution|report>`，BLOCKED 时停在该阶段。
+
 移动端先自动探测补齐，只引导用户补充无法确定的必填项。
 
 目标是完成设计、执行、复现和表格交付。
@@ -36,6 +38,8 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 读取完整 PRD 和已有测试设施。有源码项目时只读 AGENTS.md、源码及 Git 状态并记录代码版本；按 [变更归属规则](../prd-to-cases/references/impact-analysis.md#自动识别共享分支中的变更归属) 自动识别本需求提交与共享分支上的并行改动，不能将整个分支差异归入本需求。
 - 没有源码项目也可测试，记录应用或服务版本、PRD 哈希、目标与预算，不要求用户提供项目路径。
 - 读 [setup-argus](../setup-argus/SKILL.md)，先取得唯一 runId 和仓库外 workspacePath，再写 manifest。
+- 目标冻结是第一个动作：从 `projectDir/web-private.json` 读 `baseUrl` 与账号，真实探测可达性，把 `baseUrl`、`hostHash`、`source=web-private.json`、`probedAt` 和探测证据写入 `manifest.target`，按 [门禁一](references/gates.md#门禁一目标冻结阶段-1进入阶段-3-前必须-passed) 自检。
+- 禁止为测试自行启动或复刻被测环境（本地后端、本地前端 dev server、容器、反向代理、mock 服务）。项目内文档、运维手册、项目 Playwright 配置、`.env` 只能用于了解业务，不能作为目标来源或端口依据。目标不可达按 error 处理并等待恢复，不降级到自建环境。
 
 ## 2. 确认并冻结配置
 
@@ -49,13 +53,15 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 读 [prd-to-cases](../prd-to-cases/SKILL.md)，先完成多来源与跨模块影响分析、明确测试义务及未知规则，再提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。按其指引做语义映射并核对表格、Markdown 与 JSON 一致。
 - 影响探索按 prd-to-cases 的复杂度规则采用单 Agent 或 reasoning 子 Agent 并行，完成跨任务依赖合并与复核后才冻结场景；此调度独立于后续用例生成。
 - 此阶段只设计和生成用例，不判断或执行 MySQL 核验；在执行每条用例前再判断是否需要数据库配合。
-- 用例及脚本按 prd-to-cases 的并行生成流程分组：主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
+- 用例与脚本分两阶段、不混批：本阶段**只生成用例**（按 AC 域切 ≥5 组，产出 cases.json + notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
+- 调度证据是产物的一部分：影响探索写 `cases/exploration.md`（方式判定、依据、任务与回执），生成写 `cases/generation/plan.json`、`state.json` 和每个任务 `result.json`。主会话直接写出 `cases.json` 而无任何任务回执时，产物无效，按 [门禁二](references/gates.md#门禁二并行调度阶段-3进入阶段-4-前必须-passed) BLOCKED。宿主无子 Agent 能力或冻结角色不可调用时保持 BLOCKED，主会话不能冒充。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。
+- 合并后先用 [decision-router](../decision-router/SKILL.md) 调 Jev 逐条审查「断言是否覆盖场景与 AC 的可观察结果」，回执写 `cases/semantic-review.json`，再生成 `cases/cases.xlsx` 与 `cases/cases.md`。低于阈值的用例要么改断言复测，要么在回执写处理理由；不做语义审查即无法通过 [门禁三·五](references/gates.md#门禁三·五五语义审查阶段-41-人工评审前必须-passed)。缺陷探测型用例按 PRD 写断言，不按实测行为写。
 - 范围内业务义务预期未明确、影响分析缺口或未授权关联范围保留记录并阻断全量执行；可交付 partial 材料，不通过删除义务提高覆盖。
 
 ## 4. 检查计划覆盖门禁
 
-- 读 [coverage-check](../coverage-check/SKILL.md)，跑计划门禁：来源/影响/规则门禁通过，全部必需场景及关联用例 100% 有效，P0 100%。95% 仅保留为进度指标，不豁免必需项。
+- 先跑 `phase_gate.py --phase dispatch`，再读 [coverage-check](../coverage-check/SKILL.md) 跑计划门禁：来源/影响/规则门禁通过，全部必需场景及关联用例 100% 有效，P0 100%。95% 仅保留为进度指标，不豁免必需项。
 - 将覆盖输出的 impactAnalysis 状态和缺口写入 manifest.gates.impactAnalysis，evidenceRef 指向 coverage-plan.json；缺失或 BLOCKED 不能进入全量执行。
 - 最多补齐两轮，仍不足交付缺口。
 
@@ -64,13 +70,20 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 执行 [共享契约的人工用例评审门禁](references/contracts.md#人工用例评审门禁)，交付本轮评审材料与范围、必需矩阵及计划覆盖结果。默认暂停，等待人员明确评审通过。
 - 门禁为 PASSED，或冻结配置明确关闭且已记录 N/A，才进入验证流程。人员提出修改时，回到第 3 阶段更新用例并重新提交评审。
 
+## 4.2. 按批准用例生成脚本
+
+- 仅在 4.1 人工批准后开始，`phase_gate.py --phase review` 必须 PASSED。切分为 spec 文件级（一个任务一个 spec，任务数 ≥5，DB/接口核验单列），脚本对着批准后的用例原文写，不静默改期望值；用例要改就回第 3 阶段出新版并重新评审。
+- 每批按 [产物生命周期](references/lifecycle.md) 通过发布门禁后原子写入 `harness/tests/`，保留批准用例，在独立 execution-cases.json 绑定真实 automationRef；跑 runner discovery 复核标题逐字一致，再通过 scripts 门禁；`approvedCasesHash` 绑定批准时的用例摘要，用例变更后脚本计划失效。
+- 门禁见 [门禁三·六](references/gates.md#门禁三六脚本滞后评审阶段-42-必须-passed)。
+
 ## 5. 选择平台并执行测试
 
 - 按 [平台路由](../decision-router/references/platform-routing.md) 判定 web/mobile/both。明确平台范围和直接调用技能优先于 Jev。
 - 纯 API 走现有接口执行路径。
 - Jev 低置信度时补证据或澄清，Jev 不可用则 BLOCKED。具体截图条件可按 decision-router 批量并行比对，当前所有视觉结果均须冻结的 vision 复核，冲突由 bug_analysis 核查。
 - 按路由读取 [web-e2e-test](../web-e2e-test/SKILL.md) 或 [mobile-e2e-test](../mobile-e2e-test/SKILL.md)，分别执行隔离的 Playwright 或 Appium 流程。
-- Web 的冻结配置选择 ego 时，按 web-e2e-test 的辅助流程使用；Playwright 仍负责真实断言与通过结果。
+- UI 执行前先建本 run 页面地图，再写断言；定位器来源必须是地图条目或当场探针。`manifest.execution.retries` 冻结为 0：首次失败即停，出诊断包后再定向重跑该用例，禁止整文件重跑。
+- Web 的冻结配置选择 ego 时，按 web-e2e-test 的辅助流程使用；把适用性判定与理由写入 `manifest.execution.webAssistant`，受保护页面固定由隔离 Playwright 执行。Playwright 仍负责真实断言与通过结果。
 - 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时调用 [数据库核验规则](references/mysql.md) 指定的 MySQL 工具并冻结本用例查询与断言。生成场景和用例时不做数据库核验。
 - 移动端只支持 Android/iOS 本地真机，本期不接云真机。
 
@@ -85,8 +98,8 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 8. 检查执行门禁并交付
 
-- 跑执行门禁，按下文报告要求交付。按 [人工用例评审门禁](references/contracts.md#人工用例评审门禁) 在独立结果表同步执行结果，保留冻结的评审材料。
-- 完成并核对交付后，清理本 run 已确认不再使用的临时浏览器 profile、认证状态和缓存；先停止相关进程，保留报告、恢复材料、表格引用的证据及正式交付物。记录清理结果和释放空间。
+- 先跑 `phase_gate.py --phase execution`，再跑执行门禁，按下文报告要求交付；`manifest.timing` 记录各阶段墙钟后运行 `--phase report`。按 [人工用例评审门禁](references/contracts.md#人工用例评审门禁) 在独立结果表同步执行结果，保留冻结的评审材料。
+- 完成并核对交付后，清理本 run 已确认不再使用的临时浏览器 profile、认证状态和缓存；先停止相关进程，保留报告、恢复材料、表格引用的证据及正式交付物。使用 [产物生命周期](references/lifecycle.md) 的清理入口并记录结果；源 spec、回执与已发布文件均为恢复材料，不清理。
 - 汇总 `manifest.gates.formalVerification` 与独立模型结果；所选形式化检查或真实回放未闭环时保持 BLOCKED，业务覆盖达标不能覆盖该缺口。
 - 有源码仓库时核对 Git 无本次新增改动，并核对清理结果及表格读回。online/local/both 的完成条件沿用 bug-reporter，未满足接受范围保持部分完成。
 
