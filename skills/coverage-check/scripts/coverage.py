@@ -5,6 +5,10 @@ import hashlib
 import json
 from pathlib import Path
 from fractions import Fraction
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus/scripts"))
+from case_contract import validate_steps
 
 
 def digest(value):
@@ -71,6 +75,11 @@ def check_impact(data, acs):
             disposition = row.get("disposition")
             valid = (refs(row, "sourceIds", sources) and bool(row.get("evidenceRef"))
                      and bool(row.get("reason")) and bool(row.get("reviewRef")))
+            if group == "sources":
+                excerpt = row.get("sourceExcerpt")
+                if not isinstance(excerpt, str) or not excerpt.strip():
+                    valid = False
+                    errors.append(f"missing original source excerpt: {ident}")
             if disposition == "covered":
                 valid = valid and refs(row, "obligationIds", obligations)
             elif disposition == "not_applicable":
@@ -167,8 +176,13 @@ def evaluate(data, phase="execution"):
         if not c.get("scenarioIds") or any(s not in scenarios for s in c["scenarioIds"]):
             errors.append(f"dangling case mapping: {cid}")
         steps = c.get("steps", [])
-        step_ids = {s.get("id") for s in steps}
         assertions = c.get("assertions", [])
+        steps_valid = True
+        try:
+            validate_steps(steps, assertions)
+        except ValueError as exc:
+            steps_valid = False
+            errors.append(f"invalid case steps: {cid}: {exc}")
         ref = c.get("automationRef", "")
         if not isinstance(ref, str):
             ref = ""
@@ -181,8 +195,7 @@ def evaluate(data, phase="execution"):
             entry_ready = (bool(ref) and not ref.startswith("planned:")
                            and all(found.get((cid, m)) == ref for m in required))
         valid[cid] = (c.get("reviewStatus") == "approved" and c.get("semanticReview") == "approved"
-                      and bool(c.get("automationRef")) and bool(steps) and bool(assertions)
-                      and all(a.get("stepId") in step_ids and a.get("expected") for a in assertions)
+                      and bool(c.get("automationRef")) and steps_valid
                       and entry_ready)
     associations = {sid: [cid for cid, c in cases.items() if sid in c.get("scenarioIds", [])]
                     for sid in scenarios}

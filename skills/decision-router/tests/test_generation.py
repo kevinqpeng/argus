@@ -67,7 +67,8 @@ class GenerationRoutingTest(unittest.TestCase):
 
     def test_legacy_text_stays_compatible(self):
         payload, _ = jev.build_request(complete_state({"state": {"scenario": "S1"}, "questions": {"ui": "Does S1 require observing UI?"}}))
-        self.assertTrue(payload["questions"]["ui"]["instructions"].startswith("Does S1 require observing UI?"))
+        self.assertTrue(payload["questions"]["ui"]["instructions"].startswith(jev.DEFINITIONS['questions']['ui']['instructions']))
+        self.assertIn('Subject: Does S1 require observing UI?', payload['questions']['ui']['instructions'])
 
     def test_batch_round_trip_and_uncertainty(self):
         data = self.request()

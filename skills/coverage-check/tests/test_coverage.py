@@ -22,7 +22,7 @@ def fixture():
                   disposition="covered", obligationIds=["O1"], reason="Owner changes",
                   reviewRef="review:1")
     impact = dict(schemaVersion=1, sources=[source],
-                  sourceUnits=[dict(record, unitId="U1")],
+                  sourceUnits=[dict(record, unitId="U1", sourceExcerpt="Change owner to B")],
                   objects=[dict(schemaVersion=1, objectId="owner", description="Owner change")],
                   checks=[dict(record, checkId=d, objectId="owner", dimension=d) for d in
                           ("data", "inflight", "lifecycle", "permission", "side_effect", "ordering")],
@@ -62,6 +62,25 @@ class CoverageTests(unittest.TestCase):
 
     def test_complete_plan(self):
         self.assertEqual(self.evaluate()["status"], "PASSED")
+
+    def test_empty_content_submit_without_assertion_blocks_all_phases(self):
+        self.data['cases'][0]['steps'].append({'id': 'empty', 'action': 'Clear content and submit'})
+        for phase in ('design', 'plan', 'execution'):
+            with self.subTest(phase=phase):
+                result = coverage['evaluate'](self.data, phase)
+                self.assertTrue(any('empty' in r and 'assertion' in r for r in result['reasons']), result)
+
+    def test_source_unit_requires_original_rule_excerpt(self):
+        self.data['impactAnalysis']['sourceUnits'][0].pop('sourceExcerpt', None)
+        self.blocked('source excerpt')
+
+    def test_blank_action_and_duplicate_step_ids_block(self):
+        case = self.data['cases'][0]
+        case['steps'][0]['action'] = '  '
+        self.blocked('step')
+        self.data = fixture()
+        self.data['cases'][0]['steps'] *= 2
+        self.blocked('step')
 
     def test_design_needs_no_runner_but_plan_still_does(self):
         self.data["cases"][0]["automationRef"] = "planned:owner.spec.ts::Change owner"

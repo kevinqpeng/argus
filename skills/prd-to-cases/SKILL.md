@@ -43,16 +43,18 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 - 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。
 - 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（cases.json + notes.md），不写 spec。切分粒度按 AC 域，任务数 ≥ 5，并按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再进入语义审查。生成分片完整性独立于覆盖门禁；所有必需场景和用例均须完整。
-- 各用例有 fixtures、步骤、步骤绑定断言和 suite；脚本尚未生成时 automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`，文件在脚本阶段按此名落盘，标题逐字一致。
+- 各用例有 fixtures、步骤、步骤绑定断言和 suite；按[回执和合并](references/parallel-generation.md#4-回执和合并)为每个业务步骤绑定断言、解释准备/清理豁免并回收未覆盖义务。脚本尚未生成时 automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`，文件在脚本阶段按此名落盘，标题逐字一致。
 - 用例先行、脚本后置：脚本按人工评审通过的用例分批生成，避免用例改一轮、脚本白写一轮。
 - 源码标注稳定 caseId。
 - 参数化数据不会自动扩大场景分母。
 
 ## 5. 审查语义映射
 
-- 读 [decision-router](../decision-router/SKILL.md)，批量检查 AC/场景和场景/断言语义映射。
+- 读 [decision-router](../decision-router/SKILL.md)，来源阶段完成 source_inventory 与 impact_evidence 后，按 AC/场景逐项批量检查 scenario_realization（数据与顺序确实触发规则）、mapping（断言验证结果）、rule_support（预期来自批准规则）。输入完整前置、步骤、断言和原始依据，分别留回执；高 mapping 分不能替代来源召回。
+- 预期独立于被测输出：页面等于接口只证明呈现一致；日志成功不等于要求的实际送达；URL格式不等于链接可用。按原始规则验证收件人集合、同一记录的提交到详情、最终主题/正文或实际跳转；已有实现与规则冲突写观察/缺陷候选，不改成正确预期。低概率补证据核查后记录处理依据，不能只以“模型保守”接受。
 - approved 只用于证据完成且已审查的条目。记录 semanticReview 的审批依据。
 - 多 AC 共用用例要分别断言。
+- 按[语义门禁](../argus/references/gates.md#门禁三五语义审查阶段-41-人工评审前必须-passed)汇总五组完整回执并运行 `phase_gate.py RUN --phase semantic`。来源、依赖、条件、断言或预期任一组缺证据，独立生成和完整工作流均停在此处。
 
 ## 6. 检查用例覆盖
 

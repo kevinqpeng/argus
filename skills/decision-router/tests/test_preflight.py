@@ -16,8 +16,20 @@ from metrics import summarize
 
 
 class PreflightTests(unittest.TestCase):
+    def test_design_regression_examples_build_with_complete_evidence(self):
+        examples = json.loads((Path(__file__).with_name('design_review_cases.json')).read_text())
+        questions, subjects = {}, {}
+        for example in examples:
+            ident, evidence = example['id'], example['evidence']
+            self.assertNotIn(ident, questions)
+            questions[ident] = {'questionId': example['questionId'], 'subject': ident.replace('_', ' ')}
+            subjects[ident] = {'evidence': evidence, 'evidenceHash': jev.evidence_hash(evidence)}
+        payload, _ = jev.build_request({'questions': questions, 'state': {'subjects': subjects}})
+        self.assertEqual(set(payload['questions']), set(questions))
+        self.assertEqual(payload['state']['subjects'], subjects)
+
     def request(self):
-        evidence = {"acceptance": "submission creates exactly one order",
+        evidence = {"acceptance": "submission creates exactly one order", "fixtures": [],
                     "steps": [{"id": "submit", "action": "submit twice with same key"}],
                     "assertions": [{"stepId": "submit", "expected": "one persisted order"}]}
         return {"questions": {"C1": {"questionId": "mapping", "subject": "case C1"}},
@@ -59,6 +71,46 @@ class PreflightTests(unittest.TestCase):
         calls, error, _ = self.invoke(data)
         self.assertEqual(calls, 0)
         self.assertIn("truncated", error["reason"])
+
+    def test_mapping_cannot_drop_fixtures_or_unasserted_business_steps(self):
+        for change in ('fixtures', 'step'):
+            data = self.request()
+            record = data['state']['subjects']['C1']
+            record['evidence']['fixtures'] = []
+            if change == 'fixtures':
+                del record['evidence']['fixtures']
+            else:
+                record['evidence']['steps'].append({'id': 'empty', 'action': 'Submit empty content'})
+            record['evidenceHash'] = jev.evidence_hash(record['evidence'])
+            calls, error, _ = self.invoke(data)
+            self.assertEqual(calls, 0, error)
+
+    def test_source_inventory_requires_original_source_not_only_generated_items(self):
+        evidence = {'sourceUnits': [{'unitId': 'U1'}], 'obligations': []}
+        data = {'questions': {'source': {'questionId': 'source_inventory', 'subject': 'source A'}},
+                'state': {'subjects': {'source': {'evidence': evidence,
+                          'evidenceHash': jev.evidence_hash(evidence)}}}}
+        calls, error, _ = self.invoke(data)
+        self.assertEqual(calls, 0)
+        self.assertIn('sourceContent', error['reason'])
+
+    def test_empty_inventory_is_evidence_for_semantic_review_not_local_pass(self):
+        evidence = {'sourceContent': 'Deleted templates fall back to default.',
+                    'sourceUnits': [], 'obligations': []}
+        data = {'questions': {'source': {'questionId': 'source_inventory', 'subject': 'source A'}},
+                'state': {'subjects': {'source': {'evidence': evidence,
+                          'evidenceHash': jev.evidence_hash(evidence)}}}}
+        payload, _ = jev.build_request(data)
+        self.assertEqual(payload['state']['subjects']['source']['evidence'], evidence)
+        self.assertIn('every distinct', payload['questions']['source']['instructions'])
+        record = data['state']['subjects']['source']
+        evidence['sourceUnits'] = [{'sourceExcerpt': 'Templates always fail.'}]
+        record['evidenceHash'] = jev.evidence_hash(evidence)
+        with self.assertRaisesRegex(ValueError, 'excerpt absent'):
+            jev.build_request(data)
+        evidence['sourceUnits'][0]['sourceExcerpt'] = evidence['sourceContent']
+        record['evidenceHash'] = jev.evidence_hash(evidence)
+        jev.build_request(data)
 
     def test_large_state_prunes_only_unused_records_and_preserves_complete_evidence(self):
         data = self.request()

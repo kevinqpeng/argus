@@ -1,0 +1,69 @@
+[
+  {
+    "id": "missing_template_fallback", "questionId": "source_inventory", "expected": "no",
+    "evidence": {
+      "sourceContent": "A custom template is used when configured. If that template is later deleted, send with the default template.",
+      "sourceUnits": [{"unitId": "U1", "sourceExcerpt": "A custom template is used when configured.", "evidenceRef": "spec:1", "obligationIds": ["O1"]}],
+      "obligations": [{"obligationId": "O1", "text": "Send using a configured custom template"}]
+    }
+  },
+  {
+    "id": "complete_template_rules", "questionId": "source_inventory", "expected": "yes",
+    "evidence": {
+      "sourceContent": "A custom template is used when configured. If that template is later deleted, send with the default template.",
+      "sourceUnits": [
+        {"unitId": "U1", "sourceExcerpt": "A custom template is used when configured.", "evidenceRef": "spec:1", "obligationIds": ["O1"]},
+        {"unitId": "U2", "sourceExcerpt": "If that template is later deleted, send with the default template.", "evidenceRef": "spec:2", "obligationIds": ["O2"]}
+      ],
+      "obligations": [{"obligationId": "O1", "text": "Send using a configured custom template"}, {"obligationId": "O2", "text": "Delete the template after rule creation, then send using the default"}]
+    }
+  },
+  {
+    "id": "arbitrary_approver_sample", "questionId": "scenario_realization", "expected": "no",
+    "evidence": {
+      "acceptance": "With three approvers on one node and one already finished, only the two unfinished approvers are selected.",
+      "fixtures": ["Use the first existing instance that allows a reminder; approver count and completion are unknown"],
+      "steps": [{"id": "open", "action": "Open the reminder dialog"}]
+    }
+  },
+  {
+    "id": "explicit_partial_completion", "questionId": "scenario_realization", "expected": "yes",
+    "evidence": {
+      "acceptance": "With three approvers on one node and one already finished, only the two unfinished approvers are selected.",
+      "fixtures": ["Create one node with approvers A, B, C; verify all three pending tasks exist"],
+      "steps": [{"id": "finish", "action": "A completes approval; verify A finished while B and C remain pending"}, {"id": "open", "action": "The initiator opens the reminder dialog for this same node"}]
+    }
+  },
+  {
+    "id": "url_shape_is_not_navigation", "questionId": "mapping", "expected": "no",
+    "evidence": {
+      "acceptance": "Clicking the received approval link opens the correct item's processing page.", "fixtures": ["An approval email log exists"],
+      "steps": [{"id": "read", "action": "Read the URL from the mail log; do not open it"}],
+      "assertions": [{"stepId": "read", "expected": "URL starts with https and contains the item ID"}]
+    }
+  },
+  {
+    "id": "navigation_result", "questionId": "mapping", "expected": "yes",
+    "evidence": {
+      "acceptance": "Clicking the received approval link opens the correct item's processing page.", "fixtures": ["A test mailbox received the email for item 42; the authorized approver is logged in"],
+      "steps": [{"id": "open", "action": "Click the approval link in that received email"}],
+      "assertions": [{"stepId": "open", "expected": "The processing page is visible with item ID 42 and its known business name; approval actions are available to this approver"}]
+    }
+  },
+  {
+    "id": "copied_crud_impact", "questionId": "impact_evidence", "expected": "no",
+    "evidence": {
+      "change": "Administrators may disable reminder rules while instances are still running.",
+      "check": {"dimension": "inflight", "disposition": "covered", "reason": "CRUD is covered by config tests"},
+      "dependencyEvidence": "Config tests only create a rule, edit its label, and delete it. No test attempts a reminder on a running instance after a rule change."
+    }
+  },
+  {
+    "id": "current_clamping_is_not_requirement", "questionId": "rule_support", "expected": "no",
+    "evidence": {
+      "authoritativeRule": "Submitting 0 or 100 must show a range error and must not save the rule.",
+      "proposedExpected": "The input automatically replaces 0 with 1 and 100 with 99; this is accepted as correct.",
+      "observation": "This is how the currently deployed numeric input behaves. No product decision changed the requirement."
+    }
+  }
+]

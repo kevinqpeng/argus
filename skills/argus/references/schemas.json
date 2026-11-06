@@ -44,6 +44,7 @@
         "schemaVersion",
         "unitId",
         "sourceIds",
+        "sourceExcerpt",
         "evidenceRef",
         "disposition",
         "obligationIds",
@@ -58,6 +59,7 @@
           "type": "string",
           "minLength": 1
         },
+        "sourceExcerpt": {"type": "string", "minLength": 1},
         "sourceIds": {
           "type": "array",
           "uniqueItems": true,
@@ -333,7 +335,7 @@
     },
     "GenerationResult": {
       "type": "object",
-      "required": ["schemaVersion", "runId", "planHash", "taskId", "attempt", "state", "dependencyHashes", "files", "cases", "resultHash"],
+      "required": ["schemaVersion", "runId", "planHash", "taskId", "attempt", "state", "dependencyHashes", "files", "cases", "unresolvedObligations", "resultHash"],
       "properties": {
         "schemaVersion": {"const": 1},
         "runId": {"type": "string", "minLength": 1},
@@ -344,7 +346,42 @@
         "dependencyHashes": {"type": "object", "additionalProperties": {"$ref": "#/$defs/GenerationHash"}},
         "files": {"$ref": "#/$defs/GenerationFiles"},
         "cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/TestCase"}},
+        "unresolvedObligations": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["obligationId", "reason"],
+            "properties": {
+              "obligationId": {"type": "string", "minLength": 1},
+              "reason": {"type": "string", "minLength": 1}
+            }
+          }
+        },
         "resultHash": {"$ref": "#/$defs/GenerationHash"}
+      }
+    },
+    "SemanticReview": {
+      "type": "object",
+      "required": ["model", "questionSetVersion", "inputHash", "sources", "impacts", "cases", "realization", "ruleSupport"],
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "questionSetVersion": {"type": "string", "minLength": 1},
+        "inputHash": {"$ref": "#/$defs/GenerationHash"},
+        "sources": {"$ref": "#/$defs/SemanticVerdicts"},
+        "impacts": {"$ref": "#/$defs/SemanticVerdicts"},
+        "cases": {"$ref": "#/$defs/SemanticVerdicts"},
+        "realization": {"$ref": "#/$defs/SemanticVerdicts"},
+        "ruleSupport": {"$ref": "#/$defs/SemanticVerdicts"}
+      }
+    },
+    "SemanticVerdicts": {
+      "type": "object", "additionalProperties": {
+        "type": "object", "required": ["final", "evidenceRef", "evidenceHash"],
+        "properties": {
+          "final": {"type": "number", "minimum": 0, "maximum": 1},
+          "evidenceRef": {"type": "string", "minLength": 1},
+          "evidenceHash": {"$ref": "#/$defs/GenerationHash"},
+          "acceptedReason": {"type": "string", "minLength": 1}
+        }
       }
     },
     "GenerationHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
@@ -546,7 +583,9 @@
               "action": {
                 "type": "string",
                 "minLength": 1
-              }
+              },
+              "kind": {"enum": ["action", "setup", "cleanup"], "default": "action"},
+              "assertionExemption": {"type": "string", "minLength": 1}
             }
           }
         },

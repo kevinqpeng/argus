@@ -4,6 +4,8 @@
 
 公共字段：impactAnalysis（共享 schema 的 ImpactAnalysis）、impactHash、currentSourceHashes（按实际来源重读的 ID 到 SHA-256 映射），以及 schemaVersion=1、threshold（可省略，默认 .95）、runId、sourceHash、currentSourceHash、baselineHash、acs、scenarios、cases、requiredMatrix、discovered。对象定义见 [schemas](../../argus/references/schemas.json)。
 
+sourceUnits 必须保存原文 sourceExcerpt 与精确 evidenceRef。每个业务步骤须有绑定断言；仅 kind=setup/cleanup 且有 assertionExemption 的步骤可豁免。生成、设计、执行入口绑定和阶段门禁共用此检查。旧材料缺字段或有无断言业务步骤时保留原件，在新基线补齐并重新评审，不回写历史批准。结构检查不证明摘录真实或原文无遗漏，来源召回与具体依赖仍须按影响分析契约审查。
+
 inputBasis 缺省为 `{kind:"prd"}`，保持必须包含 PRD 的原规则。外部用例任务显式传 `{kind:"cases", sourceIds:[实际用例来源ID], approvalRef:真实适用依据引用}`；来源必须存在且 kind=history，依据须由宿主核实。三阶段保持相同 inputBasis，并绑定 manifest.inputs 和 inputHash；输出保留该字段，结论限定为所提供用例基线，不能冒充完整 PRD 验收。其余来源、影响、审批和覆盖检查不变。
 
 - acs：RequirementAC 数组，sourceId 存在于 impactAnalysis.sources，sourceHash 与该来源一致，sourceRef 非空，reviewStatus=approved。

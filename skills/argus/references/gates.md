@@ -4,7 +4,7 @@
 
 本文件把主流程中易被跳过的要求变成可执行检查。门禁只核对过程证据是否存在且自洽，不判断业务结论。
 
-命令：`python3 <本目录>/../scripts/phase_gate.py <runDir> --phase <target|dispatch|cases|execution|report>`
+命令：`python3 <本目录>/../scripts/phase_gate.py <runDir> --phase <target|dispatch|semantic|cases|execution|report>`
 退出 0 = PASSED，退出 2 = BLOCKED，输出缺口清单。任一阶段 BLOCKED 时停在该阶段，不进入下一阶段，不能用内容完整代替过程完整。
 
 ## 门禁一：目标冻结（阶段 1，进入阶段 3 前必须 PASSED）
@@ -37,9 +37,11 @@
 
 ## 门禁三·五：语义审查（阶段 4.1 人工评审前必须 PASSED）
 
-- 用例合并后、送人工评审前，必须用 `decision-router` 调 Jev 逐条判定「断言是否覆盖场景/AC 的可观察结果」，回执写 `cases/semantic-review.json`（含 `model`、`thresholds`、每条 `final` 概率与处理理由）。
-- 概率 < 0.8 的用例必须二选一：改断言后复测，或在回执写 `acceptedReason`；未处理即 BLOCKED。
-- state 里放**完整断言与步骤**，不要截断：截断的 state 会产生假低分，反而制造返工。
+- 用例合并后、送人工评审前，运行 `phase_gate.py RUN --phase semantic`。此阶段接受 draft 用例，不依赖页面地图、脚本、账号或 runner。旧 `cases` 阶段继续复核同一语义证据。
+- `cases/semantic-review.json` 保存 `model`、当前 `questionSetVersion` 和 `inputHash=phase_gate.semantic_input_hash(Path(RUN))`，绑定 impact-analysis、AC、场景和用例业务内容。仅用例的评审标签与后续 automationRef 绑定不影响该指纹。
+- 回执包含五组键值映射：`sources`（所有 prd/history/contract/business_rule 的 sourceId，source_inventory）、`impacts`（全部 checkId，impact_evidence）、`cases`（全部 caseId，mapping）、`realization`（全部 caseId，scenario_realization）、`ruleSupport`（全部 caseId，rule_support）。各组完整，不以另一组的高分替代。一个来源分段或一用例对应多项 AC 时，在原始回执保留每项判断，汇总 final 取最小概率，逐项解决缺口。
+- 每项为 `{final:实际noul概率, evidenceRef:run内回执路径, evidenceHash:文件SHA256}`；路径指向可核对题目、完整证据、实际模型和概率的 decision-router 回执。低于 questions.json 的 noulYes 时补证据/改用例复查，或记录 `acceptedReason` 及其实际核查依据到回执。缺回执、文件变化、输入/题集版本变化、非法概率、未处理低分均 BLOCKED；不能降低本地 pass 值放行。
+- state 里放完整原始依据、fixtures、步骤和断言，不截断。空内容、部分办结、时间边界等条件要有保证触发的样本；步骤豁免也进入语义核查。
 - 缺陷探测型用例（预期按 PRD 失败）也要按 PRD 写断言，不能改成「断言实测行为」——那样用例永远不失败，也就抓不到缺陷。
 
 ## 门禁三·六：脚本滞后评审（阶段 4.2 必须 PASSED）

@@ -17,6 +17,7 @@ from decisions import route
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus/scripts"))
 from metrics import record
+from case_contract import validate_steps
 
 DEFINITIONS = json.loads((Path(__file__).resolve().parents[1] / "references/questions.json").read_text())
 URL = "https://api.typesafe.ai/v1/systemone"
@@ -42,20 +43,30 @@ def text_state(state, bindings):
         if record["evidenceHash"] != evidence_hash(evidence):
             raise ValueError("changed or truncated evidence: " + name)
         if question_id == "mapping":
-            if any(not evidence.get(k) for k in contract["mappingRequired"]):
-                raise ValueError("mapping requires complete acceptance, steps and assertions: " + name)
+            if any(k not in evidence for k in contract["mappingRequired"]):
+                raise ValueError("mapping requires complete acceptance, fixtures, steps and assertions: " + name)
+            if not isinstance(evidence["fixtures"], list) or not evidence["acceptance"]:
+                raise ValueError("mapping requires fixtures array and nonempty acceptance")
             if not isinstance(evidence["acceptance"], (str, dict)):
                 raise ValueError("mapping acceptance must be text or an AC object")
-            steps, assertions = evidence["steps"], evidence["assertions"]
-            if not isinstance(steps, list) or not isinstance(assertions, list):
-                raise ValueError("mapping steps and assertions must be arrays")
-            ids = {s.get("id") for s in steps if isinstance(s, dict)}
-            if len(ids) != len(steps) or not all(isinstance(s, dict) and isinstance(s.get("id"), str)
-                    and s["id"].strip() and isinstance(s.get("action"), str) and s["action"].strip() for s in steps):
-                raise ValueError("mapping requires complete steps")
-            if not all(isinstance(a, dict) and a.get("stepId") in ids and isinstance(a.get("expected"), str)
-                       and a["expected"].strip() for a in assertions):
-                raise ValueError("mapping requires bound assertions")
+            validate_steps(evidence["steps"], evidence["assertions"])
+        for field, kind in contract.get("reviewRequired", {}).get(question_id, {}).items():
+            value = evidence.get(field)
+            if kind == "array":
+                valid = isinstance(value, list)
+            elif kind == "text":
+                valid = isinstance(value, str) and bool(value.strip())
+            else:
+                valid = ((isinstance(value, str) and bool(value.strip()))
+                         or (isinstance(value, dict) and bool(value)))
+            if not valid:
+                raise ValueError(question_id + " requires " + field + " (" + kind + "): " + name)
+        if question_id == "source_inventory":
+            for unit in evidence["sourceUnits"]:
+                excerpt = unit.get("sourceExcerpt") if isinstance(unit, dict) else None
+                if (not isinstance(excerpt, str) or not excerpt.strip()
+                        or excerpt not in evidence["sourceContent"]):
+                    raise ValueError("source excerpt absent from supplied original content: " + name)
         selected[name] = {"evidence": evidence, "evidenceHash": record["evidenceHash"]}
     compact = {"subjects": selected}
     if len(json.dumps(compact, ensure_ascii=False, allow_nan=False).encode()) > contract["maxBytes"]:
@@ -106,8 +117,8 @@ def build_request(data, visual_model=None):
         definition = DEFINITIONS["questions"][bindings[name]]
         questions[name] = {k: v for k, v in definition.items() if k in ("type", "instructions", "criteria")}
         if not visual:
-            questions[name]["instructions"] = (definition["instructions"] + "\nSubject: " + instruction["subject"]
-                                                 if isinstance(instruction, dict) else instruction)
+            subject = instruction["subject"] if isinstance(instruction, dict) else instruction
+            questions[name]["instructions"] = definition["instructions"] + "\nSubject: " + subject
     payload = {"model": "jev-latest", "state": data["state"], "questions": questions}
     hashes = {}
     if visual:
