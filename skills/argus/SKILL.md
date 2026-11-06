@@ -34,7 +34,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 涉及状态、并发、重试或已有模型的 Bug，先按 [形式化路由](../decision-router/references/formal-routing.md) 核对修复版本与模型漂移。新发现的边界义务按输入变更新建基线并评审，保留原 Bug、原用例和原基线指标；未授权扩展的关联场景报告为范围外缺口。
 
 1. 读取原 Bug 表、原 run 的 manifest、冻结 PRD/场景/用例、执行结果和证据。确定用户指定的 Bug；未指定时收集本次待回归范围。逐条关联原 Bug ID 或稳定指纹、原 run、caseIds、复现步骤、预期结果及首次失败证据；缺少关键关联或断言时标记该问题 blocked，说明缺口。
-2. 记录修复后的实际应用/服务或代码版本、环境及目标，按 setup 创建新 runId 并冻结配置和输入指纹，保留原 run。原 PRD、影响分析及全部来源指纹和场景未变时复用原冻结基线与用例；旧 run 缺少影响分析时先补分析，按输入变化处理；输入变化按现行规则重新冻结并保留原始关联。冻结本次选中的 Bug、关联用例和必需矩阵；额外关联场景仅按用户指定范围加入。
+2. 记录修复后的实际应用/服务或代码版本、环境及目标，按 [新 run 复用入口](../setup-argus/SKILL.md#新-run-复用入口) 创建新 runId 并冻结配置和输入指纹，保留原 run。原 PRD、影响分析及全部来源指纹和场景未变时复用原冻结基线与用例；旧 run 缺少影响分析时先补分析，按输入变化处理；输入变化按现行规则重新冻结并保留原始关联。冻结本次选中的 Bug、关联用例和必需矩阵；额外关联场景仅按用户指定范围加入。
 3. 先完成第 4 阶段及第 4.1 阶段的人工评审门禁，再按第 5 阶段执行原复现路径及关联用例的真实业务断言，并留存原始输出和必要证据。每个 Bug 的所有关联用例在必需矩阵均 passed 且原预期得到验证，才标「已验证修复」；原问题仍复现标「未修复」；error、blocked、skipped、cancelled、flaky、缺断言或证据不足标「未确认」，记录原因。出现不同问题时另行分类、查重和记录，保留原 Bug 的回归结论。
 4. 调用 coverage-check 计算并报告原冻结基线的覆盖和缺口；仅回归部分问题标 partial，不把子集结果当全量验收通过。生成回归报告，逐项列原 Bug 标识、原 run 和用例、修复版本与环境、实际结果、结论、证据及新 runId；结果来自本次结构化执行事实，保留历史。
 5. 按 bug-reporter 和已选交付策略将回归结论与证据关联原记录并读回。保留人工信息和原报告；状态仅在用户授权的更新范围内、现有状态枚举与结论明确对应且通道支持时更新。否则在报告注明待同步及原因，不宣称表格已更新。原问题复现复用原记录，避免重复建 Bug。写入本次测试汇总并报告发布状态；失败只恢复发布，不重跑业务测试。
@@ -43,13 +43,13 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 - 读取完整 PRD 和已有测试设施。有源码项目时只读 AGENTS.md、源码及 Git 状态并记录代码版本；按 [变更归属规则](../prd-to-cases/references/impact-analysis.md#自动识别共享分支中的变更归属) 自动识别本需求提交与共享分支上的并行改动，不能将整个分支差异归入本需求。
 - 没有源码项目也可测试，记录应用或服务版本、PRD 哈希、目标与预算，不要求用户提供项目路径。
-- 读 [setup-argus](../setup-argus/SKILL.md)，先取得唯一 runId 和仓库外 workspacePath，再写 manifest。
+- 按 [新 run 复用入口](../setup-argus/SKILL.md#新-run-复用入口) 读取已有项目配置，取得唯一 runId 和仓库外 workspacePath，再写 manifest；只有首次或缺项才做相应 setup。
 - 目标冻结是第一个动作：从 `projectDir/web-private.json` 读 `baseUrl` 与账号，真实探测可达性，把 `baseUrl`、`hostHash`、`source=web-private.json`、`probedAt` 和探测证据写入 `manifest.target`，按 [门禁一](references/gates.md#门禁一目标冻结阶段-1进入阶段-3-前必须-passed) 自检。
 - 禁止为测试自行启动或复刻被测环境（本地后端、本地前端 dev server、容器、反向代理、mock 服务）。项目内文档、运维手册、项目 Playwright 配置、`.env` 只能用于了解业务，不能作为目标来源或端口依据。目标不可达按 error 处理并等待恢复，不降级到自建环境。
 
 ## 2. 确认并冻结配置
 
-- 按 setup 读取当前 Agent 配置、展示角色—模型—强度表并收集缺失选择。Jev 决策内置，只引导用户设置 `TYPESAFE_API_KEY`，冻结 runConfigPath。
+- 消费第 1 阶段已冻结的 runConfigPath，不再次调用 setup 或冻结快照。模型、Jev 和交付选择沿用已有配置；缺项在新 run 复用入口定向补齐。
 - 提出选择即暂停整个主流程，收到实际回答才继续。沿用 setup 的结构化问答工具选择和等待规则。
 - 模型角色按冻结配置及[已验证的追加调整](../decision-router/references/config-changes.md)通过宿主子 Agent 或已验证 API 调用。inherit-parent 省略模型参数。
 - 能力缺失或策略不允许时 BLOCKED，不能由主会话冒充。映射与强度见 [模型规范](../setup-argus/references/models.md)。

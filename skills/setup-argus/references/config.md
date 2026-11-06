@@ -10,6 +10,8 @@
 
 configPath 是唯一配置文件位置，runConfigPath 是产物目录的不可变 argus-model.json 快照。当前 Agent 原有全局设置与业务项目只读；JSON 记录选择不表示主会话已切换。继承别名规范化为 mode=delegate、model=inherit-parent，角色条目整体替换。
 
+已有项目创建新 run 按 [复用入口](../SKILL.md#新-run-复用入口) 执行：Agent 生成 UUID，传 `--project-id <已有ID> --run-id <UUID>`，不加 `--init`，不再提交已保存的 overrides。这样读取最新持久设置并只写新快照；恢复原 run 则直接读取原快照，不运行此命令。只有实际保存用户确认的配置变更时才使用 `--init`。
+
 ## 人工用例评审开关
 
 `execution.requireHumanCaseReview` 默认 `true`，旧配置缺少字段时同样开启。普通 setup 对尚未明确选择的用户按 [阻塞问答](interaction.md#问答顺序) 引导选择，推荐“是”；等待实际回答后才保存。开启时生成用例后按 [人工用例评审门禁](../../argus/references/contracts.md#人工用例评审门禁) 等待人员批准。

@@ -10,6 +10,8 @@
 
 ## 运行产物
 
+同项目新任务按 [新 run 复用入口](../SKILL.md#新-run-复用入口) 沿用项目身份和私有文件，仅新增独立运行产物。下面按 cwd 分配身份的规则仅用于没有已有项目上下文的首次发现；新聊天目录变化不覆盖用户明确的项目身份。
+
 根目录：--state-dir > ARGUS_HOME > ${XDG_STATE_HOME:-~/.local/state}/argus。配置与产物都必须在 Git 仓库外，不能用 .gitignore 隐藏污染。
 
 ```text
