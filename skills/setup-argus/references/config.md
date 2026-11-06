@@ -14,6 +14,8 @@ configPath 是唯一配置文件位置，runConfigPath 是产物目录的不可�
 
 `execution.requireHumanCaseReview` 默认 `true`，旧配置缺少字段时同样开启。普通 setup 对尚未明确选择的用户按 [阻塞问答](interaction.md#问答顺序) 引导选择，推荐“是”；等待实际回答后才保存。开启时生成用例后按 [人工用例评审门禁](../../argus/references/contracts.md#人工用例评审门禁) 等待人员批准。
 
+选择关闭时保留真实用户授权记录；保存为后续默认值须明确授权该保存范围。每个 run 按 [评审证据契约](../../argus/references/case-review.md#本地证据契约) 关联关闭依据，单独的持久 false 不证明授权。
+
 用户确认选择后，Agent 通过现有 `--overrides` 或 `--project-overrides` 写入 `{"schemaVersion":1,"execution":{"requireHumanCaseReview":true}}`；选择“否”时写 `false`。加 `--init` 保存后续默认值，不加只用于新 run。沿用现有配置优先级，展示最终生效值与来源；运行时顶层 execution 覆盖项目同名字段，若覆盖导致结果与用户选择冲突，先明确保存范围并解决冲突。
 
 开关随 runConfigPath 冻结，运行中不可修改快照；更改开关须新建 runId。关闭后自动继续其余已授权流程，原有覆盖、语义映射和安全门禁仍须通过。
