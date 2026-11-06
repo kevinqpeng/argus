@@ -70,14 +70,13 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 执行 [共享契约的人工用例评审门禁](references/contracts.md#人工用例评审门禁)，交付本轮评审材料与范围、必需矩阵及计划覆盖结果。默认暂停，等待人员明确评审通过。
 - 门禁为 PASSED，或冻结配置明确关闭且已记录 N/A，才进入验证流程。人员提出修改时，回到第 3 阶段更新用例并重新提交评审。
 
-## 4.2. 统一探索并生成 UI 脚本
+## 4.2. 按批准用例生成脚本
 
 主 Agent 在首次探索或业务执行前，按 [资源规划契约](references/scheduling.md#新-run-执行规划必需) 运行 execution.py 冻结 executionConcurrency 与 bindings；未显式启用固定串行。按 claim 的 binding 启动、收回并补位 runner，资源及停止确认由宿主验证；保留现有人工评审和权限门禁。
 
-- 仅在 4.1 人工批准后开始，`phase_gate.py --phase review` 必须 PASSED。按 [平台路由](../decision-router/references/platform-routing.md) 确认 web/mobile/both，读取相应平台 Skill 完成隔离与授权检查。按 [测试用例驱动探索](references/page-diagnostics.md) 统一分析全部批准用例，运行 exploration.py plan，按需采集并运行 check 校验共享地图；纯 API 跳过。只有缺失元素触发局部补充，脚本 worker 消费地图而不自行探索。
-- 切分为 spec 文件级（一个任务一个 spec，任务数 ≥5，DB/接口核验单列），脚本对着批准后的用例原文写，不静默改期望值；用例要改就回第 3 阶段出新版并重新评审。按现有并行生成流程批量生成脚本，沿用各平台的语言与 runner；批准前的只读准备不执行真实业务探索，最终 UI 定位器绑定在地图验证后完成。
-- 每批按 [产物生命周期](references/lifecycle.md) 通过发布门禁后原子写入 `harness/tests/`，保留批准用例，在独立 execution-cases.json 绑定真实 automationRef；跑 runner discovery 复核标题逐字一致，再通过 scripts 门禁；`approvedCasesHash` 绑定批准时的用例摘要，用例变更后脚本计划失效。
-- 门禁见 [门禁三·六](references/gates.md#门禁三六脚本滞后评审阶段-42-必须-passed)。
+- 按平台路由完成 Web/Mobile 的隔离与授权检查，再调用 [页面探索子技能](skills/page-exploration/SKILL.md) 规划并采集批准用例所需地图；纯 API 跳过页面探索。
+- 调用 [脚本生成子技能](skills/script-generation/SKILL.md)，按已就绪 spec 分批生成、发布、discovery 并绑定执行入口。探索与生成按共享队列重叠，不等待全量地图才派发。
+- 主流程只检查交接结果：review、scripts 门禁及 UI 全量地图 check 通过后进入执行。未完成项保留阻断，用例变更回第 3 阶段重新评审。门禁见 [门禁三·六](references/gates.md#门禁三六脚本滞后评审阶段-42-必须-passed)。
 
 ## 5. 选择平台并执行测试
 
