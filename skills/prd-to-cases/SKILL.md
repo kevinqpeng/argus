@@ -38,7 +38,7 @@ description: Turns PRDs, existing business rules and change impacts into a froze
 ## 4. 冻结基线并生成用例
 
 - 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。
-- 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录生成用例及脚本。单组沿用同一契约；全部分片经 `scripts/generation.py` 校验合并后再进入语义审查。生成分片完整性独立于覆盖门禁；所有必需场景和用例均须完整。
+- 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录生成用例及脚本。任务粒度与数量按 [共享调度](../argus/references/scheduling.md) 确定；单组沿用同一契约；全部分片经 `scripts/generation.py` 校验合并后再进入语义审查。生成分片完整性独立于覆盖门禁；所有必需场景和用例均须完整。
 - 各用例有 fixtures、步骤、步骤绑定断言、suite 和真实 automationRef。
 - 源码标注稳定 caseId。
 - 参数化数据不会自动扩大场景分母。
