@@ -61,6 +61,8 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 ## 5. 冻结执行清单并分片
 
+按 [资源规划契约](../argus/references/scheduling.md#新-run-执行规划必需) 冻结新 run 并领取 binding。每个执行任务使用 workers=1、独立 Context 和角色/租户账号组合；runner 从私有文件在内存解析凭据，退出且确认会话停止后才释放租约。
+
 - 从 runner 真实发现数据生成 caseId+matrixId+automationRef 清单。
 - 冻结用例、矩阵、预期分片、输入哈希，再按 suite/ID/标签/目录分片。资源无法隔离时串行。
 - 默认不重试：runner `retries=0`。失败后先出诊断包 `evidence/diagnosis/<caseId>-<attempt>.md`，再定向重跑该用例（文件名+行号或 `-g`），禁止重跑整个规格文件。

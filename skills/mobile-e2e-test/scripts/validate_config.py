@@ -6,6 +6,9 @@ import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'argus/scripts'))
+from execution import account_entries
+
 
 def validate(path):
     if path.is_symlink() or not path.is_file():
@@ -15,7 +18,7 @@ def validate(path):
     data = json.loads(path.read_text())
     if not isinstance(data, dict):
         raise ValueError("config must be a JSON object")
-    if not {"schemaVersion", "targets", "service"} <= set(data) or set(data) - {"schemaVersion", "targets", "service", "accounts"}:
+    if not {"schemaVersion", "targets", "service"} <= set(data) or set(data) - {"schemaVersion", "targets", "service", "accounts", "accountPools"}:
         raise ValueError("config needs schemaVersion, targets, service, and optional accounts")
     if data.get("schemaVersion") != 1 or not isinstance(data.get("targets"), list) or not data["targets"]:
         raise ValueError("schemaVersion 1 and non-empty targets are required")
@@ -38,16 +41,7 @@ def validate(path):
         reference = target.get("credentialsRef")
         if reference is not None and (not isinstance(reference, str) or not reference.startswith("env:") or not reference[4:].isidentifier()):
             raise ValueError("credentialsRef must name an environment variable")
-    accounts = data.get("accounts", {})
-    if not isinstance(accounts, dict):
-        raise ValueError("accounts must be an object")
-    for name, account in accounts.items():
-        if not name or not isinstance(account, dict) or set(account) - {"username", "password", "tenant"}:
-            raise ValueError("invalid account fields")
-        if any(not isinstance(account.get(key), str) or not account[key].strip() for key in ("username", "password")):
-            raise ValueError("each account needs username and password")
-        if "tenant" in account and not isinstance(account["tenant"], str):
-            raise ValueError("account tenant must be a string")
+    account_entries(data)
     service = data.get("service")
     if not isinstance(service, dict) or set(service) != {"baseUrl"} or not isinstance(service["baseUrl"], str):
         raise ValueError("service.baseUrl is required")
@@ -63,5 +57,5 @@ if __name__ == "__main__":
         validate(Path(sys.argv[1]))
         print("mobile config valid")
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-        print(f"BLOCKED: {error}", file=sys.stderr)
+        print("BLOCKED: invalid mobile private config; inspect locally", file=sys.stderr)
         raise SystemExit(2)

@@ -101,4 +101,6 @@ doctor 需列实际工具版本/targetFingerprint/testedAt/证据路径；只发
 
 ## 生成与执行并发
 
-`execution.generationConcurrency` 与 `execution.executionConcurrency` 是可选正整数，独立保存并冻结；设置验证拒绝零、负数、布尔值及字符串。旧 `execution.workers` 保留，仅作为执行并发兼容来源。缺省、宿主槽位和设备资源约束及队列使用见 [共享调度](../../argus/references/scheduling.md)。
+普通 setup 在未保存 `execution.parallelEnabled` 时结构化询问“是否启用测试并行执行？”：否（推荐，固定串行）、是（按实际资源动态计算）。已有明确选择复用；未回答不写默认选择。启用时说明需在本机私有文件准备角色/租户专用账号池，并可填写正整数 `maxConcurrency` 用户上限；不要求在聊天提供密码。按现有 --overrides / --project-overrides 保存回答，顶层 execution 仍高于项目设置，显示最终值与来源，冲突先解决保存范围。只读 doctor 不提问。
+
+新 run 缺失或 false 固定 executionConcurrency=1。启用后上限优先级为 maxConcurrency > 旧 executionConcurrency > 旧 workers；无上限时依据实际资源。新默认不注入 workers，已有 workers=2 不构成并行授权。generationConcurrency 保持独立。布尔开关严格校验，四个并发数值字段仅接受正整数，拒绝布尔值和字符串。runConfigPath 冻结用户设置；实际 executionConcurrency 在新 run 的资源/任务就绪后由 [共享调度规划器](../../argus/references/scheduling.md#新-run-执行规划必需) 计算并冻结到 queue/plan.json。运行中不改写；历史计划原样恢复。
