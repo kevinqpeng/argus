@@ -132,6 +132,38 @@ class ExplorationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cases changed"):
             exploration.check_map(self.plan, [], page_map)
 
+    def test_scoped_map_releases_ready_cases_without_weakening_full_gate(self):
+        for row in self.request["requirements"]:
+            if row["caseId"] == "C2":
+                row["page"] = "users"
+        plan = exploration.plan(self.cases, self.request)
+        page_map = {"runId": "r1", "entries": [self.entry(t, name)
+                    for t in plan["tasks"] if t["page"] == "login"
+                    for name in ("submit", "welcome")]}
+        result = exploration.check_map(plan, self.cases, page_map, ["C1"])
+        self.assertEqual((result["status"], result["scope"]), ("PASSED", "cases"))
+        self.assertEqual(exploration.check_map(plan, self.cases, page_map)["status"], "BLOCKED")
+        self.assertEqual(exploration.check_map(plan, self.cases, page_map, ["C2"])["status"], "BLOCKED")
+        # One missing assertion in one matrix still blocks the selected spec.
+        page_map["entries"].pop()
+        self.assertEqual(exploration.check_map(plan, self.cases, page_map, ["C1"])["status"], "BLOCKED")
+        for ids in ([], ["unknown"], ["C1", "C1"], "C1"):
+            with self.assertRaisesRegex(ValueError, "caseIds"):
+                exploration.check_map(plan, self.cases, page_map, ids)
+        with self.assertRaisesRegex(ValueError, "cases changed"):
+            exploration.check_map(plan, self.cases[:1], page_map, ["C1"])
+
+    def test_shared_page_does_not_require_unrelated_elements(self):
+        for row in self.request["requirements"]:
+            if row["caseId"] == "C2":
+                row["element"] += "-other"
+        plan = exploration.plan(self.cases, self.request)
+        page_map = {"runId": "r1", "entries": [self.entry(t, name)
+                    for t in plan["tasks"] for name in ("submit", "welcome")]}
+        self.assertEqual(exploration.check_map(plan, self.cases, page_map, ["C1"])["status"], "PASSED")
+        plan["status"] = "BLOCKED"
+        self.assertEqual(exploration.check_map(plan, self.cases, page_map, ["C1"])["status"], "BLOCKED")
+
     def test_failure_routes_and_bounded_recovery(self):
         budget = exploration.limits()
         evidence = {"correctState": True, "locatorChanged": True, "transientState": True, "safeToRepeat": True}
@@ -178,6 +210,17 @@ class ExplorationTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(SCRIPT), "plan", str(source)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertEqual(len(json.loads(result.stdout)["tasks"]), 3)
+            page_map = {"runId": "r1", "entries": [self.entry(t, name)
+                        for t in self.plan["tasks"] for name in ("submit", "welcome")]}
+            payload = {"plan": self.plan, "cases": self.cases, "map": page_map, "caseIds": ["C1"]}
+            source.write_text(json.dumps(payload))
+            result = subprocess.run([sys.executable, str(SCRIPT), "check", str(source)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(json.loads(result.stdout)["scope"], "cases")
+            payload["caseIds"] = []
+            source.write_text(json.dumps(payload))
+            result = subprocess.run([sys.executable, str(SCRIPT), "check", str(source)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
             source.write_text("{}")
             result = subprocess.run([sys.executable, str(SCRIPT), "plan", str(source)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
