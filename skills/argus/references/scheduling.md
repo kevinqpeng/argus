@@ -103,7 +103,7 @@ python3 <argus>/scripts/scheduler.py <plan> <state> report --leases <registry>
 
 ## Mobile 执行
 
-生成不领取设备；定位器需要探针时，先用单独设备探索任务冻结页面地图，后续生成只读地图。执行前按 mobile-e2e-test 探测并核对已授权真机，逐个矩阵任务绑定真实 deviceId；多台选择遵守既有授权规则。执行 resources 至少包含 `device:<真实deviceId>`，同一设备跨 run 互斥；不同设备且数据隔离时可并行。
+生成不领取设备；定位器需要探针时，先用单独设备探索任务准备相关地图，依赖就绪的脚本读取固定快照，其他页面探索可继续。执行前按 mobile-e2e-test 探测并核对已授权真机，逐个矩阵任务绑定真实 deviceId；多台选择遵守既有授权规则。执行 resources 至少包含 `device:<真实deviceId>`，同一设备跨 run 互斥；不同设备且数据隔离时可并行。
 
 根据实际安装的 driver 版本验证配置，并将占用的主机端口统一登记为 `port:<host>:<number>`，不能按 driver 名分别命名同一端口。Android 核对独立 udid/systemPort，WebView/录像使用时核对 chromedriverPort/mjpegServerPort。iOS 核对独立 udid/wdaLocalPort/derivedDataPath，录像使用时核对 mjpegServerPort，并验证签名和 provisioning。配置必须与租约一致；已被外部程序占用的端口不能使用。参考 [UiAutomator2](https://github.com/appium/appium-uiautomator2-driver) 与 [XCUITest](https://appium.github.io/appium-xcuitest-driver/latest/guides/parallel-tests/) 的对应版本文档。
 
