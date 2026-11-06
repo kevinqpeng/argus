@@ -8,6 +8,28 @@ from local_table import publish
 
 
 class DeliveryNamesTest(unittest.TestCase):
+    def test_named_project_requires_matching_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            project = state / "projects" / "named-project"
+            config = project / "runs" / "run" / "argus-model.json"
+            config.parent.mkdir(parents=True)
+            marker = project / ".project-id"
+            marker.write_text("project-id\n")
+            config.write_text(json.dumps({"schemaVersion": 1, "runId": "run",
+                "sources": {"stateRoot": str(state), "projectId": "project-id", "projectDir": str(project)},
+                "config": {"delivery": {"mode": "local"}}}))
+            data = {"schemaVersion": 1, "runId": "run", "bugs": [], "summary": {
+                "status": "passed", "scope": "full", "coverage": {}, "p0": {}, "counts": {},
+                "cleanup": {}, "limitations": [], "featureOverview": "test", "caseCount": 0,
+                "executedCount": 0, "passedCount": 0, "incompleteCases": [], "executor": "",
+                "executedAt": "2026-11-05T12:00:00+08:00"}}
+            result = publish(config, data, delivery_date="20261105", feature_name="test")
+            self.assertTrue(Path(result["summaryDelivery"]).is_file())
+            marker.write_text("wrong-id\n")
+            with self.assertRaisesRegex(ValueError, "invalid project scope"):
+                publish(config, data, delivery_date="20261105", feature_name="test")
+
     def test_delivery_files_are_named_and_scoped_to_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp)
