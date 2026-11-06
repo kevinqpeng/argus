@@ -55,6 +55,20 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual({c['taskId'] for c in claims}, {'g1', 'g2', 'e1'})
         self.assertIsNone(q.operate('claim', worker='4'))
 
+    def test_ready_script_overlaps_next_page_exploration(self):
+        q = self.queue([
+            {**task('page-orders', kind='execution', resources=['browser:one'], priority=2), 'taskType': 'exploration'},
+            {**task('page-users', kind='execution', resources=['browser:one']), 'taskType': 'exploration'},
+            task('script-orders', dependsOn=['page-orders']),
+            task('script-users', dependsOn=['page-users'])], execution=1)
+        page = q.operate('claim', worker='explorer')
+        self.assertEqual(page['taskId'], 'page-orders')
+        self.assertIsNone(q.operate('claim', worker='writer'))
+        self.finish(q, page)
+        claims = [q.operate('claim', worker=w) for w in ('explorer', 'writer')]
+        self.assertEqual({c['taskId'] for c in claims}, {'page-users', 'script-orders'})
+        self.assertIsNone(q.operate('claim', worker='other'))
+
     def test_cross_run_device_and_port_conflicts_multi_device_release(self):
         q = self.queue([task('one', 'mobile', 'execution', resources=['device:A', 'port:host:8200']),
                         task('two', 'mobile', 'execution', resources=['device:B', 'port:host:8201'])])

@@ -162,12 +162,18 @@ def allowance(plan_data, events, operation):
     return {"status": "READY", "timeoutMs": remaining}
 
 
-def check_map(plan_data, cases, page_map):
+def check_map(plan_data, cases, page_map, case_ids=None):
     require(plan_data["casesHash"] == digest(cases), "approved cases changed")
     require(page_map.get("runId") == plan_data["runId"], "wrong map run")
+    if case_ids is not None:
+        require(isinstance(case_ids, list) and bool(case_ids)
+                and all(isinstance(c, str) for c in case_ids)
+                and len(case_ids) == len(set(case_ids))
+                and set(case_ids) <= {c["caseId"] for c in cases}, "invalid caseIds")
+    selected = {c["caseId"] for c in cases} if case_ids is None else set(case_ids)
     missing = []
     for task in plan_data["tasks"]:
-        for name in sorted({n["element"] for n in task["needs"]}):
+        for name in sorted({n["element"] for n in task["needs"] if n["caseId"] in selected}):
             entries = [e for e in page_map.get("entries", []) if e.get("taskId") == task["id"] and e.get("element") == name]
             valid = [e for e in entries if e.get("locator") and e.get("strategy") and e.get("evidenceRef")
                      and reusable(e, e.get("current", {}), e.get("probe", {}), {**plan_data["budgets"], "cache": True})
@@ -175,7 +181,8 @@ def check_map(plan_data, cases, page_map):
                      and all(e.get(k) == task[k] for k in ("platform", "page", "state", "scope"))]
             if not valid:
                 missing.append({"taskId": task["id"], "element": name})
-    return {"status": "BLOCKED" if missing or plan_data["status"] == "BLOCKED" else "PASSED", "missing": missing}
+    return {"status": "BLOCKED" if missing or plan_data["status"] == "BLOCKED" else "PASSED",
+            "scope": "all" if case_ids is None else "cases", "caseIds": sorted(selected), "missing": missing}
 
 
 def summarize(events):
@@ -224,7 +231,7 @@ def main():
         if args.action == "plan":
             result = plan(data["cases"], data["request"])
         elif args.action == "check":
-            result = check_map(data["plan"], data["cases"], data["map"])
+            result = check_map(data["plan"], data["cases"], data["map"], data.get("caseIds"))
         elif args.action == "allow":
             result = allowance(data["plan"], data["events"], data["operation"])
         elif args.action == "cache":
