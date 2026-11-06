@@ -96,3 +96,8 @@ python3 <skill>/scripts/host_config.py --host claude --project <仓库> --projec
 角色覆盖示例：generation 独立 API 可指定 mode=api、provider、model、protocol=openai-chat、baseUrlEnv、endpointPathEnv、apiKeyEnv。其他角色仍使用 inherit-parent 子 Agent，decision 仍为 Jev。委派使用宿主现有认证，不要求额外 API key。无法验证执行方式不能标已切换。
 
 doctor 需列实际工具版本/targetFingerprint/testedAt/证据路径；只发现二进制、配置项或模型名不够。此包没有供应商专用 Laya、办公 CLI 或通用配置校验运行时；宿主按此表验证，未知协议 BLOCKED。
+
+
+## 生成与执行并发
+
+`execution.generationConcurrency` 与 `execution.executionConcurrency` 是可选正整数，独立保存并冻结；设置验证拒绝零、负数、布尔值及字符串。旧 `execution.workers` 保留，仅作为执行并发兼容来源。缺省、宿主槽位和设备资源约束及队列使用见 [共享调度](../../argus/references/scheduling.md)。

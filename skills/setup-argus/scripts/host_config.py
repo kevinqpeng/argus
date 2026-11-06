@@ -95,6 +95,10 @@ def project_settings(data):
     if "execution" in data and (not isinstance(data["execution"], dict) or
             type(data["execution"].get("requireHumanCaseReview", True)) is not bool):
         raise ValueError("execution.requireHumanCaseReview must be a boolean")
+    for key in ("generationConcurrency", "executionConcurrency"):
+        value = data.get("execution", {}).get(key)
+        if key in data.get("execution", {}) and (type(value) is not int or value < 1):
+            raise ValueError("execution." + key + " must be a positive integer")
     if data.get("execution", {}).get("webAssistant", "none") not in ("none", "ego"):
         raise ValueError("execution.webAssistant must be none or ego")
     delivery = data.get("delivery", {})
@@ -163,6 +167,10 @@ def runtime_overrides(data):
         raise ValueError("invalid runtime override")
     if type(data.get("execution", {}).get("requireHumanCaseReview", True)) is not bool:
         raise ValueError("execution.requireHumanCaseReview must be a boolean")
+    for key in ("generationConcurrency", "executionConcurrency"):
+        value = data.get("execution", {}).get(key)
+        if key in data.get("execution", {}) and (type(value) is not int or value < 1):
+            raise ValueError("execution." + key + " must be a positive integer")
     if data.get("execution", {}).get("webAssistant", "none") not in ("none", "ego"):
         raise ValueError("execution.webAssistant must be none or ego")
     if "defaultEffort" in data:

@@ -49,7 +49,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 读 [prd-to-cases](../prd-to-cases/SKILL.md)，先完成多来源与跨模块影响分析、明确测试义务及未知规则，再提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。按其指引做语义映射并核对表格、Markdown 与 JSON 一致。
 - 影响探索按 prd-to-cases 的复杂度规则采用单 Agent 或 reasoning 子 Agent 并行，完成跨任务依赖合并与复核后才冻结场景；此调度独立于后续用例生成。
 - 此阶段只设计和生成用例，不判断或执行 MySQL 核验；在执行每条用例前再判断是否需要数据库配合。
-- 用例及脚本按 prd-to-cases 的并行生成流程分组：主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
+- 用例及脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取；按 prd-to-cases 的并行生成流程分组：主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。
 - 范围内业务义务预期未明确、影响分析缺口或未授权关联范围保留记录并阻断全量执行；可交付 partial 材料，不通过删除义务提高覆盖。
 
@@ -69,6 +69,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 按 [平台路由](../decision-router/references/platform-routing.md) 判定 web/mobile/both。明确平台范围和直接调用技能优先于 Jev。
 - 纯 API 走现有接口执行路径。
 - Jev 低置信度时补证据或澄清，Jev 不可用则 BLOCKED。具体截图条件可按 decision-router 批量并行比对，当前所有视觉结果均须冻结的 vision 复核，冲突由 bug_analysis 核查。
+- 生成和执行并发独立冻结，按 [共享调度](references/scheduling.md) 领取执行任务并管理资源。
 - 按路由读取 [web-e2e-test](../web-e2e-test/SKILL.md) 或 [mobile-e2e-test](../mobile-e2e-test/SKILL.md)，分别执行隔离的 Playwright 或 Appium 流程。
 - Web 的冻结配置选择 ego 时，按 web-e2e-test 的辅助流程使用；Playwright 仍负责真实断言与通过结果。
 - 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时调用 [数据库核验规则](references/mysql.md) 指定的 MySQL 工具并冻结本用例查询与断言。生成场景和用例时不做数据库核验。
