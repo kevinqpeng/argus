@@ -552,6 +552,7 @@ def main():
                   "workspacePath": str(Path(snapshot).parent) if snapshot else None,
                   "storagePolicy": "private-external", "deliveryStatus": delivery_status,
                   "runId": run_id, "runConfigPath": str(snapshot) if snapshot else None,
+                  "runConfigHash": hashlib.sha256(snapshot.read_bytes()).hexdigest() if snapshot else None,
                   "roles": {k: {"mode": v.get("mode"), "inherit": v.get("inherit"), "model": public(v.get("model")),
                                 "provider": public(v.get("provider")), "status": "requires-host-verification"} for k, v in config["roles"].items()},
                   "executables": {k: {"path": shutil.which(k), "status": "found-not-verified" if shutil.which(k) else "not-found"} for k in ["node", "npx", "k6", "sysbench", "docker"]},

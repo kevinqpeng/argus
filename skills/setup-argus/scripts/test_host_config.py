@@ -132,6 +132,7 @@ class InlineOverridesTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
             report = json.loads(result.stdout)
             snapshot = json.loads(Path(report["runConfigPath"]).read_text())
+            self.assertEqual(report["runConfigHash"], hashlib.sha256(Path(report["runConfigPath"]).read_bytes()).hexdigest())
             self.assertEqual(snapshot["config"]["delivery"]["mode"], "local")
             self.assertTrue(snapshot["config"]["execution"]["requireHumanCaseReview"])
             self.assertEqual(list((root / "state").rglob("*.csv")), [])

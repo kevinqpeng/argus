@@ -28,6 +28,14 @@ class LifecycleTests(unittest.TestCase):
                        "assertions": [{"stepId": "1", "expected": "success"}], "caseId": f"C{i}", "reviewStatus": "approved", "semanticReview": "approved",
                        "automationRef": f"planned:{i}.spec.ts::title {i}"} for i in (1, 2)]
         self.write("cases/cases.json", self.cases)
+        self.manifest.update(state="ready", requiredMatrix=["desktop"],
+                             runConfigHash=lifecycle.file_hash(self.run / "argus-model.json"))
+        self.evidence("disable-review", "disable-human-review", {
+            "runId": "R1", "runConfigHash": self.manifest["runConfigHash"]})
+        self.manifest["gates"]["humanCaseReview"].update(
+            authorizationRef="evidence/disable-review.json",
+            authorizationHash=lifecycle.file_hash(self.run / "evidence/disable-review.json"))
+        self.write("manifest.json", self.manifest)
         self.plan = {"schemaVersion": 1, "runId": "R1", "approvedCasesHash": lifecycle.digest(self.cases),
                      "tasks": [{"taskId": f"T{i}", "caseIds": [f"C{i}"], "specFile": f"{i}.spec.ts"} for i in (1, 2)]}
         self.write("cases/scripts/plan.json", self.plan)
@@ -45,6 +53,100 @@ class LifecycleTests(unittest.TestCase):
         p = self.run / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(data))
+
+    def evidence(self, name, decision, scope):
+        self.write("evidence/" + name + "-raw.json", {
+            "role": "user", "text": "Explicit human authorization", "id": name})
+        self.write("evidence/" + name + ".json", {
+            "schemaVersion": 1, "sourceRef": "host-message:" + name,
+            "actorType": "human", "actor": "human", "decision": decision,
+            "recordedAt": "2026-11-06T10:00:00+08:00",
+            "rawRef": "evidence/" + name + "-raw.json",
+            "rawHash": lifecycle.file_hash(self.run / "evidence" / (name + "-raw.json")),
+            "scope": scope})
+
+    def approve(self):
+        self.write("argus-model.json", {"runId": "R1", "config": {"execution": {"requireHumanCaseReview": True}}})
+        names = ["cases/" + name for name in ("impact-analysis.json", "requirements.json", "acs.json",
+                 "scenarios.json", "cases.json", "cases.md", "cases.xlsx")]
+        for name in names:
+            if name != "cases/cases.json":
+                (self.run / name).write_text("frozen")
+        self.manifest.update(inputHash="a" * 64, baselineHash="b" * 64,
+                             runConfigHash=lifecycle.file_hash(self.run / "argus-model.json"))
+        scope = {k: self.manifest[k] for k in ("runId", "inputHash", "baselineHash", "runConfigHash", "requiredMatrix")}
+        scope.update(caseIds=["C1", "C2"], artifactHashes={name: lifecycle.file_hash(self.run / name) for name in names})
+        self.evidence("approval", "approve-cases-and-validate", scope)
+        self.manifest["gates"]["humanCaseReview"] = {
+            **scope, "status": "PASSED", "reviewer": "human",
+            "reviewedAt": "2026-11-06T10:00:00+08:00", "approvalRef": "evidence/approval.json",
+            "approvalHash": lifecycle.file_hash(self.run / "evidence/approval.json")}
+        self.write("manifest.json", self.manifest)
+
+    def test_unverifiable_approval_and_pending_state_block(self):
+        self.approve()
+        original = copy.deepcopy(self.manifest)
+        for field, value in [("approvalRef", "nonexistent-reply"), ("reviewedAt", "not-a-date")]:
+            self.manifest = copy.deepcopy(original)
+            self.manifest["gates"]["humanCaseReview"][field] = value
+            with self.subTest(field=field), self.assertRaises((ValueError, OSError)):
+                lifecycle.approved_cases(self.run, self.manifest)
+        self.manifest = original
+        self.manifest["state"] = "awaiting_case_review"
+        with self.assertRaises(ValueError):
+            lifecycle.approved_cases(self.run, self.manifest)
+
+    def test_changed_config_or_missing_disable_authorization_blocks(self):
+        self.manifest["gates"]["humanCaseReview"].pop("authorizationRef")
+        with self.assertRaises((ValueError, KeyError)):
+            lifecycle.approved_cases(self.run, self.manifest)
+        self.approve()
+        self.write("argus-model.json", {"runId": "R1", "config": {"execution": {"requireHumanCaseReview": False}}})
+        self.manifest["gates"]["humanCaseReview"] = {"status": "N/A", "reason": "arbitrary"}
+        with self.assertRaises(ValueError):
+            lifecycle.approved_cases(self.run, self.manifest)
+
+    def test_matrix_and_raw_approval_changes_block(self):
+        self.approve()
+        self.manifest["requiredMatrix"].append("mobile")
+        with self.assertRaises(ValueError):
+            lifecycle.approved_cases(self.run, self.manifest)
+        self.approve()
+        self.write("evidence/approval-raw.json", {"role": "assistant", "text": "approved"})
+        with self.assertRaises(ValueError):
+            lifecycle.approved_cases(self.run, self.manifest)
+
+    def test_final_review_source_is_bound_and_later_edits_block(self):
+        self.approve()
+        refs = ["cases/review/1/final.json", "cases/import-map.json"]
+        self.write(refs[0], {"cases": self.cases, "version": "reviewed-v2"})
+        self.write(refs[1], {"rows": [{"caseId": c["caseId"], "sourceRef": refs[0]} for c in self.cases]})
+        self.manifest["reviewImport"] = {"artifactRefs": refs}
+        with self.assertRaisesRegex(ValueError, "import artifacts"):
+            lifecycle.approved_cases(self.run, self.manifest)
+        gate = self.manifest["gates"]["humanCaseReview"]
+        gate["artifactHashes"].update({ref: lifecycle.file_hash(self.run / ref) for ref in refs})
+        record = lifecycle.read(self.run, gate["approvalRef"])
+        record["scope"]["artifactHashes"] = gate["artifactHashes"]
+        self.write(gate["approvalRef"], record)
+        gate["approvalHash"] = lifecycle.file_hash(self.run / gate["approvalRef"])
+        self.assertEqual(lifecycle.approved_cases(self.run, self.manifest), self.cases)
+        self.write(refs[0], {"version": "later-edit"})
+        with self.assertRaisesRegex(ValueError, "changed approved artifact"):
+            lifecycle.approved_cases(self.run, self.manifest)
+
+    def test_nonhuman_partial_and_generic_continue_evidence_blocks(self):
+        for field, value in [("actorType", "agent"), ("decision", "continue"),
+                             ("recordedAt", "2026-11-06T10:00:00"), ("scope", {})]:
+            with self.subTest(field=field):
+                self.approve()
+                gate = self.manifest["gates"]["humanCaseReview"]
+                record = lifecycle.read(self.run, gate["approvalRef"])
+                record[field] = value
+                self.write(gate["approvalRef"], record)
+                gate["approvalHash"] = lifecycle.file_hash(self.run / gate["approvalRef"])
+                with self.assertRaises(ValueError):
+                    lifecycle.approved_cases(self.run, self.manifest)
 
     def test_publish_cleanup_and_retry_preserve_specs_and_other_tasks(self):
         lifecycle.publish(self.run, "T1")
@@ -167,18 +269,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue((self.run / "cases/scripts/T1/published.json").exists())
 
     def test_approval_hashes_pass_then_detect_changed_frozen_material(self):
-        self.write("argus-model.json", {"runId": "R1", "config": {"execution": {"requireHumanCaseReview": True}}})
-        names = ["cases/" + name for name in ("impact-analysis.json", "requirements.json", "acs.json",
-                 "scenarios.json", "cases.json", "cases.md", "cases.xlsx")]
-        for name in names:
-            if name != "cases/cases.json":
-                (self.run / name).write_text("frozen")
-        self.manifest.update(inputHash="a" * 64, baselineHash="b" * 64)
-        self.manifest["gates"]["humanCaseReview"] = {"status": "PASSED", "runId": "R1",
-            "inputHash": "a" * 64, "baselineHash": "b" * 64, "reviewer": "human",
-            "reviewedAt": "2026-11-06T10:00:00+08:00", "approvalRef": "approval-message",
-            "artifactHashes": {name: lifecycle.file_hash(self.run / name) for name in names}}
-        self.write("manifest.json", self.manifest)
+        self.approve()
         lifecycle.publish(self.run, "T1")
         (self.run / "cases/cases.md").write_text("changed")
         with self.assertRaisesRegex(ValueError, "changed approved artifact"):
