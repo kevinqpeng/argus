@@ -1,6 +1,6 @@
 ---
 name: mobile-e2e-test
-description: Runs Argus end-to-end tests on authorized local Android and iOS physical devices with Appium. Use when Argus routes to mobile or both, or the user directly requests Argus mobile testing.
+description: Executes supplied cases or an Argus baseline on authorized local Android and iOS physical devices with Appium, directly or within a composed workflow.
 ---
 
 # Mobile E2E
@@ -10,6 +10,8 @@ description: Runs Argus end-to-end tests on authorized local Android and iOS phy
 Read the [Argus contract](../argus/references/contracts.md), [private storage rules](../setup-argus/references/storage.md), [platform routing](../decision-router/references/platform-routing.md), and [coverage gate](../coverage-check/SKILL.md). Use the frozen cases, authorized device matrix, App artifact, service target, budget, and `workspacePath`. Use local physical devices only; this release does not support simulators or cloud devices.
 
 ## 1. Identify the app and test scope
+
+For direct calls, follow [workflow composition](../argus/references/workflows.md): reuse a verified run, or normalize supplied cases through [case import](../prd-to-cases/references/existing-cases.md) and scoped setup. Complete design and human review before exploration or script generation; require published discovery and plan coverage before execution. Do not restart the full PRD workflow. Probe calls keep their narrower boundary below.
 
 - Identify the authorized app and read the PRD and available business rules.
 - Source code and a project path are optional; use device and app evidence when no repository is available.
@@ -92,7 +94,7 @@ Called by page exploration after this skill's configuration, authorization and d
 
 ## Completion criteria
 
-- Pass requires physical-device normal and error/permission flows, business-state checks, failure evidence, exact cleanup, and the execution gate.
+- Pass requires all mandatory cases and applicable normal/error/permission obligations in the frozen scope, physical-device business-state checks, failure evidence, exact cleanup, and the execution gate. Supplied-case runs report only that baseline and retain related gaps and partial status.
 - App launch, generated scripts, mocks, or simulator runs do not count as device acceptance.
 - Keep credentials and evidence in protected local storage.
 

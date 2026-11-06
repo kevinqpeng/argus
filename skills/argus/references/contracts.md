@@ -1,6 +1,8 @@
 # 共享契约 v1
 
-九个 Skill 必须整包安装，跨 Skill 的相对路径以实际 SKILL.md 所在目录解析。核心仅要求宿主可读文件和执行工具；Python 脚本用标准库、Python 3.11+。宿主缺少某项能力时明确降级或阻断，不换用虚构工具。
+技能必须整包安装，跨 Skill 的相对路径以实际 SKILL.md 所在目录解析。核心仅要求宿主可读文件和执行工具；Python 脚本用标准库、Python 3.11+。宿主缺少某项能力时明确降级或阻断，不换用虚构工具。
+
+直接调用、阶段组合及仅交付某类产物时，按 [独立调用与工作流组合](workflows.md) 补齐必要依赖并在所选终点结束；不要求先运行 argus 主入口。未选能力不阻断当前阶段，当前阶段的必需门禁仍全部生效。
 
 ## 文件与状态
 
@@ -16,7 +18,7 @@
 
 PRD sourceHash 是源文件原始字节的 SHA-256；RequirementAC 新增 sourceId，sourceHash 使用其实际来源原始字节哈希（单文件 PRD 与 PRD sourceHash 相同）。多来源与跨模块义务按 [影响分析契约](../../prd-to-cases/references/impact-analysis.md) 记录。多文件 PRD 先建立包含路径和各文件哈希的稳定来源清单，sourceHash 为该清单的规范化 JSON 哈希，每条 sourceRef 仍指向具体文件。场景 baselineHash 使用 coverage.py 的 digest：JSON sort_keys=True、ensure_ascii=False、separators=(",", ":") 的 UTF-8 SHA-256。冻结 baselineVersion，并记录审查依据。
 
-来源清单与影响义务先核查，保存 cases/impact-analysis.json 和 impactHash，再冻结场景生成用例。旧输入缺少影响分析时新建 run 补齐，不改历史。有效用例需已审查、语义映射通过、有真实步骤断言与 runner 实际发现入口。计划门禁要求每个必需场景的全部关联用例有效；完整设计与执行均要求必需项 100%。执行需要全部必需用例 × requiredMatrix。重试不增加分子或分母。子集展示 partial 和全量缺口。原分母不能被删失败项缩小；授权变更要另存原基线指标。
+来源清单与影响义务先核查，保存 cases/impact-analysis.json 和 impactHash，再冻结场景生成用例。旧输入缺少影响分析时新建 run 补齐，不改历史。有效设计用例需已审查、语义映射通过、有真实步骤断言及 planned 声明入口；design 门禁不依赖 runner。执行就绪的 plan 门禁另要求已发布入口与 runner 实际发现结果。两个门禁均要求每个必需场景的全部关联用例有效，完整设计与执行均要求必需项 100%。执行需要全部必需用例 × requiredMatrix。重试不增加分子或分母。子集展示 partial 和全量缺口。原分母不能被删失败项缩小；授权变更要另存原基线指标。
 
 分片使用独立文件；expectedShards、inputHash 在执行前冻结。inputHash 绑定 impactHash、所有来源哈希、影响判断题集版本、PRD、基线、代码版本及本地改动摘要、配置/环境指纹、矩阵和选中用例。每个分片完成后 resultHash 绑定该分片的全部 attempts，聚合脚本验证哈希和唯一性。哈希只检查一致性，不证明来源真实性；宿主需保存 runner 原始输出和构造过程。
 
@@ -32,7 +34,7 @@ PRD sourceHash 是源文件原始字节的 SHA-256；RequirementAC 新增 source
 
 从本 run 的冻结配置读取 `execution.requireHumanCaseReview`，缺省为 `true`。仅布尔值 `false` 关闭人工门禁，并在 `manifest.gates.humanCaseReview` 记录 `status=N/A` 和关闭依据。开关按 [配置规范](../../setup-argus/references/config.md) 保存及冻结，Agent 不得自行关闭、因用户未回答而关闭，或以“全自动”“继续测试”等泛化授权推断关闭。
 
-开关开启时，完成用例及计划覆盖检查后，交付按日期和功能命名的 Excel 评审副本及 `cases/cases.xlsx`、`cases/cases.md`、`cases/cases.json` 的可访问位置；确保 Excel 副本与固定路径内容一致，并明确请求人员评审本轮用例。将 `manifest.state` 设为 `awaiting_case_review`，`manifest.gates.humanCaseReview.status` 设为 `BLOCKED`，暂停验证流程。没有实际回复、超时、空回复、仅收到文件、模型或 Jev 审查通过、用例条目的 approved、覆盖达标，均不能解除此门禁。
+开关开启时，完成用例及 design 覆盖检查后，交付按日期和功能命名的 Excel 评审副本及 `cases/cases.xlsx`、`cases/cases.md`、`cases/cases.json` 的可访问位置；确保 Excel 副本与固定路径内容一致。若所选终点包含探索、脚本或执行，明确请求人员评审本轮用例，将 `manifest.state` 设为 `awaiting_case_review`，`manifest.gates.humanCaseReview.status` 设为 `BLOCKED`，暂停验证流程。仅交付用例时记录 design_completed，humanCaseReview 保持 BLOCKED 并注明尚未请求后续验证；用例交付无需等待批准。没有实际回复、超时、空回复、仅收到文件、模型或 Jev 审查通过、用例条目的 approved、覆盖达标，均不能解除此门禁。
 
 只有人员查看本轮评审材料后明确表示用例评审通过并允许验证，才记录 `status=PASSED`。同一门禁对象必须保存 `runId`、`baselineHash`、`inputHash`、`artifactHashes`、`reviewer`、`reviewedAt` 和 `approvalRef`。`artifactHashes` 是 impact-analysis.json、requirements.json、acs.json、scenarios.json、cases.json、cases.md 和 cases.xlsx 原始字节的 SHA-256 映射；`approvalRef` 指向真实人员回复或可核验的人工审批记录，不能由 Agent、子 Agent 或 Jev 代签。审批必须覆盖本轮全部选中用例与必需矩阵，未完整覆盖保持 BLOCKED。
 
