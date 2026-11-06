@@ -57,6 +57,7 @@ python3 <skill>/scripts/host_config.py --host claude --project <仓库> --projec
 | decision.providers | 自定义时使用；activeProvider 要指向已验证条目，protocol/adapterVersion/model/targetFingerprint/概率类型变化后重验 |
 | coverage | scenarioThreshold 0.95..1 仅用于进度指标；必需场景设计/执行固定 100%，p0Threshold 固定 1，failOnFlaky=true |
 | execution | workers 正整数，retries 0..1，资源与数据隔离实测；requireHumanCaseReview 为布尔值，默认 true |
+| execution.exploration | 可选；预算/缓存字段及默认值由 [探索工具](../../argus/scripts/exploration.py) 的 limits 校验，流程见 [探索契约](../../argus/references/page-diagnostics.md)；缺省兼容旧配置，随 run 冻结，不改变 runner retries |
 | bugPublisher | provider 与 method 分开；provider 可为企微、飞书、其他实际平台或 local，method=auto/mcp/api/cli/browser/webhook/local，tableAction=create/existing/import；默认未启用，所选方式需能力验证 |
 | delivery | mode=online/local/both，requiresReadback=true；本地也是正式交付，both 两边均需完成；onFailure=ask/local/stop，默认 ask；本地专用通道不能充当 online/both |
 

@@ -49,6 +49,9 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 - 生成脚本前按 [页面探索与失败诊断](../argus/references/page-diagnostics.md) 建立和复用本 run 的页面地图；纯 API 用例跳过。
 - UI 用 role/label/testid，API 验证 HTTP、业务码、契约和后置状态。
+- 全部批准用例先运行 exploration.py plan；按 task 合并动作和断言需要的元素。优先 getByRole/getByLabel/getByTestId，其后稳定 CSS，XPath 兜底；选择依据为稳定性、唯一性和真实可用性。已验证候选先定点查询，不为单个元素重新 snapshot 整页。按 frame/弹窗/容器限定结构读取，相关状态未变时共享同次结构证据。
+- 探索截图默认关闭，仅视觉断言、歧义或必要证据启用；优先相关区域，全页截图需明确理由。用目标元素/业务状态等待及 Playwright actionability，避免固定 sleep 或对每步使用 networkidle。导航、结构读取、locator 查询、截图分别计时，失败也记；每次调用前检查 allow 的剩余预算并传入 timeout，不能用外层计时器伪装强制超时。
+- 运行 exploration.py check 后批量生成现有 spec；执行只局部验证，定位错误经 recover 分类后只补缺失元素。地图不保存 ElementHandle。用例必需截图、首次失败 trace/screenshot 的留存规则不变。
 - 可组合 API 造数、UI 操作、API/授权只读 DB 核对。
 - 每条用例执行前才判断是否需要 MySQL 配合；需要时按 [数据库核验规则](../argus/references/mysql.md) 调用可用 MySQL 工具。不需要时不连接数据库。
 - 依据业务规则审查生成代码后执行。mock 依赖单独标注。
