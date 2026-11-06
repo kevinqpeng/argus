@@ -23,6 +23,8 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 完整验收仅生成脚本不算完成；用户明确只要脚本时，脚本门禁和交付通过即该阶段完成，业务测试标未执行。
 
+每个阶段完成、等待用户及交接前，按[恢复材料落盘](references/resume.md#恢复材料落盘)保存检查点，使其他模型或 Agent 可从文件继续原 run。
+
 用户要求验证已报告问题的修复时，先执行下方「缺陷修复回归」分支；普通 PRD 验收仍按第 1–8 阶段执行。
 
 用户要求恢复、继续上次测试或查找未完成任务时，先执行[引导式恢复](references/resume.md)，找到并确定历史任务后再进入对应阶段；此入口先于 setup 和新 run 创建，不要求用户记住或输入 runId。
@@ -49,7 +51,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 - 按 setup 读取当前 Agent 配置、展示角色—模型—强度表并收集缺失选择。Jev 决策内置，只引导用户设置 `TYPESAFE_API_KEY`，冻结 runConfigPath。
 - 提出选择即暂停整个主流程，收到实际回答才继续。沿用 setup 的结构化问答工具选择和等待规则。
-- 模型角色按冻结配置通过宿主子 Agent 或已验证 API 调用。inherit-parent 省略模型参数。
+- 模型角色按冻结配置及[已验证的追加调整](../decision-router/references/config-changes.md)通过宿主子 Agent 或已验证 API 调用。inherit-parent 省略模型参数。
 - 能力缺失或策略不允许时 BLOCKED，不能由主会话冒充。映射与强度见 [模型规范](../setup-argus/references/models.md)。
 
 ## 3. 冻结场景并生成用例
