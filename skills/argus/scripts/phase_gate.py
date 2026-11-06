@@ -17,7 +17,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "prd-to-cases/scripts"))
-from generation import evaluate, safe_path
+from generation import digest, evaluate, file_hash, safe_path
+from case_contract import validate_steps
 
 LOCAL_HOSTS = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?")
 URL_HOST = re.compile(r"https?://([^/\s\"'`)]+)")
@@ -131,10 +132,10 @@ class Gate:
                 bad.append(f"{case_id}: semanticReview={item.get('semanticReview')!r}")
             if not item.get("automationRef"):
                 bad.append(f"{case_id}: automationRef")
-            if not item.get("steps"):
-                bad.append(f"{case_id}: steps")
-            if not item.get("assertions"):
-                bad.append(f"{case_id}: assertions")
+            try:
+                validate_steps(item.get("steps"), item.get("assertions"))
+            except ValueError as exc:
+                bad.append(f"{case_id}: {exc}")
         self.need(not bad, "用例字段不完整：" + ", ".join(bad[:10]))
         if any(item.get("suite") == "ui" for item in cases):
             self.need_file("evidence/page-map.json", "UI 用例缺少本 run 页面地图")
@@ -149,19 +150,43 @@ class Gate:
         if not self.need(isinstance(review, dict) and bool(review), "缺少 cases/semantic-review.json（Jev 语义审查回执）"):
             return
         self.need(bool(review.get("model")), "semantic-review 缺少 model 标识")
-        verdicts = review.get("cases") or {}
-        pass_at = (review.get("thresholds") or {}).get("pass", 0.8)
-        accepted = {k for k, v in verdicts.items() if v.get("acceptedReason")}
-        unreviewed = [item.get("caseId") for item in cases if (item.get("caseId") or "") not in verdicts]
-        self.need(not unreviewed, "语义审查未覆盖用例：" + ", ".join(unreviewed[:8]))
-        weak = [
-            case_id
-            for case_id, verdict in verdicts.items()
-            if isinstance(verdict.get("final"), (int, float))
-            and verdict["final"] < pass_at
-            and case_id not in accepted
-        ]
-        self.need(not weak, "语义审查低分且未记录处理：" + ", ".join(weak[:8]))
+        definitions = read_json(Path(__file__).resolve().parents[2] / "decision-router/references/questions.json")
+        self.need(review.get("questionSetVersion") == definitions["questionSetVersion"], "语义题集版本不匹配")
+        self.need(review.get("inputHash") == semantic_input_hash(self.run_dir), "语义审查输入已变化或缺少绑定")
+        impact = read_json(self.run_dir / "cases/impact-analysis.json")
+        case_ids = {c["caseId"] for c in cases}
+        groups = {
+            "sources": {s["sourceId"] for s in impact["sources"] if s["kind"] in {"prd", "history", "contract", "business_rule"}},
+            "impacts": {c["checkId"] for c in impact["checks"]},
+            "cases": case_ids, "realization": case_ids, "ruleSupport": case_ids,
+        }
+        pass_at = definitions["thresholds"]["noulYes"]
+        for group, expected in groups.items():
+            verdicts = review.get(group, {})
+            if not self.need(isinstance(verdicts, dict) and set(verdicts) == expected,
+                             "语义审查主体不完整：" + group):
+                continue
+            for ident, verdict in verdicts.items():
+                label = group + "/" + ident
+                score = verdict.get("final")
+                valid = type(score) in (int, float) and 0 <= score <= 1
+                self.need(valid, "语义概率无效：" + label)
+                self.need(valid and (score >= pass_at or bool(verdict.get("acceptedReason"))),
+                          "语义审查低分未处理：" + label)
+                ref = verdict.get("evidenceRef")
+                if self.need(isinstance(ref, str) and bool(ref), "缺少语义回执：" + label):
+                    path = safe_path(self.run_dir, ref)
+                    self.need(path.is_file() and verdict.get("evidenceHash") == file_hash(path),
+                              "语义回执不存在或已变化：" + label)
+
+    def semantic(self) -> None:
+        """Design review accepts draft cases without requiring scripts or a browser."""
+        cases = read_json(self.run_dir / "cases/cases.json")
+        if not self.need(isinstance(cases, list) and bool(cases), "缺少设计用例"):
+            return
+        for case in cases:
+            validate_steps(case.get("steps"), case.get("assertions"))
+        self._semantic_review(cases)
 
     def publish(self, task_id=None) -> None:
         """Validate immutable approval, ownership and bytes before any publication."""
@@ -278,12 +303,25 @@ PHASES = {
     "target": "target",
     "dispatch": "dispatch",
     "cases": "cases",
+    "semantic": "semantic",
     "scripts": "scripts",
     "publish": "publish",
     "review": "review",
     "execution": "execution",
     "report": "report",
 }
+
+
+def semantic_input_hash(run_dir):
+    inputs = {name: read_json(run_dir / "cases" / (name + ".json"))
+              for name in ("impact-analysis", "acs", "scenarios", "cases")}
+    if any(value is None for value in inputs.values()):
+        raise ValueError("missing semantic review inputs")
+    # Review flags and later script binding do not change the approved business meaning.
+    inputs["cases"] = [{k: v for k, v in case.items()
+                        if k not in {"reviewStatus", "semanticReview", "automationRef"}}
+                       for case in inputs["cases"]]
+    return digest(inputs)
 
 
 def main() -> int:

@@ -58,6 +58,10 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 worker 完成后最后写 `任务ID/attempt/result.json`，字段为 schemaVersion、runId、planHash、taskId、attempt、state="completed"、dependencyHashes、files、cases、resultHash。dependencyHashes 精确绑定所有直接上游 taskId → 已接受 resultHash；files 是 outputFiles 路径 → 文件 SHA-256；resultHash 是去除自身字段后整个回执的 generation.digest。每组 cases 必须完整包含分配的 caseIds，场景关联不能越组，reviewStatus 和 semanticReview 均为 draft。
 
+回执另必填 `unresolvedObligations`：无缺口填 `[]`；未覆盖或交给其他组的义务填 `{obligationId, reason}`，新增候选也先分配稳定义务ID。notes 同步解释但不替代此字段。非空或缺字段时 generation.py 阻断。主 Agent 对照原始回执逐项落实到接收任务、场景、caseId和断言；缺失场景按新计划版本补生成并重新收回回执，不能只把清单清空、代 worker 改哈希或说“其他组负责”就合并。
+
+每个业务步骤必须有绑定其 stepId 的断言。仅准备/清理步骤可标 `kind=setup|cleanup` 并填写 `assertionExemption`，解释为何不是本用例待测行为；未标 kind 默认为 action，不能靠豁免文字跳过。准备数据本身是验收目标、取消操作要验证不发信、空内容提交要验证默认正文时，均是业务步骤。条件断言需由 fixtures 保证触发；“有空值则显示占位”不能代替明确的空值样本。
+
 阶段 A 没有脚本，automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`：只承诺脚本阶段会落这个文件名与标题，不声称文件已存在。阶段 B 生成脚本后，主 Agent 跑 runner discovery，在独立的 execution-cases.json 中把 automationRef 绑定为真实入口 `文件::标题`，保留已审批 cases.json；文件存在只说明入口存在，业务断言仍由语义审查与执行验证。
 
 脚本检查全部分片、输入/输出哈希、依赖、文件所有权、唯一 ID、场景集合、步骤断言及入口文件。所有任务完整才给生成 status=PASSED。用 `--merge <新的输出路径>` 写合并的 draft 用例数组；输出相同字节时幂等成功，异内容拒绝覆盖；只规范化 JSON 格式与排序，不自动补写或改写 draft、审批状态和关键引用。缺少 phase 的旧计划仍按旧版文件入口契约校验，迁移必须创建新计划。该状态仅代表生成结构完整，不代表覆盖或业务测试通过。

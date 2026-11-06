@@ -47,7 +47,8 @@ class GenerationTests(unittest.TestCase):
                 "automationRef": f"{tid}/{attempt}/test.py:test_case_{i}"}
         receipt = {"schemaVersion": 1, "runId": "run-1", "planHash": generation.digest(self.plan),
                    "taskId": tid, "attempt": attempt, "state": "completed", "dependencyHashes": dependencies or {},
-                   "files": {"test.py": generation.file_hash(directory / "test.py")}, "cases": [case]}
+                   "files": {"test.py": generation.file_hash(directory / "test.py")}, "cases": [case],
+                   "unresolvedObligations": []}
         self.write_receipt(i, receipt)
         return receipt
 
@@ -183,6 +184,40 @@ class GenerationTests(unittest.TestCase):
             self.write_receipt(1, receipt)
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, error):
                 self.evaluate()
+
+    def test_business_step_without_assertion_cannot_merge(self):
+        receipt = self.complete(1)
+        receipt['cases'][0]['steps'].append({'id': 'empty', 'action': 'Clear content and submit'})
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, 'empty.*assertion'):
+            self.evaluate()
+
+    def test_only_explained_setup_and_cleanup_may_omit_assertions(self):
+        receipt = self.complete(1)
+        step = {'id': 'prepare', 'action': 'Open the page', 'kind': 'setup',
+                'assertionExemption': 'Navigation only; submit asserts the result'}
+        receipt['cases'][0]['steps'].insert(0, step)
+        self.write_receipt(1, receipt)
+        self.assertIn('G1', self.evaluate()['completed'])
+        step['kind'] = 'action'
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, 'prepare.*assertion'):
+            self.evaluate()
+
+    def test_handoff_in_notes_cannot_close_unresolved_obligation(self):
+        receipt = self.complete(1)
+        receipt['unresolvedObligations'] = [{'obligationId': 'O-CC',
+                                            'reason': 'Recipient editing belongs to modal group'}]
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, 'unresolved.*O-CC'):
+            self.evaluate()
+
+    def test_missing_obligation_receipt_is_not_an_empty_gap_list(self):
+        receipt = self.complete(1)
+        receipt.pop('unresolvedObligations', None)
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, 'unresolvedObligations'):
+            self.evaluate()
 
     def test_case_only_planned_reference_and_partial_reuse(self):
         self.plan["phase"] = "cases"

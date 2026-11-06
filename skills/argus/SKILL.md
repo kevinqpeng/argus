@@ -15,7 +15,7 @@ description: Orchestrates full PRD acceptance or selected test stages, including
 
 Web 与移动端目标配置按 [私有工作区](../setup-argus/references/storage.md) 在本机文件保存。
 
-过程要求由 [阶段门禁](references/gates.md) 强制执行；每个阶段结束前运行 `python3 <本目录>/scripts/phase_gate.py <runDir> --phase <target|dispatch|cases|execution|report>`，BLOCKED 时停在该阶段。
+过程要求由 [阶段门禁](references/gates.md) 强制执行；每个阶段结束前运行 `python3 <本目录>/scripts/phase_gate.py <runDir> --phase <target|dispatch|semantic|cases|execution|report>`，BLOCKED 时停在该阶段。
 
 移动端先自动探测补齐，只引导用户补充无法确定的必填项。
 
@@ -59,10 +59,10 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 读 [prd-to-cases](../prd-to-cases/SKILL.md)，先完成多来源与跨模块影响分析、明确测试义务及未知规则，再提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。按其指引做语义映射并核对表格、Markdown 与 JSON 一致。
 - 影响探索按 prd-to-cases 的复杂度规则采用单 Agent 或 reasoning 子 Agent 并行，完成跨任务依赖合并与复核后才冻结场景；此调度独立于后续用例生成。
 - 此阶段只设计和生成用例，不判断或执行 MySQL 核验；在执行每条用例前再判断是否需要数据库配合。
-- 用例与脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取，分两阶段、不混批：本阶段**只生成用例**（按 AC 域切 ≥5 组，产出 cases.json + notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
+- 用例与脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取，分两阶段、不混批：本阶段**只生成用例**（按 prd-to-cases 的分组契约分配场景，产出 cases.json + notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
 - 调度证据是产物的一部分：影响探索写 `cases/exploration.md`（方式判定、依据、任务与回执），生成写 `cases/generation/plan.json`、`state.json` 和每个任务 `result.json`。主会话直接写出 `cases.json` 而无任何任务回执时，产物无效，按 [门禁二](references/gates.md#门禁二并行调度阶段-3进入阶段-4-前必须-passed) BLOCKED。宿主无子 Agent 能力或冻结角色不可调用时保持 BLOCKED，主会话不能冒充。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。
-- 合并后先用 [decision-router](../decision-router/SKILL.md) 调 Jev 逐条审查「断言是否覆盖场景与 AC 的可观察结果」，回执写 `cases/semantic-review.json`，再按 [评审表生成契约](../prd-to-cases/references/review-table.md) 调度干净上下文的独立 Agent 生成 `cases/cases.xlsx` 与 `cases/cases.md`，主 Agent 核对映射后发布。低于阈值的用例要么改断言复测，要么在回执写处理理由；不做语义审查即无法通过 [门禁三·五](references/gates.md#门禁三·五五语义审查阶段-41-人工评审前必须-passed)。缺陷探测型用例按 PRD 写断言，不按实测行为写。
+- 合并后按 [语义门禁](references/gates.md#门禁三五语义审查阶段-41-人工评审前必须-passed) 汇总来源召回、影响证据、条件触发、结果断言和预期依据的 Jev 回执，写 `cases/semantic-review.json` 并运行 `phase_gate.py --phase semantic`。通过后按 [评审表生成契约](../prd-to-cases/references/review-table.md) 调度干净上下文的独立 Agent 生成 `cases/cases.xlsx` 与 `cases/cases.md`，主 Agent 核对映射后发布。低于阈值时补证据或修改后复核；缺陷探测型用例按 PRD 写断言，不按实测行为写。
 - 范围内业务义务预期未明确、影响分析缺口或未授权关联范围保留记录并阻断全量执行；可交付 partial 材料，不通过删除义务提高覆盖。
 
 ## 4. 检查计划覆盖门禁

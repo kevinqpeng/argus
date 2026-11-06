@@ -10,6 +10,9 @@ import unicodedata
 import time
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus/scripts"))
+from case_contract import validate_steps
+
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
@@ -73,12 +76,7 @@ def validate_case(case, scenario_ids, review_status):
             and isinstance(case["fixtures"], list), "invalid case fields")
     assigned = unique(case["scenarioIds"], "case scenarios")
     require(assigned and assigned <= set(scenario_ids), "case outside task scope")
-    step_ids = unique([s["id"] for s in case["steps"]], "step IDs")
-    require(step_ids and all(isinstance(s["action"], str) and s["action"].strip()
-                             for s in case["steps"]), "missing steps")
-    require(case["assertions"] and all(a["stepId"] in step_ids and
-            isinstance(a["expected"], str) and a["expected"].strip() for a in case["assertions"]),
-            "missing or unbound assertions")
+    validate_steps(case["steps"], case["assertions"])
     return assigned
 
 
@@ -174,6 +172,9 @@ def evaluate(plan, state, root):
                 "stale dependency artifacts: " + tid)
         require(receipt["resultHash"] == digest({k: v for k, v in receipt.items() if k != "resultHash"}),
                 "receipt hash mismatch: " + tid)
+        gaps = receipt.get("unresolvedObligations")
+        require(isinstance(gaps, list), "missing unresolvedObligations receipt: " + tid)
+        require(not gaps, "unresolved obligations in " + tid + ": " + json.dumps(gaps, ensure_ascii=False))
         require(set(receipt["files"]) == set(task["outputFiles"]), "output ownership mismatch: " + tid)
         actual_files = set()
         for path in directory.rglob("*"):

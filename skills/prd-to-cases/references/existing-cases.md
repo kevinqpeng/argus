@@ -25,6 +25,8 @@
 
 从明确的预期提取 requirements、AC、scenarios 与 obligations，每项均追溯原行和确认依据。按现有影响分析核对依赖与六维检查；无源码明确证据边界，不虚构 PRD 或“不适用”。发现外部用例未覆盖的已知相关义务时保留缺口；未授权扩展的范围保持 partial，不擅自增加用例或把遗漏排除后宣称全量通过。
 
+sourceUnits 保留该行的 sourceExcerpt 原文和单元格定位。无断言的业务步骤标 needs_clarification，不静默删掉或标为准备步骤；仅真实准备/清理按共享步骤契约记录豁免。交回新增用例与原需求冲突时同时保留两份依据，不能因为原表写“通过”就替换产品规则。
+
 ## 3. 规范化与校验
 
 由现有 generation 子 Agent 按[用例生成契约](parallel-generation.md)执行转换任务，输入增加原始用例及逐行映射，输出仍为 cases.json + notes.md。taskId、caseId、归属、分片哈希和 dispatch 门禁不变。worker 只做字段规范化，不重新设计已有步骤/预期；补充建议单列，得到范围与规则确认后才进入新版基线。
