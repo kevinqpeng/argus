@@ -15,8 +15,52 @@ from pathlib import Path
 
 from decisions import route
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus/scripts"))
+from metrics import record
+
 DEFINITIONS = json.loads((Path(__file__).resolve().parents[1] / "references/questions.json").read_text())
 URL = "https://api.typesafe.ai/v1/systemone"
+
+
+def evidence_hash(evidence):
+    return hashlib.sha256(json.dumps(evidence, sort_keys=True, ensure_ascii=False,
+                                    separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def text_state(state, bindings):
+    contract = DEFINITIONS["textStateContract"]
+    if not isinstance(state, dict) or not isinstance(state.get("subjects"), dict):
+        raise ValueError("text state requires subjects keyed by question instance ID")
+    selected = {}
+    for name, question_id in bindings.items():
+        record = state["subjects"].get(name)
+        if not isinstance(record, dict) or any(k not in record for k in contract["required"]):
+            raise ValueError("missing evidence or evidenceHash: " + name)
+        evidence = record["evidence"]
+        if not isinstance(evidence, dict) or not evidence:
+            raise ValueError("evidence must be a nonempty object: " + name)
+        if record["evidenceHash"] != evidence_hash(evidence):
+            raise ValueError("changed or truncated evidence: " + name)
+        if question_id == "mapping":
+            if any(not evidence.get(k) for k in contract["mappingRequired"]):
+                raise ValueError("mapping requires complete acceptance, steps and assertions: " + name)
+            if not isinstance(evidence["acceptance"], (str, dict)):
+                raise ValueError("mapping acceptance must be text or an AC object")
+            steps, assertions = evidence["steps"], evidence["assertions"]
+            if not isinstance(steps, list) or not isinstance(assertions, list):
+                raise ValueError("mapping steps and assertions must be arrays")
+            ids = {s.get("id") for s in steps if isinstance(s, dict)}
+            if len(ids) != len(steps) or not all(isinstance(s, dict) and isinstance(s.get("id"), str)
+                    and s["id"].strip() and isinstance(s.get("action"), str) and s["action"].strip() for s in steps):
+                raise ValueError("mapping requires complete steps")
+            if not all(isinstance(a, dict) and a.get("stepId") in ids and isinstance(a.get("expected"), str)
+                       and a["expected"].strip() for a in assertions):
+                raise ValueError("mapping requires bound assertions")
+        selected[name] = {"evidence": evidence, "evidenceHash": record["evidenceHash"]}
+    compact = {"subjects": selected}
+    if len(json.dumps(compact, ensure_ascii=False, allow_nan=False).encode()) > contract["maxBytes"]:
+        raise ValueError("decision evidence exceeds local byte budget; split independent questions, never truncate")
+    return compact
 
 
 def normalize(response, questions):
@@ -115,6 +159,10 @@ def build_request(data, visual_model=None):
         hashes["screenshot"] = hashlib.sha256(blob).hexdigest()
     elif data.get("images"):
         raise ValueError("images require visual questions")
+    else:
+        payload["state"] = text_state(data.get("state"), bindings)
+        for name in questions:
+            questions[name]["instructions"] += "\nEvidence: state.subjects[" + json.dumps(name) + "].evidence"
     return payload, hashes
 
 def main():
@@ -123,7 +171,10 @@ def main():
     parser.add_argument("--raw", type=Path, required=True, help="Private path for the original response")
     parser.add_argument("--run-config", type=Path, help="Frozen Argus run configuration (required for images)")
     parser.add_argument("--output", type=Path, required=True, help="Private path for decisions.py input")
+    parser.add_argument("--metrics", type=Path, help="Run metrics.jsonl; defaults beside normalized output")
     args = parser.parse_args()
+    started = time.monotonic()
+    calls, usage, status, error_kind = 0, "unknown", "BLOCKED", "input_contract"
     try:
         key = os.environ.get("TYPESAFE_API_KEY")
         if not key:
@@ -133,18 +184,21 @@ def main():
         if args.run_config:
             visual_model = json.loads(args.run_config.read_text())["config"]["decision"].get("visualModel")
         payload, image_hashes = build_request(data, visual_model)
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
         if len(body) > 32 * 1024 * 1024:
             raise ValueError("request body exceeds 32 MiB")
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
         if image_hashes:
             headers["TypeSafe-Danger-Zone-Images"] = "true"
         request = urllib.request.Request(URL, data=body, headers=headers)
-        started = time.monotonic()
+        error_kind = "transport"
+        calls = 1
         with urllib.request.urlopen(request, timeout=10) as result:
             if result.headers.get_content_type() != "application/json":
                 raise ValueError("unexpected response content type")
             response = json.load(result)
+        error_kind = "response_contract"
+        usage = response.get("usage", "unknown")
         if image_hashes and response.get("model") != payload["model"]:
             raise ValueError("visual response model mismatch")
         normalized = normalize(response, payload["questions"])
@@ -160,11 +214,23 @@ def main():
             normalized["request"]["caseId"] = data["caseId"]
         args.raw.write_text(json.dumps(response, ensure_ascii=False))
         args.output.write_text(json.dumps(normalized, ensure_ascii=False))
+        status = "PASSED"
         print(json.dumps({"model": response["model"], "usage": response.get("usage", "unknown"), "raw": str(args.raw), "normalized": str(args.output)}))
         return 0
     except (ValueError, KeyError, TypeError, AttributeError, OSError, urllib.error.URLError) as exc:
-        print(json.dumps({"status": "BLOCKED", "reason": str(exc)}), file=sys.stderr)
+        retryable = isinstance(exc, (TimeoutError, urllib.error.URLError)) and not isinstance(exc, urllib.error.HTTPError)
+        if isinstance(exc, urllib.error.HTTPError):
+            retryable = exc.code == 429 or 500 <= exc.code < 600
+            exc.close()
+        if calls and isinstance(exc, (ValueError, KeyError, TypeError, AttributeError)):
+            error_kind = "response_contract"
+        print(json.dumps({"status": "BLOCKED", "reason": str(exc), "errorKind": error_kind,
+                          "retryable": retryable}), file=sys.stderr)
         return 2
+    finally:
+        record(args.metrics or args.output.with_suffix(".metrics.jsonl"), "jev", started, status,
+               calls=calls, usage=usage, errorKind=None if status == "PASSED" else error_kind,
+               contractErrorRetries=0)
 
 
 if __name__ == "__main__":

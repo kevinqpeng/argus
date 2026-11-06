@@ -52,6 +52,11 @@ class GenerationTests(unittest.TestCase):
         return receipt
 
     def write_receipt(self, i, receipt):
+        if self.plan.get("phase") == "cases":
+            directory = self.root / f"G{i}" / str(self.state["attempts"][f"G{i}"])
+            (directory / "test.py").unlink(missing_ok=True)
+            (directory / "cases.json").write_text(json.dumps(receipt["cases"]))
+            receipt["files"] = {"cases.json": generation.file_hash(directory / "cases.json")}
         receipt["resultHash"] = generation.digest({k: v for k, v in receipt.items() if k != "resultHash"})
         path = self.root / f"G{i}" / str(self.state["attempts"][f"G{i}"]) / "result.json"
         path.write_text(json.dumps(receipt))
@@ -168,6 +173,37 @@ class GenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlink"):
             self.evaluate()
 
+    def test_draft_and_reference_contracts(self):
+        for field, value, error in [("reviewStatus", "approved", "draft"),
+                                    ("semanticReview", "approved", "draft"),
+                                    ("automationRef", "", "missing automationRef"),
+                                    ("automationRef", "G2/1/test.py:other", "outside owned")]:
+            receipt = self.complete(1)
+            receipt["cases"][0][field] = value
+            self.write_receipt(1, receipt)
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, error):
+                self.evaluate()
+
+    def test_case_only_planned_reference_and_partial_reuse(self):
+        self.plan["phase"] = "cases"
+        for task in self.plan["tasks"]:
+            task["outputFiles"] = ["cases.json"]
+        self.reset_state()
+        for i in (1, 2):
+            receipt = self.complete(i)
+            receipt["cases"][0]["automationRef"] = f"planned:group{i}.spec.ts::case {i}"
+            self.write_receipt(i, receipt)
+        self.assertEqual(self.evaluate()["status"], "PASSED")
+        self.state["failed"] = ["G2"]
+        result = self.evaluate()
+        self.assertEqual(set(result["completed"]), {"G1"})
+        self.assertNotIn("G1", result["ready"])
+        receipt["cases"][0]["automationRef"] = "planned:../outside.spec.ts::case 2"
+        self.write_receipt(2, receipt)
+        self.state["failed"] = []
+        with self.assertRaisesRegex(ValueError, "unsafe path"):
+            self.evaluate()
+
     def test_cli_merge_refuses_partial_and_overwrite(self):
         plan = self.root / "plan.json"
         state = self.root / "state.json"
@@ -185,8 +221,12 @@ class GenerationTests(unittest.TestCase):
         original = output.read_bytes()
         self.assertEqual(len(json.loads(original)), 2)
         result = subprocess.run(command, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.returncode, 0)
         self.assertEqual(output.read_bytes(), original)
+        output.write_text("reviewed content")
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(output.read_text(), "reviewed content")
 
 
 if __name__ == "__main__":

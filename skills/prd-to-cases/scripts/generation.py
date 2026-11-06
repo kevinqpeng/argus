@@ -7,6 +7,8 @@ import os
 from pathlib import Path, PurePosixPath
 import tempfile
 import unicodedata
+import time
+import sys
 
 
 def digest(value):
@@ -49,8 +51,55 @@ def file_hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def publish_bytes(target, content):
+    """Atomic create; an identical retry is safe, a conflicting write is not."""
+    require(not target.is_symlink(), "symlink publication target")
+    with tempfile.NamedTemporaryFile(dir=target.parent) as output:
+        output.write(content)
+        output.flush()
+        os.fsync(output.fileno())
+        try:
+            os.link(output.name, target)
+        except FileExistsError:
+            require(not target.is_symlink() and target.read_bytes() == content,
+                    "publication conflicts with existing artifact: " + str(target))
+
+
+def validate_case(case, scenario_ids, review_status):
+    require(case["schemaVersion"] == 1 and case["reviewStatus"] == review_status
+            and case["semanticReview"] == review_status, "case review statuses must be " + review_status)
+    require(case["suite"] in ("ui", "api", "performance", "security")
+            and case["priority"] in ("P0", "P1", "P2", "P3")
+            and isinstance(case["fixtures"], list), "invalid case fields")
+    assigned = unique(case["scenarioIds"], "case scenarios")
+    require(assigned and assigned <= set(scenario_ids), "case outside task scope")
+    step_ids = unique([s["id"] for s in case["steps"]], "step IDs")
+    require(step_ids and all(isinstance(s["action"], str) and s["action"].strip()
+                             for s in case["steps"]), "missing steps")
+    require(case["assertions"] and all(a["stepId"] in step_ids and
+            isinstance(a["expected"], str) and a["expected"].strip() for a in case["assertions"]),
+            "missing or unbound assertions")
+    return assigned
+
+
+def validate_automation_ref(case, task, attempt, files, phase):
+    ref = case.get("automationRef")
+    require(isinstance(ref, str) and ref.strip(), "missing automationRef: " + case["caseId"])
+    if phase == "cases":
+        require(ref.startswith("planned:"), "case generation requires planned automationRef")
+        path, separator, title = ref[len("planned:"):].partition("::")
+        require(separator and title.strip(), "planned automationRef requires file::title")
+        safe_path(Path("/generation-check"), path)
+    else:
+        entry, separator, title = ref.partition(":")
+        require(separator and title.strip(), "automationRef requires an entry title")
+        require(entry in {f"{task['taskId']}/{attempt}/{n}" for n in files},
+                "automationRef outside owned files")
+
+
 def validate_plan(plan):
     require(plan["schemaVersion"] == 1 and plan["runId"], "invalid generation identity")
+    require(plan.get("phase", "legacy") in ("legacy", "cases"), "unknown generation phase")
     for key in ("inputHash", "baselineHash"):
         value = plan[key]
         require(isinstance(value, str) and len(value) == 64 and
@@ -137,27 +186,16 @@ def evaluate(plan, state, root):
             require(file_hash(path) == expected, "artifact hash mismatch: " + tid + "/" + name)
             artifacts[f"{tid}/{attempts[tid]}/{name}"] = expected
         shard_cases = receipt["cases"]
+        if plan.get("phase") == "cases":
+            require("cases.json" in receipt["files"], "case phase requires cases.json")
+            require(json.loads(safe_path(directory, "cases.json").read_text()) == shard_cases,
+                    "cases.json differs from receipt cases: " + tid)
         require(unique([c["caseId"] for c in shard_cases], "caseIds") == set(task["caseIds"]),
                 "case assignment mismatch: " + tid)
         covered = set()
         for case in shard_cases:
-            require(case["schemaVersion"] == 1 and case["reviewStatus"] == "draft"
-                    and case["semanticReview"] == "draft", "workers must submit draft cases")
-            require(case["suite"] in ("ui", "api", "performance", "security")
-                    and case["priority"] in ("P0", "P1", "P2", "P3")
-                    and isinstance(case["fixtures"], list), "invalid case fields")
-            assigned = unique(case["scenarioIds"], "case scenarios")
-            require(assigned and assigned <= set(task["scenarioIds"]), "case outside task scope")
-            covered |= assigned
-            step_ids = unique([s["id"] for s in case["steps"]], "step IDs")
-            require(step_ids and all(isinstance(s["action"], str) and s["action"].strip()
-                                     for s in case["steps"]), "missing steps")
-            require(case["assertions"] and all(a["stepId"] in step_ids and
-                    isinstance(a["expected"], str) and a["expected"].strip() for a in case["assertions"]),
-                    "missing or unbound assertions")
-            entry = case["automationRef"].split(":", 1)[0]
-            require(entry in {f"{tid}/{attempts[tid]}/{n}" for n in receipt["files"]},
-                    "automationRef outside owned files")
+            covered |= validate_case(case, task["scenarioIds"], "draft")
+            validate_automation_ref(case, task, attempts[tid], receipt["files"], plan.get("phase", "legacy"))
         require(covered == set(task["scenarioIds"]), "unrepresented assigned scenarios: " + tid)
         completed[tid] = receipt["resultHash"]
         cases.extend(shard_cases)
@@ -176,24 +214,29 @@ def main():
     parser.add_argument("state", type=Path)
     parser.add_argument("--root", type=Path, required=True, help="Private generation directory")
     parser.add_argument("--merge", type=Path, help="Write draft cases only when all shards are complete")
+    parser.add_argument("--metrics", type=Path, help="Run metrics.jsonl")
     args = parser.parse_args()
+    started = time.monotonic()
+    status = "BLOCKED"
     try:
         result = evaluate(json.loads(args.plan.read_text()), json.loads(args.state.read_text()), args.root)
         if args.merge:
             require(result["status"] == "PASSED", "cannot merge incomplete generation")
             content = json.dumps(result["cases"], ensure_ascii=False, indent=2) + "\n"
-            # Publish complete bytes without overwriting reviewed cases.
-            with tempfile.NamedTemporaryFile(dir=args.merge.parent, mode="w", encoding="utf-8") as output:
-                output.write(content)
-                output.flush()
-                os.fsync(output.fileno())
-                os.link(output.name, args.merge)
+            publish_bytes(args.merge, content.encode("utf-8"))
         result.pop("cases")
+        status = result["status"]
+        result["durationMs"] = round((time.monotonic() - started) * 1000, 3)
         print(json.dumps(result, ensure_ascii=False))
         return 2 if result["status"] == "BLOCKED" else 0
     except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
         print(json.dumps({"schemaVersion": 1, "status": "BLOCKED", "reason": str(exc)}))
         return 2
+    finally:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus/scripts"))
+        from metrics import record
+        record(args.metrics or args.root / "validation.metrics.jsonl", "validation", started, status,
+               contractErrorRetries=0)
 
 
 if __name__ == "__main__":

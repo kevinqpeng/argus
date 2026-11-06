@@ -44,6 +44,11 @@ Use the [shared scheduler](../argus/references/scheduling.md) for both generatio
 - Switch explicitly between native and WebView contexts.
 - A WebView that cannot be inspected blocks its cases; an external browser is not a substitute.
 - Before generating scripts, build and reuse the run's page map under the [page exploration and failure diagnostics rules](../argus/references/page-diagnostics.md).
+- Run exploration.py plan over all approved cases and required device matrices before collecting UI. Deduplicate by screen, state, role/tenant, device/OS/orientation/language and native/WebView context. Android and iOS have separate tasks and locators. Run check before batch script generation; keep the existing Appium language and runner.
+- Probe necessary controls first: accessibility ID, Android resource-id or stable native strategy; on iOS prefer accessibility ID, predicate or class chain. XPath is a fallback. Validate uniqueness and the action's actual usability. Cache locator descriptions, never Appium element IDs; reacquire after transitions or stale references.
+- Fetch page source only when targeted probes and existing scoped evidence cannot resolve required controls. Share that source among needs in the same stable screen; parse locally instead of fetching once per element. Full hierarchy may be unavoidable on a driver: record the real getPageSource cost, then retain only redacted relevant evidence. Do not claim subtree retrieval when the driver returned the whole tree.
+- Optional exploration screenshots require a planned visual check or ambiguity. Keep mandatory attempt/failure evidence below. Measure getPageSource, findElement/findElements, screenshot, navigation and session commands separately, identifying UiAutomator2 or XCUITest/WDA. Account for command transport time separately from host reasoning.
+- Before each command use exploration.py allow; bound client/transport and explicit waits by its timeoutMs, including implicit-wait cost. A hung in-flight command blocks that session until safely stopped; do not send overlapping recovery commands or start a new command merely because a host timer expired. The coordinator alone updates budgets; independent devices may proceed separately.
 
 ## 5. Run cases and verify business state
 
@@ -110,3 +115,5 @@ Request a device setting or permission change only when the observed error or ve
 ```
 
 Add one target per authorized device. Use the Android application ID or iOS bundle ID for `appId`. The user fills `accounts` locally; add entries for each required role and optional `tenant`. Use `{}` when no login is needed. Preserve existing `credentialsRef` entries for compatibility; new account configuration uses `accounts`.
+
+两阶段脚本生成时，执行与执行覆盖使用 `cases/execution-cases.json` 中已发布入口；人工评审与原始计划仍绑定不可变的 `cases/cases.json`。先按 [产物生命周期](../argus/references/lifecycle.md) 完成 bind 和 scripts 门禁，不能手工改写审批文件来匹配 runner。
