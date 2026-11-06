@@ -32,13 +32,13 @@ PRD sourceHash 是源文件原始字节的 SHA-256；RequirementAC 新增 source
 
 形式化子技能在基线冻结前运行的纯模型检查属于用例设计分析，仅操作仓库外模型，不连接真实目标。模型反例的真实代码、应用、API 或数据库回放仍受本门禁约束。形式化事实与独立门禁按 [子技能](../skills/formal-verification/SKILL.md) 保存，模型状态不进入业务覆盖分母。
 
-从本 run 的冻结配置读取 `execution.requireHumanCaseReview`，缺省为 `true`。仅布尔值 `false` 关闭人工门禁，并在 `manifest.gates.humanCaseReview` 记录 `status=N/A` 和关闭依据。开关按 [配置规范](../../setup-argus/references/config.md) 保存及冻结，Agent 不得自行关闭、因用户未回答而关闭，或以“全自动”“继续测试”等泛化授权推断关闭。
+从本 run 的冻结配置读取 `execution.requireHumanCaseReview`，缺省为 `true`。仅布尔值 `false` 关闭人工门禁，并在 `manifest.gates.humanCaseReview` 记录 `status=N/A` 和关闭依据。关闭依据必须符合 [本地证据契约](case-review.md#本地证据契约)，并核验初始化配置哈希与关闭授权。开关按 [配置规范](../../setup-argus/references/config.md) 保存及冻结，Agent 不得自行关闭、因用户未回答而关闭，或以“全自动”“继续测试”等泛化授权推断关闭。
 
 开关开启时，完成用例及 design 覆盖检查后，交付按日期和功能命名的 Excel 评审副本及 `cases/cases.xlsx`、`cases/cases.md`、`cases/cases.json` 的可访问位置；确保 Excel 副本与固定路径内容一致。若所选终点包含探索、脚本或执行，明确请求人员评审本轮用例，将 `manifest.state` 设为 `awaiting_case_review`，`manifest.gates.humanCaseReview.status` 设为 `BLOCKED`，暂停验证流程。仅交付用例时记录 design_completed，humanCaseReview 保持 BLOCKED 并注明尚未请求后续验证；用例交付无需等待批准。没有实际回复、超时、空回复、仅收到文件、模型或 Jev 审查通过、用例条目的 approved、覆盖达标，均不能解除此门禁。
 
-只有人员查看本轮评审材料后明确表示用例评审通过并允许验证，才记录 `status=PASSED`。同一门禁对象必须保存 `runId`、`baselineHash`、`inputHash`、`artifactHashes`、`reviewer`、`reviewedAt` 和 `approvalRef`。`artifactHashes` 是 impact-analysis.json、requirements.json、acs.json、scenarios.json、cases.json、cases.md 和 cases.xlsx 原始字节的 SHA-256 映射；`approvalRef` 指向真实人员回复或可核验的人工审批记录，不能由 Agent、子 Agent 或 Jev 代签。审批必须覆盖本轮全部选中用例与必需矩阵，未完整覆盖保持 BLOCKED。
+只有人员查看本轮评审材料后明确表示用例评审通过并允许验证，才记录 `status=PASSED`。同一门禁对象必须保存 `runId`、`baselineHash`、`inputHash`、`artifactHashes`、`reviewer`、`reviewedAt`、`approvalRef` 和 `approvalHash`。`artifactHashes` 是 impact-analysis.json、requirements.json、acs.json、scenarios.json、cases.json、cases.md 和 cases.xlsx 原始字节的 SHA-256 映射；`approvalRef` 指向 [本地证据契约](case-review.md#本地证据契约) 的证据文件，其 sourceRef 关联真实人员回复或可核验的人工审批记录，不能由 Agent、子 Agent 或 Jev 代签。审批必须覆盖本轮全部选中用例与必需矩阵，未完整覆盖保持 BLOCKED。
 
-人员要求调整时先修改并重新生成评审材料，重跑计划覆盖检查，再提交人员评审。恢复、重试、启动分片和实际执行前，核对审批对象的 runId、baselineHash、inputHash 和 artifactHashes；缺记录、记录不完整或任一内容变化时重新评审。新 run 必须取得本轮审批，不能直接复用旧 run 的通过状态。
+在线修改、附件交回和最终版审批按 [人工评审交回与证据](case-review.md) 处理；原始审批到规范化产物的关联必须可核验。人员要求 Agent 修改业务内容时先修改并重新生成评审材料，重跑 design 覆盖检查，再提交人员评审。恢复、重试、启动分片和实际执行前，核对审批对象的 runId、baselineHash、inputHash 和 artifactHashes；缺记录、记录不完整或任一内容变化时重新评审。新 run 必须取得本轮审批，不能直接复用旧 run 的通过状态。
 
 门禁通过后，按原顺序自动完成后续已授权步骤。关闭人工门禁时也继续执行覆盖、语义映射、权限和安全门禁。
 

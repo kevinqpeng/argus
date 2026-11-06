@@ -62,6 +62,61 @@ class RunIdTests(unittest.TestCase):
 
 
 class InlineOverridesTests(unittest.TestCase):
+    def test_new_runs_reuse_project_without_rewriting_setup_or_private_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            options = dict(runtime_dir=root / "runtime", state_dir=root / "state")
+            expected, sources, config_path, old_snapshot, _ = configure(
+                root / "project", "codex", **options, initialize=True,
+                overrides={"schemaVersion": 1, "execution": {"requireHumanCaseReview": False}},
+                project_overrides={"schemaVersion": 1, "delivery": {"mode": "local"},
+                                   "bugPublisher": {"method": "local", "localFormat": "csv"}})
+            project_dir = Path(sources["projectDir"])
+            private_files = [project_dir / name for name in ("web-private.json", "mysql-private.json")]
+            for path in private_files:
+                path.write_text(json.dumps({"password": "private-test-secret"}))
+                path.chmod(0o600)
+            protected = [config_path, old_snapshot, *private_files]
+            before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in protected}
+            command = [sys.executable, "-B", str(Path(__file__).with_name("host_config.py")),
+                       "--host", "codex", "--project", str(root / "new-chat-directory"),
+                       "--runtime-dir", str(root / "runtime"), "--state-dir", str(root / "state"),
+                       "--project-id", sources["projectId"]]
+            snapshots = []
+            for _ in range(2):
+                run_id = str(uuid.uuid4())
+                result = subprocess.run([*command, "--run-id", run_id], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                report = json.loads(result.stdout)
+                self.assertIsNone(report["configWritten"])
+                self.assertEqual(report["projectId"], sources["projectId"])
+                self.assertEqual(report["integrationStatus"], "NOT_VERIFIED")
+                snapshot = Path(report["runConfigPath"])
+                data = json.loads(snapshot.read_text())
+                self.assertEqual(data["config"], expected)
+                self.assertEqual(data["runId"], run_id)
+                self.assertEqual(snapshot.parent.parent, project_dir / "runs")
+                self.assertEqual(list(snapshot.parent.iterdir()), [snapshot])
+                self.assertNotIn("private-test-secret", snapshot.read_text() + result.stdout)
+                snapshots.append(snapshot)
+            self.assertNotEqual(*snapshots)
+            self.assertEqual({path: (path.read_bytes(), path.stat().st_mtime_ns) for path in protected}, before)
+            self.assertEqual([path.resolve() for path in (root / "state" / "projects").iterdir()
+                              if path.is_dir()], [project_dir])
+
+    def test_reused_run_snapshot_rejects_different_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            options = dict(runtime_dir=root / "runtime", state_dir=root / "state")
+            project = root / "project"
+            configure(project, "codex", **options, initialize=True)
+            _, _, config_path, snapshot, _ = configure(project, "codex", **options, run_id="new-run")
+            before = snapshot.read_bytes(), config_path.read_bytes()
+            with self.assertRaises(FileExistsError):
+                configure(project, "codex", **options, run_id="new-run", overrides={
+                    "schemaVersion": 1, "execution": {"requireHumanCaseReview": False}})
+            self.assertEqual((snapshot.read_bytes(), config_path.read_bytes()), before)
+
     def test_cli_accepts_confirmed_inline_overrides_and_freezes_them(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -77,6 +132,7 @@ class InlineOverridesTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
             report = json.loads(result.stdout)
             snapshot = json.loads(Path(report["runConfigPath"]).read_text())
+            self.assertEqual(report["runConfigHash"], hashlib.sha256(Path(report["runConfigPath"]).read_bytes()).hexdigest())
             self.assertEqual(snapshot["config"]["delivery"]["mode"], "local")
             self.assertTrue(snapshot["config"]["execution"]["requireHumanCaseReview"])
             self.assertEqual(list((root / "state").rglob("*.csv")), [])

@@ -1,6 +1,6 @@
 ---
 name: setup-argus
-description: Configures Argus model mappings, reasoning effort, tools and bug-recording channels. Use for setup-argus, Argus doctor, model changes or scoped reset.
+description: Configures Argus once per project and reuses saved settings for new runs. Use for setup-argus, new-run preparation, Argus doctor, model changes or scoped reset.
 ---
 
 # 初始化与诊断
@@ -17,7 +17,7 @@ description: Configures Argus model mappings, reasoning effort, tools and bug-re
 
 源码项目路径不是必填。
 
-没有项目时使用当前会话工作目录作为工作区身份，不因缺少源码阻断测试。
+项目身份先按下方复用入口确定；没有已有项目上下文时才使用当前会话工作目录，不因缺少源码阻断测试。
 
 配置保存当前 Agent 原生目录下独立的 argus 命名空间。
 
@@ -25,9 +25,21 @@ description: Configures Argus model mappings, reasoning effort, tools and bug-re
 
 setup 不产生项目 Git 改动。
 
+## 新 run 复用入口
+
+此入口先于下方初始化步骤，对完整验收、独立阶段和缺陷回归同样生效。项目首次配置后，新测试任务默认复用；创建 run 不等于重新 setup。
+
+1. 确定项目：优先复用用户指定或已有测试上下文中的 projectId；无上下文时按存储规则用项目真实路径匹配。用户提到已有项目但当前聊天目录不同，先只读查找已有项目的非敏感身份；唯一匹配后传 `--project-id`，多个候选只询问项目选择，不能因 cwd 变化另建项目或混用凭据。
+2. 读取当前宿主的持久配置和本阶段需要的项目私有文件，检查格式、权限、必需字段及授权目标。明确保存的选择（包括 false）直接复用，脚本填充的默认值不当作已确认答案。仅首次缺配置、当前阶段新增必需项或用户要求修改时，进入下方按需配置，只处理相关项；保留其余设置。更换宿主只补该宿主的角色映射和能力，不重配已有项目账号。
+3. 配置齐全时，由 Agent 生成 UUID，调用现有 `host_config.py --host <当前宿主> --project-id <已有项目ID> --run-id <UUID>`（沿用实际 runtime/state 根，不加 `--init`）。若本次补齐配置已通过 `--init` 创建本任务快照，直接使用其返回值，不再创建第二个 run。按脚本返回路径创建 manifest，记录新 run 身份、快照哈希和本轮输入；保存调用回执。已有快照保持不可变，旧 run 的审批、执行结果和 READY 状态不复制为本轮通过证据。
+4. 直接进入调用方的下一阶段，不进入下方 1–9 步：不重复设置问卷、完整宿主扫描、Jev 试调用、数据库连接测试、浏览器 smoke 或表格读写探测，不重建已有私有模板。复用兼容的已安装组件；本 run 所需依赖确实缺失时只补该依赖，安装授权沿用同目标同范围的已有授权。
+5. 实际使用能力时仍按对应阶段核验当前目标可达性、宿主角色能力、设备/账号及只读权限；保留新 run 的 harness、认证状态、资源租约和证据隔离，以及本轮人工用例评审。首次实际调用也可提供当前能力证据，失败只诊断受影响项，不回到完整 setup。普通准备不连接 MySQL；需要查库的用例按数据库核验规则执行。
+
+复用成功只简要展示项目、runId、快照位置及“沿用已保存配置”，有差异再展示相关项。历史验证注明来源和时间，未调用的能力不标当前 READY；配置完整本身不要求为创建 run 补做历史缺失的 smoke。用户显式要求 setup、doctor 或重配时才进入对应分支；完整检查只针对明确请求的范围。
+
 ## 按需配置
 
-独立子技能或选定阶段调用时，按 [工作流组合](../argus/references/workflows.md) 的终点裁剪下方普通 setup。未限定范围的 setup、完整 Argus 验收仍执行原全部步骤；只读 doctor、仅配置 MySQL 保持原分支。范围来自用户请求和调用方，不增加模式问卷或 CLI 参数。
+复用入口发现缺项或用户显式要求配置时，按 [工作流组合](../argus/references/workflows.md) 的终点与受影响能力裁剪下方普通 setup。首次完整验收初始化、用户显式要求且未限定范围的 setup 才执行全部步骤；只读 doctor、仅配置 MySQL 保持原分支。范围来自用户请求和调用方，不增加模式问卷或 CLI 参数。
 
 - 仅用例设计/导入：准备宿主、工作区、来源身份、实际使用的 reasoning/generation 角色、强度、预算和 Jev，冻结 run 快照；形式化分析按需补工具。不创建 Web/MySQL/移动端私有模板，不探测或安装浏览器/设备工具，不收集账号、执行并行或 Bug 通道。人工评审沿用已确认配置；未明确时保持 true，在后续验证请求中补齐选择。
 - 页面探索/脚本/执行：补所选平台、目标、账号、预算、隔离及所需角色/依赖。执行任务才按用例核对 MySQL 配置，需要查库时才连接。脚本只消费已有有效地图时不启动目标；缺地图按探索授权规则处理。仅脚本任务需要 runner discovery 依赖，不需要 Bug 发布配置。
@@ -47,7 +59,7 @@ setup 不产生项目 Git 改动。
 
 仅配置或测试 MySQL 时，直接按 [MySQL 项目配置](references/storage.md#mysql-项目配置) 执行，跳过下面的完整 setup 步骤。
 
-其他 setup 在收集选择前必须读取 [阻塞问答](references/interaction.md#工具选择)，调用本轮允许的真实问答工具，再等待实际回答。暂停的是 setup 的后续步骤，不是无条件结束当前轮；工具返回请求已接受不等于用户已回答或弹窗已显示。
+有尚未确认的必需选择时，读取 [阻塞问答](references/interaction.md#工具选择)，只对缺项调用本轮允许的真实问答工具，再等待实际回答。没有缺项直接继续，不为完成问答检查点重复提问。暂停的是 setup 的后续步骤，不是无条件结束当前轮；工具返回请求已接受不等于用户已回答或弹窗已显示。
 
 ## 1. 识别当前宿主
 
@@ -95,6 +107,7 @@ setup 不产生项目 Git 改动。
 ## 6. 冻结本次运行快照
 
 - 每个独立测试任务使用唯一 runId；恢复或接管同一任务保留原 runId。异内容不可覆盖同名快照。
+- 创建 run 时把返回的 runConfigHash 原样写入 manifest，保留 setup 回执；人工评审关闭授权按 [评审证据契约](../argus/references/case-review.md#本地证据契约) 留存。
 - 运行中只读 runConfigPath；需保留的诊断和运行证据写仓库外 workspacePath，一次性探测材料按上面的产物边界处理。
 - 旧名称/人员目录只做显式迁移，校验后移除旧活动入口，不并行保留两份配置。
 - 历史证据不改写。

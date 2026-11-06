@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Publish validated specs and remove only task-owned scratch resources."""
 import argparse
+from datetime import datetime
 from contextlib import contextmanager
 import fcntl
 import json
@@ -24,7 +25,26 @@ def read(run, name):
     return json.loads(safe_path(run, name).read_text())
 
 
+def human_evidence(run, reference, expected_hash, decision, scope):
+    require(bool(reference) and bool(expected_hash), "missing human evidence reference/hash")
+    require(file_hash(safe_path(run, reference)) == expected_hash, "changed human evidence")
+    evidence = read(run, reference)
+    require(evidence.get("schemaVersion") == 1 and evidence.get("actorType") == "human"
+            and evidence.get("actor") and evidence.get("sourceRef"), "missing human evidence provenance")
+    require(evidence.get("decision") == decision and evidence.get("scope") == scope,
+            "human evidence decision/scope mismatch")
+    require(datetime.fromisoformat(evidence["recordedAt"]).utcoffset() is not None,
+            "human evidence timestamp requires timezone")
+    require(evidence.get("rawRef") and evidence.get("rawHash"), "missing raw human evidence")
+    require(file_hash(safe_path(run, evidence["rawRef"])) == evidence["rawHash"],
+            "changed raw human evidence")
+    # shortcut: local hashes prove consistency only; the host must verify the original human source.
+    return evidence
+
+
 def approved_cases(run, manifest):
+    require(manifest.get("state") not in ("awaiting_case_review", "awaiting_user"),
+            "pending human response conflicts with approval")
     cases = read(run, "cases/cases.json")
     require(isinstance(cases, list) and cases, "missing approved cases")
     require(all(c.get("reviewStatus") == "approved" and c.get("semanticReview") == "approved"
@@ -34,6 +54,8 @@ def approved_cases(run, manifest):
     gate = manifest.get("gates", {}).get("humanCaseReview", {})
     config = read(run, "argus-model.json")
     require(config.get("runId") == manifest.get("runId"), "stale frozen configuration")
+    require(manifest.get("runConfigHash") == file_hash(safe_path(run, "argus-model.json")),
+            "missing or changed frozen configuration hash")
     enabled = config["config"].get("execution", {}).get("requireHumanCaseReview", True)
     require(type(enabled) is bool, "invalid review configuration")
     if enabled:
@@ -47,8 +69,25 @@ def approved_cases(run, manifest):
         require(required <= hashes.keys(), "incomplete approval artifact hashes")
         for name, expected in hashes.items():
             require(file_hash(safe_path(run, name)) == expected, "changed approved artifact: " + name)
+        matrix = manifest.get("requiredMatrix")
+        require(isinstance(matrix, list) and matrix, "missing required review matrix")
+        unique(matrix, "review matrix")
+        case_ids = sorted(unique([c["caseId"] for c in cases], "review case IDs"))
+        scope = {key: manifest[key] for key in ("runId", "baselineHash", "inputHash", "runConfigHash")}
+        scope.update(artifactHashes=hashes, caseIds=case_ids, requiredMatrix=matrix)
+        evidence = human_evidence(run, gate["approvalRef"], gate.get("approvalHash"),
+                                  "approve-cases-and-validate", scope)
+        require(gate["reviewer"] == evidence["actor"] and gate["reviewedAt"] == evidence["recordedAt"],
+                "review identity/time mismatch")
+        imported = manifest.get("reviewImport")
+        if imported is not None:
+            refs = imported.get("artifactRefs")
+            require(isinstance(refs, list) and refs and set(refs) <= hashes.keys(),
+                    "review import artifacts are not approved")
     else:
         require(gate.get("status") == "N/A" and gate.get("reason"), "disabled review requires N/A and reason")
+        human_evidence(run, gate.get("authorizationRef"), gate.get("authorizationHash"),
+                       "disable-human-review", {key: manifest[key] for key in ("runId", "runConfigHash")})
     return cases
 
 

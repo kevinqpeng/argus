@@ -10,9 +10,13 @@
 
 configPath 是唯一配置文件位置，runConfigPath 是产物目录的不可变 argus-model.json 快照。当前 Agent 原有全局设置与业务项目只读；JSON 记录选择不表示主会话已切换。继承别名规范化为 mode=delegate、model=inherit-parent，角色条目整体替换。
 
+已有项目创建新 run 按 [复用入口](../SKILL.md#新-run-复用入口) 执行：Agent 生成 UUID，传 `--project-id <已有ID> --run-id <UUID>`，不加 `--init`，不再提交已保存的 overrides。这样读取最新持久设置并只写新快照；恢复原 run 则直接读取原快照，不运行此命令。只有实际保存用户确认的配置变更时才使用 `--init`。
+
 ## 人工用例评审开关
 
 `execution.requireHumanCaseReview` 默认 `true`，旧配置缺少字段时同样开启。普通 setup 对尚未明确选择的用户按 [阻塞问答](interaction.md#问答顺序) 引导选择，推荐“是”；等待实际回答后才保存。开启时生成用例后按 [人工用例评审门禁](../../argus/references/contracts.md#人工用例评审门禁) 等待人员批准。
+
+选择关闭时保留真实用户授权记录；保存为后续默认值须明确授权该保存范围。每个 run 按 [评审证据契约](../../argus/references/case-review.md#本地证据契约) 关联关闭依据，单独的持久 false 不证明授权。
 
 用户确认选择后，Agent 通过现有 `--overrides` 或 `--project-overrides` 写入 `{"schemaVersion":1,"execution":{"requireHumanCaseReview":true}}`；选择“否”时写 `false`。加 `--init` 保存后续默认值，不加只用于新 run。沿用现有配置优先级，展示最终生效值与来源；运行时顶层 execution 覆盖项目同名字段，若覆盖导致结果与用户选择冲突，先明确保存范围并解决冲突。
 
