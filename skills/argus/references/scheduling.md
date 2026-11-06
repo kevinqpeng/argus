@@ -111,7 +111,7 @@ Session ID、实际 capabilities、探测时间和驱动版本写入受保护执
 
 ## DB 与计时
 
-DB 断言代码可独立生成共享 helper；不为生成代码连接业务数据库。DB 环境准备按所需权限及数据隔离独立执行，实际 DB 断言依赖产生业务状态的执行任务，或与该用例保持同一执行任务。只读 DB 核验沿用 mysql.md，不能用单独队列绕过审批或权限。
+DB 断言代码可独立生成共享 helper；不为生成代码连接业务数据库。正式测试需要查库时，主 Agent 派发独立 SQL agent 执行 `kind=execution`、`platform=shared`、`taskType=db-assert` 任务，复用冻结 reasoning 角色；按 [数据库核验规则](mysql.md) 接收并合并回执。任务使用 `requiresLogin=false`（仅免除 Web/Mobile 账号绑定，数据库认证与授权仍必需），保留业务资源锁和实际隔离证据，计入冻结执行并发上限。后置核验 dependsOn 产生业务状态的任务，清理任务 dependsOn 核验任务；前置基线如为断言必需，则先派 SQL agent 采集，业务任务依赖其回执。普通 runner 不内联数据库断言，生成的 helper 仅供 SQL agent 调用。DB 环境准备不触发业务数据库探测；造数和清理由业务 API 负责。
 
 每 attempt 关联 taskId、worker、platform、taskType、开始/结束、超时、失败/重试和 evidence。`finish --usage <json>` 可附实测 llmSeconds、totalTokens、toolSeconds、queueSeconds、dependencyWaitSeconds、resourceWaitSeconds、agentIdleSeconds；缺失保留 unknown。宿主另外记录分析、生成、环境准备、E2E 执行、结果分析/报告的墙钟区间及可用槽位变化，写 manifest.timing 和本次计时证据。阶段墙钟不能由并行任务耗时求和替代。
 

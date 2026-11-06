@@ -87,7 +87,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 按路由读取 [web-e2e-test](../web-e2e-test/SKILL.md) 或 [mobile-e2e-test](../mobile-e2e-test/SKILL.md)，分别执行隔离的 Playwright 或 Appium 流程。
 - UI 执行复用第 4.2 阶段本 run 页面地图，使用前校验当前状态和必要定位器；定位器来源必须是地图条目或当场探针。状态变化只补充关联元素，按 exploration.py allow 检查预算并记录分平台事件。`manifest.execution.retries` 冻结为 0：首次失败即停，保留首次失败证据并出诊断包，再定向重跑该用例，禁止整文件重跑。
 - Web 的冻结配置选择 ego 时，按 web-e2e-test 的辅助流程使用；把适用性判定与理由写入 `manifest.execution.webAssistant`，受保护页面固定由隔离 Playwright 执行。Playwright 仍负责真实断言与通过结果。
-- 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时调用 [数据库核验规则](references/mysql.md) 指定的 MySQL 工具并冻结本用例查询与断言。生成场景和用例时不做数据库核验。
+- 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时由主 Agent 按 [数据库核验规则](references/mysql.md) 调度独立 SQL agent，冻结本用例查询与断言并汇总核验回执。生成场景和用例时不做数据库核验。
 - 移动端只支持 Android/iOS 本地真机，本期不接云真机。
 
 ## 6. 记录并交付 Bug
