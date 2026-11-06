@@ -1,6 +1,6 @@
 ---
 name: argus
-description: Runs Argus PRD acceptance testing, verifies fixes for reported bugs, or resumes an interrupted run, with coverage gates and evidence delivery.
+description: Orchestrates full PRD acceptance or selected test stages, including requirement-to-cases, execution of supplied cases, bug regression and cross-agent resume, with shared quality gates.
 ---
 
 # AI 测试主流程
@@ -9,7 +9,9 @@ description: Runs Argus PRD acceptance testing, verifies fixes for reported bugs
 
 先读 [共享契约](references/contracts.md)。本文件负责阶段顺序；各阶段细节在对应 Skill，同一 run 已读且未变化的规则无需重复加载。相对路径从本 SKILL.md 解析。
 
-输入：完整 PRD、测试范围、已有配置与授权。
+输入：PRD 或已有用例/运行材料、测试范围、已有配置与授权。
+
+先按 [独立调用与工作流组合](references/workflows.md) 确定入口和交付终点。仅生成用例、执行外部用例、只探索/生成脚本等请求走对应分支；未限定阶段的完整 PRD 验收继续下方 1–8。子技能共享本 run 和门禁，不重复初始化或生成有效产物。
 
 Web 与移动端目标配置按 [私有工作区](../setup-argus/references/storage.md) 在本机文件保存。
 
@@ -17,9 +19,9 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 移动端先自动探测补齐，只引导用户补充无法确定的必填项。
 
-目标是完成设计、执行、复现和表格交付。
+完整验收的目标是完成设计、执行、复现和表格交付；阶段任务按组合契约的完成边界交付。
 
-仅生成脚本不算完成。
+完整验收仅生成脚本不算完成；用户明确只要脚本时，脚本门禁和交付通过即该阶段完成，业务测试标未执行。
 
 用户要求验证已报告问题的修复时，先执行下方「缺陷修复回归」分支；普通 PRD 验收仍按第 1–8 阶段执行。
 
@@ -63,8 +65,8 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 4. 检查计划覆盖门禁
 
-- 先跑 `phase_gate.py --phase dispatch`，再读 [coverage-check](../coverage-check/SKILL.md) 跑计划门禁：来源/影响/规则门禁通过，全部必需场景及关联用例 100% 有效，P0 100%。95% 仅保留为进度指标，不豁免必需项。
-- 将覆盖输出的 impactAnalysis 状态和缺口写入 manifest.gates.impactAnalysis，evidenceRef 指向 coverage-plan.json；缺失或 BLOCKED 不能进入全量执行。
+- 先跑 `phase_gate.py --phase dispatch`，再读 [coverage-check](../coverage-check/SKILL.md) 跑 `coverage.py --phase design`：来源/影响/规则门禁通过，全部必需场景及关联用例 100% 有效，P0 100%。95% 仅保留为进度指标，不豁免必需项。
+- 将覆盖输出的 impactAnalysis 状态和缺口写入 manifest.gates.impactAnalysis，evidenceRef 指向 coverage-design.json；缺失或 BLOCKED 不能进入全量执行。脚本发布后再以真实 discovery 跑 plan，更新执行就绪证据。
 - 最多补齐两轮，仍不足交付缺口。
 
 ## 4.1. 等待人工用例评审
@@ -78,7 +80,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 - 按平台路由完成 Web/Mobile 的隔离与授权检查，再调用 [页面探索子技能](skills/page-exploration/SKILL.md) 规划并采集批准用例所需地图；纯 API 跳过页面探索。
 - 调用 [脚本生成子技能](skills/script-generation/SKILL.md)，按已就绪 spec 分批生成、发布、discovery 并绑定执行入口。探索与生成按共享队列重叠，不等待全量地图才派发。
-- 主流程只检查交接结果：review、scripts 门禁及 UI 全量地图 check 通过后进入执行。未完成项保留阻断，用例变更回第 3 阶段重新评审。门禁见 [门禁三·六](references/gates.md#门禁三六脚本滞后评审阶段-42-必须-passed)。
+- 主流程只检查交接结果：review、scripts、真实 discovery 的 plan 门禁及 UI 全量地图 check 通过后进入执行。未完成项保留阻断，用例变更回第 3 阶段重新评审。门禁见 [门禁三·六](references/gates.md#门禁三六脚本滞后评审阶段-42-必须-passed)。
 
 ## 5. 选择平台并执行测试
 

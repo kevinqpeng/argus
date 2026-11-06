@@ -1,6 +1,6 @@
 ---
 name: web-e2e-test
-description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use when Argus routes to web or for direct Argus web testing.
+description: Executes supplied test cases or an existing Argus baseline on Web, H5 and APIs with Playwright; callable directly or in a composed Argus workflow.
 ---
 
 # Playwright 执行
@@ -10,6 +10,8 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 读 [共享契约](../argus/references/contracts.md)、[私有工作区](../setup-argus/references/storage.md)。
 
 输入：计划门禁通过的基线、目标/账户/租户/版本、矩阵、预算及 workspacePath。测试脚本、适配层和所有输出只写本机仓库外目录；默认不产生任何项目 Git 改动。
+
+直接调用先按 [工作流组合](../argus/references/workflows.md) 补齐必要前置：完整 run 验证后复用，只有 Excel/Markdown/JSON 用例时交给 [外部用例接入](../prd-to-cases/references/existing-cases.md)，缺配置走 setup 按需分支。先完成 design 和本轮人工评审，再探索/生成，发布后以真实 discovery 完成 plan；不要求重新提供 PRD 或从 Argus 第 1 步重跑。用户只请求探针时仍走下方专用探针边界。
 
 ## 1. 创建隔离的测试环境
 
@@ -32,7 +34,7 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 ## 2. 核对私有配置与授权目标
 
-- 按 [私有工作区](../setup-argus/references/storage.md) 使用 `projectDir/web-private.json`，由执行进程读取 base URL 及每个角色/租户的专用账号。测试范围从已授权的 Argus run 获取。
+- 按 [私有工作区](../setup-argus/references/storage.md) 使用 `projectDir/web-private.json`，由执行进程读取 base URL 及每个角色/租户的专用账号。测试范围从本 run 已登记的用户授权获取；直接调用同样建立 run，不要求先经过 argus 主入口。首次目标操作前冻结目标指纹、探测证据和预算并通过 target 门禁。
 - 不从项目配置、环境变量文件或共享账号推断。
 - 不得为测试启动或复刻目标环境；目标不可达时按 error/BLOCKED 处理，不降级到本地服务。
 - 缺少必需字段只告知文件绝对路径与字段名，等待用户自行编辑。聊天和工具输出不索取或回显账号密码，未补齐则 blocked。
@@ -48,7 +50,7 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 ## 4. 接收脚本与执行断言
 
-直接调用本技能时，先按 [脚本生成子技能](../argus/skills/script-generation/SKILL.md) 取得已发布脚本、discovery 与 scripts 门禁结果；UI 地图准备或缺口补探交给 [页面探索子技能](../argus/skills/page-exploration/SKILL.md)。从 Argus 进入时复用相同哈希的已完成交接，不重复生成。
+直接调用本技能时，先按 [脚本生成子技能](../argus/skills/script-generation/SKILL.md) 取得已发布脚本、discovery、scripts 与 plan 门禁结果；UI 地图准备或缺口补探交给 [页面探索子技能](../argus/skills/page-exploration/SKILL.md)。从 Argus 进入时复用相同哈希的已完成交接，不重复生成。
 
 - UI 断言验证真实行为；API 验证 HTTP、业务码、契约和后置状态。可组合 API 造数、UI 操作、API/授权只读 DB 核对。
 - 每条用例执行前才判断是否需要 MySQL 配合；需要时由主 Agent 按 [数据库核验规则](../argus/references/mysql.md) 调度独立 SQL agent 并汇总回执，业务 runner 不兼任 SQL 核实。不需要时不连接数据库。
@@ -99,9 +101,9 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 ## 完成条件
 
-- 完成：正常链与异常/权限链有真实断言，失败证据完整，重试仍 flaky，矩阵完整且无污染。
+- 完成：冻结范围内全部必需用例有真实断言，正常链与适用的异常/权限义务按覆盖门禁核查；失败证据完整，重试仍 flaky，矩阵完整且无污染。仅执行外部用例时结论限于该基线，保留关联缺口与 partial 状态。
 - 检查 Git 状态与仓库生成文件未新增本次变化。
-- 确认产品缺陷交 bug-reporter 在线记录，证据上传后可由协作者访问。
+- 确认产品缺陷与运行汇总交 bug-reporter 按已选 local/online/both 记录并读回；在线交付的证据上传后可由协作者访问。本地正式交付不强制在线发布。
 - 未执行/发布未完成明确阻断。
 - 认证和敏感日志只保存在个人受保护目录。
 

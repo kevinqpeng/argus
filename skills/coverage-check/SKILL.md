@@ -9,7 +9,7 @@ description: Checks source and change-impact obligations, mandatory design and e
 
 读 [共享契约](../argus/references/contracts.md) 和 [输入格式](references/input.md)。
 
-输入：impactAnalysis、impactHash、currentSourceHashes、冻结 AC/场景/用例、PRD 哈希、runner 发现清单；执行阶段另需 runId、矩阵、全部 attempts、分片及哈希。
+输入：impactAnalysis、impactHash、currentSourceHashes、冻结 AC/场景/用例、来源哈希、runId 和矩阵；plan 阶段需要 runner 发现清单，execution 另需全部 attempts、分片及哈希。直接调用只核查所选阶段，不生成用例或启动测试。
 
 ## 1. 核对来源与审查证据
 
@@ -19,10 +19,11 @@ description: Checks source and change-impact obligations, mandatory design and e
 
 ## 2. 运行计划门禁
 
-- 运行 `python3 <本目录>/scripts/coverage.py <input.json> --phase plan`。
+- 用例设计或导入完成后运行 `python3 <本目录>/scripts/coverage.py <input.json> --phase design`；使用 planned 入口及空 discovered，不要求浏览器、目标或脚本。
+- 脚本发布并 bind 后，使用 execution-cases.json 与真实 discovery 运行 `python3 <本目录>/scripts/coverage.py <input.json> --phase plan`。plan 和 execution 拒绝 planned 入口，不接受设计声明冒充发现结果。
 - stdout 为 JSON，退出 0 表示门禁通过，2 表示阻断。
 - 未知格式拒绝。
-- 可将 stdout 保存为 coverage-plan.json。不要覆盖输入。
+- stdout 分别保存为 coverage-design.json 或 coverage-plan.json。不要覆盖输入；design 通过不能代替执行前的 plan。
 
 ## 3. 运行执行门禁
 
@@ -46,7 +47,7 @@ description: Checks source and change-impact obligations, mandatory design and e
 - 可选用例需单独经审查调整范围。
 - 空场景阻断，无 P0 为 N/A。
 - 门禁输出不代表外部工具、性能、安全或发布已验收。
-- 由主 Skill 汇总。
+- 由当前调用方汇总；独立调用交付覆盖结果及缺口即完成，不触发后续阶段。
 - 形式化模型状态、迁移、反例和 TLC 通过不计入业务覆盖或 attempts。由模型导出的真实 ui/api 用例按原规则计数；主 Skill 单独检查 formalVerification 门禁，不能仅凭本脚本通过宣称形式化验证或全量验收通过。
 
 两阶段脚本生成时，执行与执行覆盖使用 `cases/execution-cases.json` 中已发布入口；人工评审与原始计划仍绑定不可变的 `cases/cases.json`。先按 [产物生命周期](../argus/references/lifecycle.md) 完成 bind 和 scripts 门禁，不能手工改写审批文件来匹配 runner。

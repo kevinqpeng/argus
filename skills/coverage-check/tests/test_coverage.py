@@ -63,6 +63,48 @@ class CoverageTests(unittest.TestCase):
     def test_complete_plan(self):
         self.assertEqual(self.evaluate()["status"], "PASSED")
 
+    def test_design_needs_no_runner_but_plan_still_does(self):
+        self.data["cases"][0]["automationRef"] = "planned:owner.spec.ts::Change owner"
+        self.data["discovered"] = []
+        self.assertEqual(coverage["evaluate"](self.data, "design")["status"], "PASSED")
+        self.assertEqual(coverage["evaluate"](self.data, "plan")["status"], "BLOCKED")
+        self.data["cases"][0]["assertions"] = []
+        self.assertEqual(coverage["evaluate"](self.data, "design")["status"], "BLOCKED")
+
+    def test_design_rejects_bad_declarations_and_unreviewed_sources(self):
+        self.data["discovered"] = []
+        for ref in (None, 3, "planned:", "planned:x::", "planned:.::title", "planned:C:/x::title",
+                    "planned:../x::title", "planned:/x::title", "test:owner"):
+            with self.subTest(ref=ref):
+                self.data["cases"][0]["automationRef"] = ref
+                self.assertEqual(coverage["evaluate"](self.data, "design")["status"], "BLOCKED")
+        self.data["cases"][0]["automationRef"] = "planned:owner.spec.ts::Change owner"
+        self.data["impactAnalysis"]["obligations"][0]["reviewStatus"] = "needs_clarification"
+        self.data["impactHash"] = coverage["digest"](self.data["impactAnalysis"])
+        self.assertEqual(coverage["evaluate"](self.data, "design")["status"], "BLOCKED")
+
+    def test_planned_references_cannot_be_fake_runner_discovery(self):
+        self.execution()
+        ref = "planned:owner.spec.ts::Change owner"
+        self.data["cases"][0]["automationRef"] = ref
+        self.data["discovered"][0]["automationRef"] = ref
+        for phase in ("plan", "execution"):
+            with self.subTest(phase=phase):
+                self.assertEqual(coverage["evaluate"](self.data, phase)["status"], "BLOCKED")
+
+    def test_design_cli_and_unknown_phase(self):
+        self.data["cases"][0]["automationRef"] = "planned:owner.spec.ts::Change owner"
+        self.data["discovered"] = []
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "input.json"
+            path.write_text(json.dumps(self.data))
+            result = subprocess.run([sys.executable, "-B", str(SCRIPT), str(path), "--phase", "design"],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(result.stdout)["phase"], "design")
+        with self.assertRaisesRegex(ValueError, "phase"):
+            coverage["evaluate"](self.data, "unknown")
+
     def test_every_mandatory_case_needs_assertions_and_discovery(self):
         self.data["cases"].append(dict(self.data["cases"][0], caseId="C2"))
         self.assertEqual(self.evaluate()["status"], "BLOCKED")
@@ -70,6 +112,36 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(self.evaluate()["status"], "PASSED")
         self.data["cases"][1]["assertions"] = []
         self.assertEqual(self.evaluate()["status"], "BLOCKED")
+
+    def test_supplied_case_design_then_real_execution_preserves_baseline(self):
+        source = self.data["impactAnalysis"]["sources"][0]
+        source.update(kind="history", sourceRef="supplied-cases.xlsx")
+        self.data["acs"][0]["sourceRef"] = "supplied-cases.xlsx:Sheet1:2"
+        self.data["impactHash"] = coverage["digest"](self.data["impactAnalysis"])
+        self.data["inputBasis"] = {"kind": "cases", "sourceIds": ["prd"], "approvalRef": "user:use-supplied-cases"}
+        self.data["cases"][0]["automationRef"] = "planned:owner.spec.ts::Change owner"
+        self.data["discovered"] = []
+        baseline = self.data["baselineHash"]
+        self.assertEqual(coverage["evaluate"](self.data, "design")["status"], "PASSED")
+        self.data["cases"][0]["automationRef"] = "test:owner"
+        self.execution()
+        for phase in ("plan", "execution"):
+            result = coverage["evaluate"](self.data, phase)
+            self.assertEqual(result["status"], "PASSED", result)
+            self.assertEqual(result["baselineHash"], baseline)
+            self.assertEqual(result["inputBasis"]["kind"], "cases")
+        self.data["shards"] = []
+        self.assertEqual(coverage["evaluate"](self.data, "execution")["status"], "BLOCKED")
+
+    def test_supplied_case_basis_does_not_waive_default_prd_or_source_evidence(self):
+        self.data["impactAnalysis"]["sources"][0]["kind"] = "history"
+        self.data["impactHash"] = coverage["digest"](self.data["impactAnalysis"])
+        self.blocked("missing PRD")
+        for basis in ({"kind": "cases"}, {"kind": "cases", "sourceIds": ["missing"], "approvalRef": "user:1"},
+                      {"kind": "cases", "sourceIds": ["prd"]}, {"kind": "unknown"}, None):
+            with self.subTest(basis=basis):
+                self.data["inputBasis"] = basis
+                self.assertEqual(self.evaluate()["status"], "BLOCKED")
 
     def test_missing_analysis_cannot_pass_legacy_input(self):
         del self.data["impactAnalysis"]

@@ -1,6 +1,6 @@
 ---
 name: argus-script-generation
-description: Argus 子技能。人工用例评审门禁通过后，按批准用例和已验证地图分批生成、发布测试脚本并绑定执行入口；支持恢复未完成生成任务。
+description: 可独立或由 Argus 调用，按批准用例和已验证地图生成、发布测试脚本及绑定入口；只生成脚本时交付后结束，支持恢复未完成任务。
 ---
 
 # 脚本生成
@@ -12,6 +12,8 @@ description: Argus 子技能。人工用例评审门禁通过后，按批准用�
 协调者负责队列、派发、回执校验、发布、discovery 和入口绑定；generation worker 仅实现分配文件，不访问业务目标或自行探索。沿用冻结角色及宿主能力，无法调用时 BLOCKED，不由主会话冒充。
 
 ## 分批生成与发布
+
+独立调用按 [工作流组合](../../references/workflows.md) 补齐必要前置，优先复用有效用例和地图；外部用例先规范化并通过 design 与本轮评审。缺 UI 地图时仅在目标访问已授权范围内调用页面探索。只请求脚本时完成发布、discovery 和门禁后结束，不自动进入业务执行或 Bug 发布。
 
 - 前置：`cases/cases.json` 全部 `reviewStatus=approved`；`phase_gate.py --phase review` 必须已 PASSED。未批准不得开始脚本，否则脚本对着会被改的用例写。
 - 计划写在 `cases/scripts/plan.json`：`{schemaVersion, runId, approvedCasesHash, tasks:[{taskId, caseIds, specFile, notesFile}]}`。`approvedCasesHash` 绑定批准时的 cases.json 摘要；用例再变，计划失效。
@@ -27,6 +29,6 @@ description: Argus 子技能。人工用例评审门禁通过后，按批准用�
 
 ## 完成条件
 
-全部任务回执和发布哈希有效，execution-cases.json 仅绑定真实 automationRef、保留原批准用例，真实 discovery 精确覆盖批准用例与必需矩阵，scripts 门禁 PASSED。UI 执行还须页面探索全量 check 和覆盖门禁通过，再交回 Web/Mobile runner；生成或 discovery 成功不代表测试通过。
+全部任务回执和发布哈希有效，execution-cases.json 仅绑定真实 automationRef、保留原批准用例，真实 discovery 精确覆盖批准用例与必需矩阵，scripts 门禁 PASSED。以 execution-cases.json 和真实 discovery 运行 coverage.py --phase plan，保存 coverage-plan.json；UI 还须页面探索全量 check 通过。按所选终点交付脚本或交回 Web/Mobile runner；生成或 discovery 成功不代表测试通过。
 
 记录生成、等待、重试和发布的真实耗时及缺口；清理仅走生命周期入口，保留恢复材料。

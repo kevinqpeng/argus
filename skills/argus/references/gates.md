@@ -1,5 +1,7 @@
 # 阶段门禁与反绕过
 
+独立阶段与组合任务按 [工作流组合](workflows.md) 选择必需门禁。设计阶段使用 dispatch + coverage.py --phase design，不调用要求地图和 discovery 的 cases 门禁；脚本发布后仍须 review、scripts、真实 discovery 的 plan 和适用的全量地图 check。design 不替代执行就绪或人工审批；完整工作流保持下列门禁。
+
 本文件把主流程中易被跳过的要求变成可执行检查。门禁只核对过程证据是否存在且自洽，不判断业务结论。
 
 命令：`python3 <本目录>/../scripts/phase_gate.py <runDir> --phase <target|dispatch|cases|execution|report>`
