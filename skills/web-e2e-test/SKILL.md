@@ -22,7 +22,7 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 ## ego 辅助（按需）
 
-仅当冻结配置 execution.webAssistant=ego、本机为 macOS 且 [依赖检查](../setup-argus/references/ego.md) READY 时使用。调用前读取当前 ego-browser skill 并执行其 `ego-browser skill` 指引。未选时直接执行 Playwright。
+仅当冻结配置 execution.webAssistant=ego、本机为 macOS 且 [依赖检查](../setup-argus/references/ego.md) READY 时使用。调用前读取当前 ego-browser skill 并执行其 `ego-browser skill` 指引。未选时直接执行 Playwright。冻结配置选了 ego 时，必须把适用性判定与理由（`applicable` / `not_applicable` 及原因）写入 `manifest.execution.webAssistant`，不静默跳过；受保护页面固定由隔离 Playwright 执行。
 
 - 陌生页面才做只读结构探索，输出页面结构、稳定语义定位线索和观察证据供 harness 使用；snapshot ref 不写入长期测试脚本。熟悉页面不重复探索。
 - 遵守相同目标白名单与人工评审门禁；门禁前仅只读准备，业务验证和有副作用的交互等待评审通过。
@@ -34,6 +34,7 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 - 按 [私有工作区](../setup-argus/references/storage.md) 使用 `projectDir/web-private.json`，由执行进程读取 base URL 及每个角色/租户的专用账号。测试范围从已授权的 Argus run 获取。
 - 不从项目配置、环境变量文件或共享账号推断。
+- 不得为测试启动或复刻目标环境；目标不可达时按 error/BLOCKED 处理，不降级到本地服务。
 - 缺少必需字段只告知文件绝对路径与字段名，等待用户自行编辑。聊天和工具输出不索取或回显账号密码，未补齐则 blocked。
 - 未配置 allowedHosts 时只允许 base URL 的精确主机。配置后按显式白名单校验 base URL 和每跳重定向，且均需在授权目标内。
 - 确认真实登录角色、租户、服务健康、构建版本。
@@ -47,7 +48,7 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 ## 4. 编写并审查业务断言
 
-- 生成脚本前按 [页面探索与失败诊断](../argus/references/page-diagnostics.md) 建立和复用本 run 的页面地图；纯 API 用例跳过。
+- 生成脚本前按 [页面探索与失败诊断](../argus/references/page-diagnostics.md) 建立和复用本 run 的页面地图；纯 API 用例跳过。地图未覆盖的页面状态先探针再写断言，不得把未验证定位器写入测试。
 - UI 用 role/label/testid，API 验证 HTTP、业务码、契约和后置状态。
 - 可组合 API 造数、UI 操作、API/授权只读 DB 核对。
 - 每条用例执行前才判断是否需要 MySQL 配合；需要时按 [数据库核验规则](../argus/references/mysql.md) 调用可用 MySQL 工具。不需要时不连接数据库。
@@ -57,7 +58,8 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 
 - 从 runner 真实发现数据生成 caseId+matrixId+automationRef 清单。
 - 冻结用例、矩阵、预期分片、输入哈希，再按 suite/ID/标签/目录分片。资源无法隔离时串行。
-- 默认最多重试一次，保留首次失败。
+- 默认不重试：runner `retries=0`。失败后先出诊断包 `evidence/diagnosis/<caseId>-<attempt>.md`，再定向重跑该用例（文件名+行号或 `-g`），禁止重跑整个规格文件。
+- 每个 caseId 最多一次有证据的修复与修复后重跑；仍失败则停止自动修改并记录新旧错误。
 
 ## 6. 保存每次尝试的证据
 
@@ -89,3 +91,5 @@ description: Runs Argus web, H5, and API end-to-end tests with Playwright. Use w
 - 确认产品缺陷交 bug-reporter 在线记录，证据上传后可由协作者访问。
 - 未执行/发布未完成明确阻断。
 - 认证和敏感日志只保存在个人受保护目录。
+
+两阶段脚本生成时，执行与执行覆盖使用 `cases/execution-cases.json` 中已发布入口；人工评审与原始计划仍绑定不可变的 `cases/cases.json`。先按 [产物生命周期](../argus/references/lifecycle.md) 完成 bind 和 scripts 门禁，不能手工改写审批文件来匹配 runner。

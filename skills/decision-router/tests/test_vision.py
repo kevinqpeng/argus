@@ -82,7 +82,7 @@ class VisionTest(unittest.TestCase):
                 self.assertEqual(len(sent["questions"]), 2)
                 self.assertEqual(len(sent["assets"]), 1)
             raw.unlink(); out.unlink()
-            source.write_text(json.dumps({"state": "text", "questions": {"ui": "Does this require UI?"}}))
+            source.write_text(json.dumps({"state": {"subjects": {"ui": {"evidence": {"scenario": "text"}, "evidenceHash": jev.evidence_hash({"scenario": "text"})}}}, "questions": {"ui": "Does this require UI?"}}))
             response = {"model": "jev-1.13.0", "answers": {"ui": {"type": "noul", "noul": .9}}}
             with mock.patch.dict(os.environ, {"TYPESAFE_API_KEY": "test"}), mock.patch.object(sys, "argv", argv), mock.patch("urllib.request.urlopen", return_value=Response(json.dumps(response).encode())) as http, mock.patch("sys.stdout", new_callable=io.StringIO):
                 self.assertEqual(jev.main(), 0)
