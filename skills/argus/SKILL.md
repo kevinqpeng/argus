@@ -70,9 +70,10 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 执行 [共享契约的人工用例评审门禁](references/contracts.md#人工用例评审门禁)，交付本轮评审材料与范围、必需矩阵及计划覆盖结果。默认暂停，等待人员明确评审通过。
 - 门禁为 PASSED，或冻结配置明确关闭且已记录 N/A，才进入验证流程。人员提出修改时，回到第 3 阶段更新用例并重新提交评审。
 
-## 4.2. 按批准用例生成脚本
+## 4.2. 统一探索并生成 UI 脚本
 
-- 仅在 4.1 人工批准后开始，`phase_gate.py --phase review` 必须 PASSED。切分为 spec 文件级（一个任务一个 spec，任务数 ≥5，DB/接口核验单列），脚本对着批准后的用例原文写，不静默改期望值；用例要改就回第 3 阶段出新版并重新评审。
+- 仅在 4.1 人工批准后开始，`phase_gate.py --phase review` 必须 PASSED。按 [平台路由](../decision-router/references/platform-routing.md) 确认 web/mobile/both，读取相应平台 Skill 完成隔离与授权检查。按 [测试用例驱动探索](references/page-diagnostics.md) 统一分析全部批准用例，运行 exploration.py plan，按需采集并运行 check 校验共享地图；纯 API 跳过。只有缺失元素触发局部补充，脚本 worker 消费地图而不自行探索。
+- 切分为 spec 文件级（一个任务一个 spec，任务数 ≥5，DB/接口核验单列），脚本对着批准后的用例原文写，不静默改期望值；用例要改就回第 3 阶段出新版并重新评审。按现有并行生成流程批量生成脚本，沿用各平台的语言与 runner；批准前的只读准备不执行真实业务探索，最终 UI 定位器绑定在地图验证后完成。
 - 每批按 [产物生命周期](references/lifecycle.md) 通过发布门禁后原子写入 `harness/tests/`，保留批准用例，在独立 execution-cases.json 绑定真实 automationRef；跑 runner discovery 复核标题逐字一致，再通过 scripts 门禁；`approvedCasesHash` 绑定批准时的用例摘要，用例变更后脚本计划失效。
 - 门禁见 [门禁三·六](references/gates.md#门禁三六脚本滞后评审阶段-42-必须-passed)。
 
@@ -82,7 +83,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 纯 API 走现有接口执行路径。
 - Jev 低置信度时补证据或澄清，Jev 不可用则 BLOCKED。具体截图条件可按 decision-router 批量并行比对，当前所有视觉结果均须冻结的 vision 复核，冲突由 bug_analysis 核查。
 - 按路由读取 [web-e2e-test](../web-e2e-test/SKILL.md) 或 [mobile-e2e-test](../mobile-e2e-test/SKILL.md)，分别执行隔离的 Playwright 或 Appium 流程。
-- UI 执行前先建本 run 页面地图，再写断言；定位器来源必须是地图条目或当场探针。`manifest.execution.retries` 冻结为 0：首次失败即停，出诊断包后再定向重跑该用例，禁止整文件重跑。
+- UI 执行复用第 4.2 阶段本 run 页面地图，使用前校验当前状态和必要定位器；定位器来源必须是地图条目或当场探针。状态变化只补充关联元素，按 exploration.py allow 检查预算并记录分平台事件。`manifest.execution.retries` 冻结为 0：首次失败即停，保留首次失败证据并出诊断包，再定向重跑该用例，禁止整文件重跑。
 - Web 的冻结配置选择 ego 时，按 web-e2e-test 的辅助流程使用；把适用性判定与理由写入 `manifest.execution.webAssistant`，受保护页面固定由隔离 Playwright 执行。Playwright 仍负责真实断言与通过结果。
 - 执行每条用例前，按用例的验收条件判断是否需要 MySQL 配合；需要时调用 [数据库核验规则](references/mysql.md) 指定的 MySQL 工具并冻结本用例查询与断言。生成场景和用例时不做数据库核验。
 - 移动端只支持 Android/iOS 本地真机，本期不接云真机。
