@@ -65,6 +65,7 @@ setup 不产生项目 Git 改动。
 - 按阻塞问答的 [问题去重与恢复](references/interaction.md#问题去重与恢复) 合并所有来源、校验每轮候选和保存回答；再展示完整模型映射，优先调用允许的同步问答工具，逐轮收集尚缺选择；只有同步工具不适用时才使用异步或文本回退。
 - 按 [阻塞问答](references/interaction.md#问答顺序) 引导选择用例是否需要人工评审，推荐“是”。
 - Web 或 both 范围确定后，按 [ego 辅助引导](references/ego.md) 检测本机系统；仅 macOS 收集尚缺的辅助选择与后续安装选择。API-only、移动端和非 macOS 跳过该问卷。
+- 按 [执行并行开关](references/config.md#生成与执行并发) 收集尚缺的并行选择；启用后引导本地配置专用角色/租户账号池，可选用户上限，不在聊天收集凭据。
 - Bug 问卷由 `scripts/bug_questions.py` 和 `references/bug-questions.json` 驱动。面向用户显示表格平台名称，技术通道留在内部配置。
 
 ## 5. 校验并保存已确认配置

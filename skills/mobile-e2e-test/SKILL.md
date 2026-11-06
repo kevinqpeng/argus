@@ -37,6 +37,8 @@ Read the [Argus contract](../argus/references/contracts.md), [private storage ru
 
 ## 4. Isolate device sessions
 
+按 [资源规划契约](../argus/references/scheduling.md#新-run-执行规划必需) 冻结新 run 并领取 binding，绑定已授权设备、实际端口与完整账号组合。设备、账号和业务资源跨 run 互斥；未显式启用固定串行，单设备始终最多一个 UI 会话。
+
 Use the [shared scheduler](../argus/references/scheduling.md) for both generation and execution. Generate independent files using the existing Appium language/framework without leasing a device. Freeze page-map probes before consumers. Keep generationConcurrency separate from executionConcurrency. Before execution, claim the authorized physical device and driver-specific host ports in the host-wide registry; verify actual capabilities match the lease. Different isolated devices may run concurrently. On timeout/disconnect, retain the lease until the worker and Session are confirmed stopped; never reassign by age alone.
 
 - Run each device's mutable UI session serially.

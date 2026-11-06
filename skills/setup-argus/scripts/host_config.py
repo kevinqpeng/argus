@@ -95,10 +95,12 @@ def project_settings(data):
     if "execution" in data and (not isinstance(data["execution"], dict) or
             type(data["execution"].get("requireHumanCaseReview", True)) is not bool):
         raise ValueError("execution.requireHumanCaseReview must be a boolean")
-    for key in ("generationConcurrency", "executionConcurrency"):
+    for key in ("generationConcurrency", "executionConcurrency", "maxConcurrency", "workers"):
         value = data.get("execution", {}).get(key)
         if key in data.get("execution", {}) and (type(value) is not int or value < 1):
             raise ValueError("execution." + key + " must be a positive integer")
+    if type(data.get("execution", {}).get("parallelEnabled", False)) is not bool:
+        raise ValueError("execution.parallelEnabled must be a boolean")
     if data.get("execution", {}).get("webAssistant", "none") not in ("none", "ego"):
         raise ValueError("execution.webAssistant must be none or ego")
     delivery = data.get("delivery", {})
@@ -167,10 +169,12 @@ def runtime_overrides(data):
         raise ValueError("invalid runtime override")
     if type(data.get("execution", {}).get("requireHumanCaseReview", True)) is not bool:
         raise ValueError("execution.requireHumanCaseReview must be a boolean")
-    for key in ("generationConcurrency", "executionConcurrency"):
+    for key in ("generationConcurrency", "executionConcurrency", "maxConcurrency", "workers"):
         value = data.get("execution", {}).get(key)
         if key in data.get("execution", {}) and (type(value) is not int or value < 1):
             raise ValueError("execution." + key + " must be a positive integer")
+    if type(data.get("execution", {}).get("parallelEnabled", False)) is not bool:
+        raise ValueError("execution.parallelEnabled must be a boolean")
     if data.get("execution", {}).get("webAssistant", "none") not in ("none", "ego"):
         raise ValueError("execution.webAssistant must be none or ego")
     if "defaultEffort" in data:
@@ -371,7 +375,7 @@ def initial_config():
               "roles": {r: {"mode": "delegate", "model": "inherit-parent"} for r in ["reasoning", "generation", "bug_analysis", "vision"]},
               "decision": {"activeProvider": "jev", "transport": "api", "verification": "required", "visualModel": "jev-1.14.0", "maxCallsPerRun": 100, "maxRetries": 2, "timeoutMs": 10000},
               "coverage": {"scenarioThreshold": 0.95, "p0Threshold": 1, "failOnFlaky": True},
-              "execution": {"workers": 2, "retries": 1, "requireHumanCaseReview": True},
+              "execution": {"retries": 1, "requireHumanCaseReview": True},
               "delivery": {"mode": "online", "requiresReadback": True},
               "bugPublisher": {"provider": "none", "enabled": False}}
     config["roles"]["vision"]["requires"] = ["image-input"]

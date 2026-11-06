@@ -904,6 +904,41 @@
         }
       }
     },
+    "PrivateAccount": {
+      "type": "object", "required": ["username", "password"],
+      "properties": {
+        "username": {"type": "string", "minLength": 1},
+        "password": {"type": "string", "minLength": 1},
+        "tenant": {"type": "string"},
+        "principalId": {"type": "string", "minLength": 1},
+        "loginPolicyVerified": {"type": "boolean", "default": false}
+      }, "additionalProperties": false
+    },
+    "AccountPools": {
+      "type": "object", "additionalProperties": {
+        "type": "object", "additionalProperties": {
+          "type": "array", "items": {"$ref": "#/$defs/PrivateAccount"}
+        }
+      }
+    },
+    "ExecutionSettings": {
+      "type": "object", "properties": {
+        "parallelEnabled": {"type": "boolean", "default": false},
+        "maxConcurrency": {"type": "integer", "minimum": 1},
+        "executionConcurrency": {"type": "integer", "minimum": 1},
+        "generationConcurrency": {"type": "integer", "minimum": 1},
+        "workers": {"type": "integer", "minimum": 1}
+      }
+    },
+    "WebPrivateConfig": {
+      "type": "object", "required": ["baseUrl"],
+      "properties": {
+        "baseUrl": {"type": "string", "format": "uri"},
+        "accounts": {"type": "object", "additionalProperties": {"$ref": "#/$defs/PrivateAccount"}},
+        "accountPools": {"$ref": "#/$defs/AccountPools"},
+        "allowedHosts": {"type": "array", "items": {"type": "string"}}
+      }
+    },
     "MobilePrivateConfig": {
       "type": "object",
       "required": ["schemaVersion", "targets", "service"],
@@ -925,19 +960,8 @@
             "additionalProperties": false
           }
         },
-        "accounts": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "required": ["username", "password"],
-            "properties": {
-              "username": {"type": "string", "minLength": 1},
-              "password": {"type": "string", "minLength": 1},
-              "tenant": {"type": "string"}
-            },
-            "additionalProperties": false
-          }
-        },
+        "accounts": {"type": "object", "additionalProperties": {"$ref": "#/$defs/PrivateAccount"}},
+        "accountPools": {"$ref": "#/$defs/AccountPools"},
         "service": {
           "type": "object",
           "required": ["baseUrl"],

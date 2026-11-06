@@ -10,6 +10,51 @@
 
 共享只读输入冻结一次；worker 只读本任务清单和必要的跨任务契约。相同哈希的规则、页面地图及设备信息不重复探索；来源、构建或设备状态变化才刷新。业务执行顺序、设备排队与生成依赖分别记录。
 
+## 新 run 执行规划（必需）
+
+先从冻结 runConfigPath 读取 `config.execution`。只有 `parallelEnabled=true` 允许并行；缺失或 false 固定执行上限 1，不因旧 workers=2 或 executionConcurrency 自动开启。启用后用户上限依次取 `maxConcurrency` > 旧 `executionConcurrency` > 旧 `workers`；均未填写则仅受实际资源限制。setup 新默认不再注入 workers，避免默认值覆盖动态结果；旧 workers 仅在用户明确启用后作为上限。生成并发不受此开关限制。
+
+主 Agent 在每个新 run 的实际任务已知后、首次执行 claim 前运行：
+
+```text
+python3 <argus>/scripts/execution.py <draft-plan.json> <runConfigPath> <inventory.json> <queue/plan.json> --web-private <projectDir/web-private.json> --mobile-private <projectDir/mobile-private.json>
+```
+
+只传范围内存在的私有文件。输出使用独占创建，已有文件不可覆盖；历史 plan/state 按原格式恢复，不重新计算。规划结果随队列哈希冻结，记录 executionPlanning、executionConcurrency、bindings 和缺资源任务的 blockedReason。后续资源减少时只可少启动或阻塞，增加资源并提高上限需新 run；其他阶段的执行计划沿用本 run 已冻结上限，再受本阶段资源限制。命令不启动 runner、不检查真实设备或登录策略，也不代表任何权限/评审门禁通过。
+
+`inventory.json` 由宿主依据真实探测生成，不能用猜测数字：
+
+```json
+{
+  "hostSlots": ["machine:executor-1", "machine:executor-2"],
+  "web": [{"id": "web-1", "ready": true, "resources": ["browser:machine:1"]}],
+  "mobile": [{"id": "android-1", "ready": true, "authorized": true,
+              "resources": ["device:actual-device", "port:machine:8200"]}]
+}
+```
+
+hostSlots 是本机跨 run 共用的稳定执行槽位，不能按 run 重命名；所有宿主/平台共用同一个 registry。web 条目代表可创建独立 Context 的已验证槽位；mobile 条目必须匹配已授权物理设备矩阵，端口已探测空闲且包含实际 driver 所需全部端口，iOS 的独占 derivedDataPath 也登记资源。route id 只是安全引用；不得放密码、URL 凭据或认证状态。宿主启动前再次核对资源及权限；探测失败的 route 用 ready=false，缺槽位/设备/匹配账号的任务保持 blocked，不能跳过它来宣称全量通过。
+
+执行任务使用以下补充字段（生成任务不使用）：
+
+```json
+{
+  "requiresLogin": true,
+  "accountRequirements": [{"role": "admin", "tenant": "tenant-a"}, {"role": "user", "tenant": "tenant-a"}],
+  "isolationVerified": true,
+  "routeIds": ["web-1"],
+  "resources": ["business:environment:order-42"]
+}
+```
+
+requiresLogin 缺省 true；公开页面/API 明确写 false，此时不受账号数量限制。accountRequirements 必须列完整角色/租户组合；planner 从私有池计算组合，整个组合一次性预约。routeIds 可省略表示所有本平台已验证路线；设备/浏览器矩阵任务必须限制为对应路线。业务先后使用 dependsOn，共享可变对象登记稳定且跨 run 相同的 business 资源名。isolationVerified 仅在数据可隔离性有证据时设 true；未知保持 false。需要主观语义判断时批量使用既有 Jev 路由；布尔字段不替代证据。
+
+规划器以依赖就绪层和资源贪心匹配计算保守并发，取宿主槽位、用户上限、浏览器/设备、端口、账号组合和业务锁可容纳任务数的最小值；不宣称最优装箱。账号登录策略未知或业务隔离未知的任务领取全局串行锁，与其他执行任务互斥。无资源时上限保留 1，但绑定为空且不可领取。账号租约同时使用规范化 username 哈希和可选 canonical principalId 哈希，跨平台同名账号也保守互斥；别名对应同一实际账号时必须在两个本地文件填写相同 principalId，无法确认映射或登录策略时 loginPolicyVerified=false。
+
+claim 返回的 `binding` 是实际预约的路线、账号引用和资源集合；只能按此 binding 启动一个 workers=1 的 runner。runner 直接调用 `execution.private_file` 和 `execution.resolve_accounts(data, binding)`，在内存解析凭据并核对账号身份未漂移；主 Agent 不读取/复制密码到任务消息。私有文件改名、池重排或身份不匹配必须新 run。计划内 dataNamespace 再拼接 worker/attempt token/caseId，隔离业务数据、trace、认证状态和输出；清理仅处理本任务登记的数据。绑定、账号哈希也是受保护元数据，不输出到公共报告。
+
+主 Agent 负责启动、收回和补位多个脚本执行任务；scheduler 只是领取/互斥程序，不会自行创建子 Agent 或子进程。宿主无法并发启动时传一个实际 hostSlot，报告串行。启动失败后先证明没有遗留 worker/session，才 finish failed；无法证明停止时保留租约。历史 running 会话恢复前先核对其原资源租约与当前执行者，不能将未登记账号的旧 run 与新 run 混跑；先完成/停止旧会话再启用新规划。
+
 ## 队列契约与调用
 
 每阶段在私有 run 中新增 `queue/plan.json` 和 `queue/state.json`，不覆盖旧 GenerationPlan。plan 的 schemaVersion=1，包含 runId、inputHash（绑定本阶段冻结输入）、generationConcurrency、executionConcurrency、tasks：
@@ -24,7 +69,7 @@
 }
 ```
 
-platform 为 web/mobile/shared；kind 为 generation/execution；taskType 区分 case/script/shared-resource/db-prepare/db-assert/test 等实际工作。outputs 是相对本阶段最终目录的独占路径，公共文件也必须登记。generationConcurrency 取冻结设置、宿主可用槽位和预算上限的最小值；executionConcurrency 独立冻结，旧 execution.workers 仅作为执行并发的兼容来源。旧配置没有新字段时生成上限按实际宿主可用槽位确定，执行缺省 1。记录解析后的数值和来源，旧运行不原地迁移。
+platform 为 web/mobile/shared；kind 为 generation/execution；taskType 区分 case/script/shared-resource/db-prepare/db-assert/test 等实际工作。outputs 是相对本阶段最终目录的独占路径，公共文件也必须登记。generationConcurrency 取冻结设置、宿主可用槽位和预算上限的最小值；executionConcurrency 由上述新 run 资源规划器独立冻结。旧配置没有新字段时生成上限按实际宿主可用槽位确定，执行缺省 1。记录解析后的数值和来源，旧运行不原地迁移。
 
 所有 run 使用同一个机器级 `--leases <Argus产物根>/resource-leases.json`；不能按 run、项目或平台另建 registry，否则无法跨运行互斥。state 路径在现有阶段目录内，调用者仅为主 Agent。plan 与 state/registry 使用不同文件；同一 state 始终使用同一 registry。claim 前核对 inputHash 对应的真实冻结输入仍一致。
 

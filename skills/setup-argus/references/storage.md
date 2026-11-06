@@ -92,3 +92,23 @@ Web 配置旧名为 `playwright-private.json`。发现旧文件且 `web-private.
 ## Bug 交付
 
 按 [通道规范](../../bug-reporter/references/channels.md) 选择 online/local/both、新建/复用/导入、工具和权限回退。所有方式都需 Bug 与每次运行汇总读回；本地是正式选项，online/both 未满足时不冒充成功。失败只补发布，不重跑业务。CSV/Excel 和证据在本机工作区，不能把本地路径当他人可访问的在线 URL。
+
+## 专用并发账号池
+
+启用执行并行时，引导用户在现有 `web-private.json` / `mobile-private.json` 本地编辑 `accountPools`，格式为角色 → 租户 → 账号数组；无租户使用空字符串。保持普通文件权限 0600，密码仅在这些文件及 runner 内存中，不能进入聊天、生成提示、计划、快照、报告、trace 或其他证据。创建模板只增加空字段，不覆盖已有配置。
+
+```json
+{
+  "accountPools": {
+    "admin": {
+      "tenant-a": [
+        {"username": "", "password": "", "principalId": "", "loginPolicyVerified": false}
+      ]
+    }
+  }
+}
+```
+
+模板空值需本地补齐或移除可选 principalId 后才能校验；principalId 是同一实际登录主体的稳定标识，Web/Mobile 使用别名登录同一账号时填写相同值。只有已验证登录策略与身份映射才把 loginPolicyVerified 设 true，并在私有 run 留不含凭据的证据；未知使用 false，调度保守串行。即使 true，同账号仍互斥，不依赖多登录容忍度。每个 worker 分配独立专用账号或完整角色组合，不共享认证缓存。
+
+旧 accounts 按角色和可选 tenant 继续可用，缺省 tenant 为空字符串；同一角色/租户存在 accountPools 时以池为准，空池表示该组合不可用，不回退旧账号。没有池的组合才使用 accounts。池不足降低可并行数；需要登录却完全缺少匹配组合时阻塞该任务。无需登录的任务明确 requiresLogin=false，可使用空 accounts。移动校验器和 execution.py 使用同一账号校验逻辑，校验错误不打印配置内容。
