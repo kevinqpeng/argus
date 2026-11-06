@@ -6,7 +6,7 @@
 
 配置与测试资产均在仓库外，存储和迁移规则见 [本机工作区](../../setup-argus/references/storage.md)。唯一持久配置为当前 Agent 根的 argus-model.json；以返回的 configPath/workspacePath/runConfigPath 为准，不从 cwd 拼 .argus。按阶段生成所需报告、代码、证据和回执，项目 PRD/源码/既有测试只读，不改依赖或配置来适配本机，也不靠 .gitignore 隐藏污染。
 
-子 Skill 只读本 run 快照；不再区分人员。配置按 Agent 分离，环境/表格设置按项目分离，证据、认证与 fixtures 按 run/目标隔离。Argus 的 Playwright 目标和账号由用户自行填写在 [仓库外私有文件](../../setup-argus/references/storage.md)，聊天只告知路径与缺失字段名，不索取或回显账号、密码及其他敏感值；项目 Playwright 配置、环境文件、账号、认证状态和浏览器 profile 仅可只读了解业务，不能作为执行配置或默认值。缺少目标或所需账号时标 blocked，等用户自行补齐，不从项目补齐。同 ID 异内容不可覆盖，同 run 由协调者合并分片。online/local/both 均须 Bug 和运行汇总读回；回退选择及独立状态写 manifest，不改快照或冒充远端成功。累计表更新使用锁。
+子 Skill 只读本 run 快照；后续模型调用同时应用[配置变更路由](../../decision-router/references/config-changes.md)验证过的追加调整，业务门禁仍以原快照为准；不再区分人员。配置按 Agent 分离，环境/表格设置按项目分离，证据、认证与 fixtures 按 run/目标隔离。Argus 的 Playwright 目标和账号由用户自行填写在 [仓库外私有文件](../../setup-argus/references/storage.md)，聊天只告知路径与缺失字段名，不索取或回显账号、密码及其他敏感值；项目 Playwright 配置、环境文件、账号、认证状态和浏览器 profile 仅可只读了解业务，不能作为执行配置或默认值。缺少目标或所需账号时标 blocked，等用户自行补齐，不从项目补齐。同 ID 异内容不可覆盖，同 run 由唯一协调者合并分片。模型、会话或 Agent 切换不改变任务身份；接任协调者按[恢复契约](resume.md)沿用原 runId、快照和检查点，并先完成资源交接。online/local/both 均须 Bug 和运行汇总读回；回退选择及独立状态写 manifest，不改快照或冒充远端成功。累计表更新使用锁。
 
 持久化对象使用 `schemaVersion: 1`。对象定义见 [JSON Schema](schemas.json)；数组文件由相应对象组成，外层聚合对象也带版本。ID 在项目内稳定唯一；内容变更升级版本/哈希。关联 ID 必须存在。JSON 为事实来源，不从自然语言报告反推状态。
 

@@ -13,6 +13,8 @@ description: Configures Argus model mappings, reasoning effort, tools and bug-re
 
 输入：可选的只读项目、本机、宿主元信息与已有选择。
 
+恢复已有任务（含切换模型或跨 Agent 接管）先走 [Argus 恢复入口](../argus/references/resume.md)，直接读取原快照；已有 run 的配置调整先走[配置变更路由](../decision-router/references/config-changes.md)，不直接进入初始化；下面的冻结步骤仅用于已确定需要的新 run。
+
 源码项目路径不是必填。
 
 没有项目时使用当前会话工作目录作为工作区身份，不因缺少源码阻断测试。
@@ -79,7 +81,7 @@ setup 不产生项目 Git 改动。
 
 ## 6. 冻结本次运行快照
 
-- 每次执行使用唯一 runId。异内容不可覆盖同名快照。
+- 每个独立测试任务使用唯一 runId；恢复或接管同一任务保留原 runId。异内容不可覆盖同名快照。
 - 运行中只读 runConfigPath；需保留的诊断和运行证据写仓库外 workspacePath，一次性探测材料按上面的产物边界处理。
 - 旧名称/人员目录只做显式迁移，校验后移除旧活动入口，不并行保留两份配置。
 - 历史证据不改写。

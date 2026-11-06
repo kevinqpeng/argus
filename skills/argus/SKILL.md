@@ -1,6 +1,6 @@
 ---
 name: argus
-description: Runs Argus PRD acceptance testing, verifies fixes for reported bugs, or resumes an interrupted run, with coverage gates and evidence delivery.
+description: Runs Argus PRD acceptance testing, verifies fixes for reported bugs, or resumes an interrupted run across models, sessions and agents, with coverage gates and evidence delivery.
 ---
 
 # AI 测试主流程
@@ -19,7 +19,11 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 目标是完成设计、执行、复现和表格交付。
 
+用户要求恢复、继续上次测试、切换模型后继续或跨 Agent 接管时，先执行[引导式恢复](references/resume.md)，再进入对应阶段。
+
 仅生成脚本不算完成。
+
+每个阶段完成、等待用户及交接前，按[恢复材料落盘](references/resume.md#恢复材料落盘)保存检查点，使其他模型或 Agent 可从文件继续原 run。
 
 用户要求验证已报告问题的修复时，先执行下方「缺陷修复回归」分支；普通 PRD 验收仍按第 1–8 阶段执行。
 
@@ -45,7 +49,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 - 按 setup 读取当前 Agent 配置、展示角色—模型—强度表并收集缺失选择。Jev 决策内置，只引导用户设置 `TYPESAFE_API_KEY`，冻结 runConfigPath。
 - 提出选择即暂停整个主流程，收到实际回答才继续。沿用 setup 的结构化问答工具选择和等待规则。
-- 模型角色按冻结配置通过宿主子 Agent 或已验证 API 调用。inherit-parent 省略模型参数。
+- 模型角色按冻结配置及[已验证的追加调整](../decision-router/references/config-changes.md)通过宿主子 Agent 或已验证 API 调用。inherit-parent 省略模型参数。
 - 能力缺失或策略不允许时 BLOCKED，不能由主会话冒充。映射与强度见 [模型规范](../setup-argus/references/models.md)。
 
 ## 3. 冻结场景并生成用例
@@ -108,19 +112,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 恢复
 
-继续前核对影响分析与所有来源指纹（缺失时按输入变化新建 run 补齐）、manifest、冻结配置、真实文件及 PRD/代码/目标指纹，并按共享契约重新核对人工用例评审门禁。awaiting_case_review 保持等待，不因恢复或“继续”自动通过。
-
-存在形式化路由或模型时核对其来源、模型、配置和工具版本哈希，以及 formalVerification 门禁与未完成回放；旧 run 缺少路由记录时补做适用性检查，不能默认 N/A。指纹变化按子技能的漂移与重新冻结规则处理。
-
-后续偏好变化不影响已有 run。
-
-采用新配置、切换宿主/会话模型或输入变化时新建 runId，保留历史。
-
-有副作用步骤重跑前检查资源与幂等条件。
-
-独立 Agent 各自 runId，同 run 分片按共享契约合并。
-
-调用遵守宿主与用户授权。
+按[引导式恢复](references/resume.md)完成只读发现、任务选择和恢复校验。任务选择不代表用例评审通过或扩大执行授权。
 
 ## 报告
 
