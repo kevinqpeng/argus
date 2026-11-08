@@ -41,10 +41,10 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 1. 登记输入与运行身份
 
-- 读取完整 PRD 和已有测试设施。有源码项目时只读 AGENTS.md、源码及 Git 状态并记录代码版本；按 [变更归属规则](../prd-to-cases/references/impact-analysis.md#自动识别共享分支中的变更归属) 自动识别本需求提交与共享分支上的并行改动，不能将整个分支差异归入本需求。
+- 读取完整 PRD，按[影响分析规则](../prd-to-cases/references/impact-analysis.md#冻结生产稳定业务基线)冻结被测项目的 main@SHA，登记来源指纹与缺口。
 - 没有源码项目也可测试，记录应用或服务版本、PRD 哈希、目标与预算，不要求用户提供项目路径。
 - 按 [新 run 复用入口](../setup-argus/SKILL.md#新-run-复用入口) 读取已有项目配置，取得唯一 runId 和仓库外 workspacePath，再写 manifest；只有首次或缺项才做相应 setup。
-- 目标冻结是第一个动作：从 `projectDir/web-private.json` 读 `baseUrl` 与账号，真实探测可达性，把 `baseUrl`、`hostHash`、`source=web-private.json`、`probedAt` 和探测证据写入 `manifest.target`，按 [门禁一](references/gates.md#门禁一目标冻结阶段-1进入阶段-3-前必须-passed) 自检。
+- 设计阶段不探测测试站或要求账号就绪。
 - 禁止为测试自行启动或复刻被测环境（本地后端、本地前端 dev server、容器、反向代理、mock 服务）。项目内文档、运维手册、项目 Playwright 配置、`.env` 只能用于了解业务，不能作为目标来源或端口依据。目标不可达按 error 处理并等待恢复，不降级到自建环境。
 
 ## 2. 确认并冻结配置
@@ -81,7 +81,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 主 Agent 在首次探索或业务执行前，按 [资源规划契约](references/scheduling.md#新-run-执行规划必需) 运行 execution.py 冻结 executionConcurrency 与 bindings；未显式启用固定串行。按 claim 的 binding 启动、收回并补位 runner，资源及停止确认由宿主验证；保留现有人工评审和权限门禁。
 
-- 按平台路由完成 Web/Mobile 的隔离与授权检查，再调用 [页面探索子技能](skills/page-exploration/SKILL.md) 规划并采集批准用例所需地图；纯 API 跳过页面探索。
+- 按平台路由完成 Web/Mobile 的隔离与授权检查；UI 探索按[轻量校验](references/page-diagnostics.md#探索前轻量校验)核实环境，再调用 [页面探索子技能](skills/page-exploration/SKILL.md) 规划并采集批准用例所需地图；纯 API 跳过页面探索。
 - 调用 [脚本生成子技能](skills/script-generation/SKILL.md)，按已就绪 spec 分批生成、发布、discovery 并绑定执行入口。探索与生成按共享队列重叠，不等待全量地图才派发。
 - 主流程只检查交接结果：review、scripts、真实 discovery 的 plan 门禁及 UI 全量地图 check 通过后进入执行。未完成项保留阻断，用例变更回第 3 阶段重新评审。门禁见 [门禁三·六](references/gates.md#门禁三六脚本滞后评审阶段-42-必须-passed)。
 
