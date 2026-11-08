@@ -20,7 +20,9 @@ PRD sourceHash 是源文件原始字节的 SHA-256；RequirementAC 新增 source
 
 来源清单与影响义务先核查，保存 cases/impact-analysis.json 和 impactHash，再冻结场景生成用例。旧输入缺少影响分析时新建 run 补齐，不改历史。有效设计用例需已审查、语义映射通过、有真实步骤断言及 planned 声明入口；design 门禁不依赖 runner。执行就绪的 plan 门禁另要求已发布入口与 runner 实际发现结果。两个门禁均要求每个必需场景的全部关联用例有效，完整设计与执行均要求必需项 100%。执行需要全部必需用例 × requiredMatrix。重试不增加分子或分母。子集展示 partial 和全量缺口。原分母不能被删失败项缩小；授权变更要另存原基线指标。
 
-分片使用独立文件；expectedShards、inputHash 在执行前冻结。inputHash 绑定 impactHash、所有来源哈希、影响判断题集版本、PRD、基线、代码版本及本地改动摘要、配置/环境指纹、矩阵和选中用例。每个分片完成后 resultHash 绑定该分片的全部 attempts，聚合脚本验证哈希和唯一性。哈希只检查一致性，不证明来源真实性；宿主需保存 runner 原始输出和构造过程。
+分片使用独立文件；expectedShards、inputHash 在执行前冻结。inputHash 绑定 impactHash、所有来源哈希、影响判断题集版本、PRD、基线、冻结的 main@SHA（有源码时）、配置/环境指纹、矩阵和选中用例。每个分片完成后 resultHash 绑定该分片的全部 attempts，聚合脚本验证哈希和唯一性。哈希只检查一致性，不证明来源真实性；宿主需保存 runner 原始输出和构造过程。
+
+共享属性（多人共用、独占或未知）、轻量校验与异常诊断保存在本 run 的受保护证据中，以现有 probeEvidence/evidenceRef 引用。OBSERVED_MISMATCH、后续归因和是否阻断是诊断事实，不写入用例状态或设计来源。运行中环境漂移只使受影响的地图与探针需要重验，不重算审批指纹；若授权目标、冻结输入、业务预期或矩阵确需变更，沿用原新 run 与人工评审规则。
 
 以上为执行分片；用例/脚本生成使用独立的 [生成计划、调度与合并契约](../../prd-to-cases/references/parallel-generation.md)。同 run 生成 worker 共用 runId，主 Agent 唯一写计划、调度状态和最终材料，worker 按 taskId/attempt 隔离。manifest.generation 保存生成计划和结果引用，不复用执行 shards/attempts。全部分配任务完成且产物校验通过才算生成完整；进度覆盖率不豁免缺失生成分片或必需用例。
 
