@@ -7,7 +7,7 @@
 命令：`python3 <本目录>/../scripts/phase_gate.py <runDir> --phase <target|dispatch|semantic|cases|execution|report>`
 退出 0 = PASSED，退出 2 = BLOCKED，输出缺口清单。任一阶段 BLOCKED 时停在该阶段，不进入下一阶段，不能用内容完整代替过程完整。
 
-## 门禁一：目标冻结（阶段 1，进入阶段 3 前必须 PASSED）
+## 门禁一：目标冻结（评审门禁放行后，首次 Web 探索或业务执行前必须 PASSED）
 
 目标只能来自本项目 `projectDir/web-private.json` 的 `baseUrl` 与 `accounts`。
 
@@ -30,6 +30,7 @@
 ## 门禁三：页面地图（阶段 5 UI 执行前必须 PASSED）
 
 - UI 用例执行前必须取得 exploration.py check 不带 caseIds 的全量 PASSED 回执（scope=all）；分批生成的局部回执不能替代。存在本 run 的 `evidence/page-map.json`（结构见 [页面探索与失败诊断](page-diagnostics.md)），覆盖每条 UI 用例实际进入的页面状态。
+- 按[探索异常诊断](page-diagnostics.md#探索异常与归因)记录阻断的 caseId/矩阵和原因。可安全取得全部所需地图的 spec 继续按原 check 放行；阻断项保留在全量门禁分母内。
 - 探索先于脚本：新页面状态先由探针采集定位器与可观察状态，再写 spec。禁止把未验证的定位器直接写进断言。
 - 判定为已知页面的条目直接命中地图，不重复探索；同一页面状态最多一次首次探索加一次失效定点重探索，超出预算记录原因并停止。
 - 断言模态框/浮层关闭后不要用"DOM 数量为 0"（AntD、vxe 等组件关闭后节点常驻），用可见性断言；表格可能是 `vxe`，操作列可能在固定列镜像表里，定位前先看地图的定位器来源。
