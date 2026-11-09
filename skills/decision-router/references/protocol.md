@@ -16,7 +16,7 @@ payload, _ = build_request(data)
 
 文本 state 必须是 subjects 对象，按问题实例 ID 绑定非空 evidence 对象及其 evidenceHash。哈希算法由 jev.evidence_hash 定义；必须在证据完整组装时产生，传输前校验，不在发现缺失后重算来掩盖缺口。mapping 的 evidence 必须包含完整 acceptance、fixtures（可为空数组）、steps（id/action）和 assertions（stepId/expected）；按共享步骤契约检查未断言业务步骤。source_inventory 提供原文 sourceContent 与 sourceUnits、obligations 数组；scenario_realization 提供 acceptance、fixtures、steps；impact_evidence 提供 change、check、dependencyEvidence。完整字段与类型在 questions.json 集中维护；空清单可用于判断遗漏，不代表通过。其他题目的业务最小证据由题目定义与 subject 说明，Schema 无法证明业务证据充分。
 
-build_request 只保留本批问题的主体，移除外围诊断与未选主体；保留所选 evidence 的全部字段。精简后超过 questions.json 中本地 maxBytes 预算就拆分独立问题，不切断字段或 JSON。这个预算是本地策略，不声称等于 provider 的 Token 上限。校验不能识别在首次计算哈希前已被人手删去且仍符合 Schema 的业务内容，来源完整性仍需从冻结文件核对。
+build_request 只保留本批问题的主体，移除外围诊断与未选主体；保留所选 evidence 的全部字段。按同一就绪阶段收集独立问题，在 questions.json 的本地 maxBytes 内合批；超过预算才拆分，逐批调用 build_request 校验完整请求，保留每题独立 subjects、evidenceHash 和输出绑定，不切断字段或 JSON。单题也超预算时回报证据范围缺口，不能截断后通过。题目隔离由实例与主体绑定表达，不为每个主体固定启动一次进程或请求。这个预算是本地策略，不声称等于 provider 的 Token 上限。校验不能识别在首次计算哈希前已被人手删去且仍符合 Schema 的业务内容，来源完整性仍需从冻结文件核对。
 
 
 `generation_dependency` 的 yes 表示 A 的生成依赖 B 尚未冻结的产物；业务执行先后不自动构成生成依赖。`generation_conflict` 判断共享输出写冲突，共读冻结输入不构成冲突。两题沿用 questions.json 的集中 noul 阈值，中间带交宿主核查；不确定不能当作可安全并行。主 Agent 根据证据和这些判断构建调度图、检查环和分配独占输出，Jev 不调度或生成脚本。
