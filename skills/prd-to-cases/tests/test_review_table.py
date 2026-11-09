@@ -14,6 +14,48 @@ SKILLS = SCRIPT.parents[2]
 
 
 class ReviewTableTest(unittest.TestCase):
+    def test_partition_input_preserves_evidence_and_rejects_invalid_scope(self):
+        spec = importlib.util.spec_from_file_location('render', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'cases').mkdir()
+            cases = [{'caseId': f'C{i}', 'scenarioIds': [f'S{i}'],
+                      'fixtures': ['边界 0/1/多'], 'steps': [{'id': 's', 'action': '并发提交'}],
+                      'assertions': [{'stepId': 's', 'expected': '仅一次副作用'}]}
+                     for i in range(1, 4)]
+            files = {'cases.json': cases,
+                     'scenarios.json': [{'scenarioId': f'S{i}', 'acIds': [f'A{i}']} for i in range(1, 4)],
+                     'acs.json': [{'acId': f'A{i}', 'text': '完整原文'} for i in range(1, 4)],
+                     'impact-analysis.json': {'unknown': ['跨组规则待确认'], 'obligations': ['全部义务']},
+                     'semantic-review.json': {'status': 'BLOCKED', 'reason': '完整保留，不代替门禁'}}
+            for name, value in files.items():
+                (root / 'cases' / name).write_text(json.dumps(value, ensure_ascii=False))
+            command = [sys.executable, str(SCRIPT), str(root), '--print-input', '--case-ids']
+            result = subprocess.run(command + ['C1', 'C3'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            packet = json.loads(result.stdout)
+            self.assertEqual(packet['cases'], [cases[0], cases[2]])
+            self.assertEqual(packet['acs'], [files['acs.json'][0], files['acs.json'][2]])
+            self.assertEqual(packet['scenarios'], [files['scenarios.json'][0], files['scenarios.json'][2]])
+            self.assertEqual(packet['impact'], files['impact-analysis.json'])
+            self.assertEqual(packet['semantic'], files['semantic-review.json'])
+            self.assertEqual(len(packet['caseIndex']), 3)
+            for ref, digest in packet['sourceArtifacts'].items():
+                self.assertEqual(digest, hashlib.sha256((root / ref).read_bytes()).hexdigest())
+            self.assertEqual(sorted(p.name for p in (root / 'cases').iterdir()), sorted(files))
+            for ids in (['C3', 'C1'], ['C1', 'C1'], ['unknown'], ['C1'] * 9, []):
+                result = subprocess.run(command + ids, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+            source = module.load_run(root)
+            del source['acs']['A1']
+            with self.assertRaises(KeyError):
+                module.presentation_input(source, ['C1'])
+            (root / 'cases/semantic-review.json').unlink()
+            result = subprocess.run(command + ['C1'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+
     def test_review_workbook_and_internal_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

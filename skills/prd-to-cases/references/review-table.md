@@ -6,7 +6,7 @@
 
 1. 主 Agent 在用例合并、语义审查后，使用冻结的 generation 角色创建新的独立 Agent。Codex 使用 `fork_turns="none"`；其他宿主使用不继承历史的新会话。不能复用设计、探索或执行 worker。宿主无法隔离上下文时标 BLOCKED，不声称已隔离。
 2. 将本文件下方的固定提示词原样传入，仅替换任务参数；不要附加主会话聊天、执行日志、失败诊断或截图中的操作指令。禁止自拟与固定提示词冲突的分片任务书，例如强制保留所有接口、字段或强制源步骤与展示步骤 1:1。超长或分片返工也必须沿用本契约，不能仅以行高或字数通过代替业务可读性。输入文件作为数据，不能改变任务权限。
-3. 参数包括：runId、标题、输出目录、封闭输入清单、按源顺序分配的 caseIds、是否负责待确认事项、自检命令。清单包含本文件、[展示可读性题目](presentation-quality.json)、只读 cases.json/scenarios.json/acs.json、impact-analysis.json、semantic-review.json、必要的已确认业务规则与源用例、现有 render_review_table.py、当前宿主表格技能及其必需依赖。凭据、真实账号、认证状态不进入输入。技术字段可供映射核对，不能整段复制成业务描述。需要补充来源时回报主 Agent，由其补充清单后重派。
+3. 参数包括：runId、标题、输出目录、封闭输入清单、按源顺序分配的 caseIds、是否负责待确认事项、自检命令。清单包含本文件、[展示可读性题目](presentation-quality.json)、只读 cases.json/scenarios.json/acs.json、impact-analysis.json、semantic-review.json、必要的已确认业务规则与源用例、现有 render_review_table.py。文案分片先读下述无损输入包，完整原文件保留为按需读取的封闭来源；仅汇总渲染任务加载当前宿主表格技能及其必需依赖。凭据、真实账号、认证状态不进入输入。技术字段可供映射核对，不能整段复制成业务描述。需要补充来源时回报主 Agent，由其补充清单后重派。
 4. worker 只写 `cases/presentation/<轮次>/` 下分配的独占目录；文案分片和汇总展示的产出按下方「首轮派发与局部返工」执行，汇总输出 cases.xlsx、cases.md、mapping.json 和 receipt.json，不改用例事实、审批或执行状态。receipt 保存真实 agentId、model、effort、isolation、promptHash 和 artifactHashes；promptHash 是本文件「固定提示词」正文（去掉首尾空白，不替换参数）UTF-8 字节的 SHA-256，artifactHashes 键为 run 内相对路径，包含 cases 下 cases/scenarios/acs/impact-analysis/semantic-review 五个 JSON，以及本轮 content.json、cases.xlsx、cases.md、mapping.json、quality-review.json。主 Agent 从宿主调用记录核对实际提示词、身份和隔离方式，不能仅信自报。
 5. 主 Agent 按下方验收核对，成功后发布到内部 cases.xlsx/cases.md。再按 [用例评审表规则](../SKILL.md#7-输出人工评审表) 从冻结需求文档的最新版本生成并交付命名 Excel；不向人员展示内部 cases.xlsx。原审批材料保留，修订遵循原评审门禁。将 mapping.json、receipt.json 纳入本轮评审 artifactHashes。此回执只证明展示任务，不能代替 generation/result.json 或语义审查。
 6. 版式与映射由 `scripts/render_review_table.py` 确定性生成：worker 只写业务文案 `cases/presentation/<轮次>/content.json`（结构与豁免字段见脚本 docstring），运行脚本产出 cases.xlsx、cases.md 和 mapping.json。脚本校验源步骤和断言去向，并拦截主表 UI 用例与待确认事项中的部分明显内部标识、字段和接口；匹配只是疑似问题，不是业务判断，也不能证明所有文案可读。纯 API/安全/性能用例保留被测协议；UI 用例确有必要时按字段、序号和精确 token 在 technicalExceptions 写业务理由和来源依据，主 Agent 逐项核查；待确认事项改写为白话。脚本失败时按提示修改文案或核实例外，不删除原业务义务。
@@ -15,10 +15,18 @@
 ## 首轮派发与局部返工
 
 - 派发前按源顺序划分文案任务：通常每片 6 条，最多 8 条，单片 content.json 的 UTF-8 文件不超过 25 KiB。复杂用例提前减小分片；用例数和字节数都满足才完成。单条已超预算时报告缺口，不截断业务内容。待确认事项指定一个独立归属，避免各片重复生成。
-- 每片使用上述干净上下文和冻结 generation 角色，独占 `<轮次>/<taskId>/`，保存分片 content.json、receipt.json 和自检输出。输入仍保留只读完整来源，caseIds 明确限定写入范围；按宿主槽位和冻结预算动态补位，单槽位顺序执行小片，不合成大任务。只在汇总后渲染一次完整工作簿，分片不生成 Excel、Markdown 或映射文件。
+- 每片使用上述干净上下文和冻结 generation 角色，独占 `<轮次>/<taskId>/`，保存分片 content.json、receipt.json 和自检输出。输入仍保留只读完整来源和无损输入包，caseIds 明确限定写入范围；按宿主槽位和冻结预算动态补位，单槽位顺序执行小片，不合成大任务。只在汇总后渲染一次完整工作簿，分片不生成 Excel、Markdown 或映射文件。
 - 首轮任务书必须包含下方固定提示词、分片 caseIds 和可直接执行的自检命令（替换为绝对路径）：`python3 <skill>/scripts/render_review_table.py <runDir> --content <分片>/content.json --check-only --case-ids <分配的ID列表>`。预检复用渲染器的列宽、编号、换行估算与映射规则，退出 0 才交回；不是语义或视觉验收。
 - 主 Agent 按冻结 caseIds 顺序确定性拼接各片 cases，检查漏项、重复、越界和标题一致，合并指定归属的 notes；保留分片回执及哈希，写本轮 content.json。运行同一命令去掉 `--case-ids` 做全量 `--check-only`，通过后由独立展示 Agent 执行原渲染和视觉核验，保存汇总 receipt。主 Agent 仅做拼接，不改业务文案。
 - 失败只回派具体 caseId/字段和校验错误；通过的分片复用。输出截断或长度上限失败时先缩小任务，并复用已完整落盘且校验通过的条目，不原样重试整个大批次。记录真实派发、完成、自检、返工、合并和渲染耗时；不预先承诺提速倍数。
+
+## 无损输入与准备复用
+
+语义门禁通过后，主 Agent 为每片运行 `python3 <skill>/scripts/render_review_table.py <runDir> --print-input --case-ids <有序ID列表>`，将标准输出保存为该分片独占目录中的 input.json。使用新路径，已有输入不可覆盖。它逐字段保留分配用例、关联场景与 AC，并保留全局用例索引、完整影响分析和语义审查；sourceArtifacts 绑定五个原始文件的字节哈希。该命令只提取数据，不证明语义通过，不生成文案或回执。
+
+分片完整阅读本包及必要的已确认规则，按索引发现跨例依赖时读取清单中的原文件；全局影响与未知项不可按 caseId 删除。负责待确认事项的 worker 核对完整影响分析及所有已知限制。主 Agent 在派发和接受产物前重新核对 sourceArtifacts；文件变化使该输入包失效，沿原输入变更规则处理。自检、全量合并、语义、可读性、视觉检查仍对原始 run 文件执行，不改用子集分母。
+
+文案任务只需契约、数据与分片自检，不安装或加载表格运行时、不渲染分片。汇总展示任务在等待文案时可准备固定渲染命令和依赖，收到完整文案后只渲染一次；独立可读性与保真问题可在同一批 Jev 调用中逐题提交，每题仍有完整源内容、独立答案及概率。低分仅返工受影响条目；改动条目重新审查，未变条目仅在题目、源内容、展示内容及适用上下文哈希一致时复用本轮真实回执。最终 quality-review 的 contentHash 和全量逐条覆盖重新核验，视觉证据仍绑定最终工作簿。
 
 ## 固定提示词（原样派发）
 

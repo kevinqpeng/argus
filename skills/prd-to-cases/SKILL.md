@@ -51,6 +51,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 ## 5. 审查语义映射
 
 - 读 [decision-router](../decision-router/SKILL.md)，来源阶段完成 source_inventory 与 impact_evidence 后，按 AC/场景逐项批量检查 scenario_realization（数据与顺序确实触发规则）、mapping（断言验证结果）、rule_support（预期来自批准规则）。输入完整前置、步骤、断言和原始依据，分别留回执；高 mapping 分不能替代来源召回。
+- 同一冻结输入上，scenario_realization、mapping、rule_support 是独立题，按主体一次合批，不按题型串行等待。每题仍携带完整证据、独立 answerId 与概率；超过现有字节预算时按完整题拆批，不截断原文。来源阶段已经完成且输入、题集及上下文未变的 source_inventory/impact_evidence 回执直接汇入最终门禁，不重复调用；变化或低置信度项按原规则补证据复核。
 - 预期独立于被测输出：页面等于接口只证明呈现一致；日志成功不等于要求的实际送达；URL格式不等于链接可用。按原始规则验证收件人集合、同一记录的提交到详情、最终主题/正文或实际跳转；已有实现与规则冲突写观察/缺陷候选，不改成正确预期。低概率补证据核查后记录处理依据，不能只以“模型保守”接受。
 - approved 只用于证据完成且已审查的条目。记录 semanticReview 的审批依据。
 - 多 AC 共用用例要分别断言。
