@@ -113,7 +113,7 @@ Session ID、实际 capabilities、探测时间和驱动版本写入受保护执
 
 DB 断言代码可独立生成共享 helper；不为生成代码连接业务数据库。正式测试需要查库时，主 Agent 派发独立 SQL agent 执行 `kind=execution`、`platform=shared`、`taskType=db-assert` 任务，复用冻结 reasoning 角色；按 [数据库核验规则](mysql.md) 接收并合并回执。任务使用 `requiresLogin=false`（仅免除 Web/Mobile 账号绑定，数据库认证与授权仍必需），保留业务资源锁和实际隔离证据，计入冻结执行并发上限。后置核验 dependsOn 产生业务状态的任务，清理任务 dependsOn 核验任务；前置基线如为断言必需，则先派 SQL agent 采集，业务任务依赖其回执。普通 runner 不内联数据库断言，生成的 helper 仅供 SQL agent 调用。DB 环境准备不触发业务数据库探测；造数和清理由业务 API 负责。
 
-每 attempt 关联 taskId、worker、platform、taskType、开始/结束、超时、失败/重试和 evidence。`finish --usage <json>` 可附实测 llmSeconds、totalTokens、toolSeconds、queueSeconds、dependencyWaitSeconds、resourceWaitSeconds、agentIdleSeconds；缺失保留 unknown。宿主另外记录分析、生成、环境准备、E2E 执行、结果分析/报告的墙钟区间及可用槽位变化，写 manifest.timing 和本次计时证据。阶段墙钟不能由并行任务耗时求和替代。
+每 attempt 关联 taskId、worker、platform、taskType、开始/结束、超时、失败/重试和 evidence。`finish --usage <json>` 可附实测 llmSeconds、totalTokens、toolSeconds、queueSeconds、dependencyWaitSeconds、resourceWaitSeconds、agentIdleSeconds；缺失保留 unknown。宿主另外记录分析、生成、环境准备、E2E 执行、结果分析/报告的墙钟区间及可用槽位变化，写 manifest.timing 和本次计时证据。阶段墙钟不能由并行任务耗时求和替代。设计交付至少记录探索、汇总、用例生成每轮、语义请求与低置信度处理、覆盖/冻结、呈现、核对/发布的开始和结束，人工等待单独记录。复用 manifest.timing 和现有任务回执，首阶段开始即打点；只有 mtime 的历史数据标为产物时间边界估计，重叠区间按并集计算总墙钟，未知起点保留 unknown。
 
 report 按平台与生成/执行分组，统计占用时间、完成数、失败/重试和已知成本。占用包含 LLM/工具等待，不等于实际推理工作时间。利用率用该平台实际分配槽位时间积分作分母、worker 占用区间作分子，跨平台共享槽位不得重复计算；没有槽位轨迹则 unknown。Appium 另算设备会话占用/授权可用设备时间，合理设备等待不能计为 AI 空转。不能从完成时间差推断 LLM、工具或依赖阻塞。
 
