@@ -4,6 +4,7 @@
 用法：
     render_review_table.py <runDir> [--content cases/presentation/1/content.json]
                                        [--out-dir cases] [--round 1]
+    分片自检：同上加 --check-only --case-ids C1 C2（按冻结顺序）
 
 `content.json` 是评审表 worker 的唯一业务产出：文案 + 分组；xlsx 版式、
 待确认事项、内部 Markdown 和 step/assertion 映射均由本脚本确定性生成，
@@ -334,19 +335,31 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('run_dir', type=pathlib.Path)
     ap.add_argument('--content', type=pathlib.Path)
+    ap.add_argument('--check-only', action='store_true', help='只校验，不写文件')
+    ap.add_argument('--case-ids', nargs='+', help='仅自检：本分片分配的有序 caseId')
     ap.add_argument('--round', default='1')
     ap.add_argument('--out-dir', type=pathlib.Path)
     args = ap.parse_args()
+    if args.case_ids and not args.check_only:
+        ap.error('--case-ids 只能与 --check-only 一起使用')
 
     run_dir = args.run_dir.resolve()
     round_dir = run_dir / 'cases/presentation' / args.round
     content_path = args.content or round_dir / 'content.json'
     out_dir = (args.out_dir or run_dir / 'cases').resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     content = json.loads(content_path.read_text(encoding='utf-8'))
     source = load_run(run_dir)
     errors = []
+    if args.case_ids:
+        assigned = set(args.case_ids)
+        source['cases'] = [c for c in source['cases'] if c['caseId'] in assigned]
+        if [c['caseId'] for c in source['cases']] != args.case_ids:
+            errors.append('分片 caseIds 必须唯一、存在且保持源顺序')
+        if len(args.case_ids) > 8:
+            errors.append('分片最多 8 条用例，请拆分任务')
+        if content_path.stat().st_size > 25 * 1024:
+            errors.append('分片 content.json 超过 25 KiB，请拆分任务')
     units = normalize(content, source, errors)
     if errors:
         for line in errors:
@@ -368,6 +381,29 @@ def main():
             print(f'ERROR 评审文案含疑似内部技术信息：{issue}', file=sys.stderr)
         print('请改为业务表述；UI 用例确有必要时按契约记录逐项例外并复核。', file=sys.stderr)
         sys.exit(2)
+    layout_errors = []
+    for row in content['cases']:
+        values = [row['group'], row['title'], numbered(row['fixtures']),
+                  numbered(row['steps']), numbered(row['expected']), '未测试']
+        for field, value, width in zip(HEAD_MAIN, values, WIDTH_MAIN):
+            try:
+                est_height([(value, width)])
+            except ValueError as exc:
+                layout_errors.append(f"{row['caseId']} {field}: {exc}")
+    for i, note in enumerate(notes, 1):
+        for field, width in zip(('category', 'question', 'action'), WIDTH_NOTES):
+            try:
+                est_height([(note[field], width)])
+            except ValueError as exc:
+                layout_errors.append(f'notes[{i}] {field}: {exc}')
+    if layout_errors:
+        for error in layout_errors:
+            print(f'ERROR {error}', file=sys.stderr)
+        sys.exit(2)
+    if args.check_only:
+        print(f'PASSED cases={len(units)}; 映射、文案与行高预检通过；仍需语义和视觉核验')
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
     low = low_scores(source['semantic'])
     wb = Workbook()
     sheet_rows = render_main(wb, units, source)
