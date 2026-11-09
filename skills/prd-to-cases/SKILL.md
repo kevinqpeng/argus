@@ -68,7 +68,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 - 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发独立、干净上下文的 generation Agent，生成六列业务评审主表及逐条追踪映射；主 Agent 验证后发布。此任务在用例合并和语义审查之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
 - 每行「测试结果」使用真实的 Excel 数据验证下拉列表，选项为「未测试、通过、失败、错误、阻塞、跳过、不稳定、取消」，初始为「未测试」。分别对应未执行、passed、failed、error、blocked、skipped、flaky、cancelled；测试结果与人工评审批准是不同状态，下拉选择不能解除评审门禁。
 - 按 [评审表生成契约](references/review-table.md) 输出「用例主表」和「待确认事项」两张工作表。待确认事项用业务白话呈现，完整影响分析、来源与技术追踪保存在内部 JSON、Markdown 和映射中。
-- 交付前打开并核对 Excel 的内容、布局、下拉选项和默认值，以 mapping.json 对照 JSON 检查每项条件、步骤和断言及待确认事项，确认内部追踪可定位；缺失或不一致时修复后再交付。
+- 交付前按评审表契约运行 `phase_gate.py <runDir> --phase presentation`，并核对 Excel 的内容、布局、下拉选项和默认值，以 mapping.json 对照 JSON 检查每项条件、步骤和断言及待确认事项，确认内部追踪可定位；缺失或不一致时修复后再交付。
 - 交付评审表只表示生成完成。用户只请求用例时在此结束；调用方还需脚本或验证时，按 [人工用例评审门禁](../argus/references/contracts.md#人工用例评审门禁) 等待人员批准后才能继续，语义审查 approved 不代表人工批准。
 
 ## 7.5 交接脚本阶段

@@ -1,5 +1,6 @@
 import json
 import importlib.util
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -9,6 +10,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/render_review_table.py'
+SKILLS = SCRIPT.parents[2]
 
 
 class ReviewTableTest(unittest.TestCase):
@@ -91,6 +93,72 @@ class ReviewTableTest(unittest.TestCase):
         self.assertEqual([r['status'] for r in ambiguous], ['modified', 'unidentified', 'missing_unresolved'])
         reviewed[2]['caseId'] = 'C1'
         self.assertTrue(any(r['status'] == 'identity_conflict' for r in module.compare(old, reviewed, mapping)))
+
+    def test_presentation_flags_internal_details_without_blocking_api_cases(self):
+        spec = importlib.util.spec_from_file_location('render', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        source = {'cases': [{'caseId': 'C1', 'suite': 'ui'}, {'caseId': 'C2', 'suite': 'api'}]}
+        content = {'cases': [
+            {'caseId': 'C1', 'group': '配置', 'title': '保存',
+             'fixtures': ['FA-ADMIN 新建 AR-930a49fc-C-CFG-01-model'],
+             'steps': ['GET /bpm/model/get 读取 metaInfo'], 'expected': ['状态不变']},
+            {'caseId': 'C2', 'group': '接口', 'title': '鉴权', 'fixtures': [],
+             'steps': ['GET /bpm/model/get'], 'expected': ['HTTP 403']}],
+            'notes': [{'category': '规则', 'question': 'C-CFG-02 由哪个版本生效？', 'action': '请产品确认'}]}
+        issues = module.presentation_issues(content, source)
+        self.assertTrue(any('FA-ADMIN' in s for s in issues))
+        self.assertTrue(any('AR-930a49fc' in s for s in issues))
+        self.assertTrue(any('GET /bpm/model/get' in s for s in issues))
+        self.assertTrue(any('notes[1]' in s for s in issues))
+        self.assertFalse(any('C2 ' in s for s in issues))
+        content['cases'][0].update(fixtures=['管理员已登录'], steps=['进入模型设置，查看开关'])
+        content['notes'][0]['question'] = '再次提交时使用哪个版本？'
+        self.assertEqual(module.presentation_issues(content, source), [])
+        content['cases'][0]['steps'] = ['GET /bpm/model/get']
+        content['cases'][0]['technicalExceptions'] = [{'field': 'steps', 'index': 1,
+            'token': 'GET /bpm/model/get', 'reason': '接口为测试对象', 'evidenceRef': 'cases.json:C1'}]
+        self.assertEqual(module.presentation_issues(content, source), [])
+        content['cases'][0]['technicalExceptions'][0]['evidenceRef'] = ''
+        self.assertTrue(module.presentation_issues(content, source))
+
+    def test_presentation_gate_binds_prompt_artifacts_and_quality_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = root / 'cases/presentation/1'
+            base.mkdir(parents=True)
+            def write(ref, data):
+                path = root / ref
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(data, encoding='utf-8')
+            def sha(ref):
+                return hashlib.sha256((root / ref).read_bytes()).hexdigest()
+            write('manifest.json', json.dumps({'presentation': {'round': 1}}))
+            files = {'cases.json': [{'caseId': 'C1', 'suite': 'ui'}],
+                     'scenarios.json': [], 'acs.json': [], 'impact-analysis.json': {}, 'semantic-review.json': {}}
+            for name, data in files.items():
+                write('cases/' + name, json.dumps(data))
+            content = {'cases': [{'caseId': 'C1', 'group': '配置', 'title': '保存',
+                                  'fixtures': [], 'steps': ['打开页面'], 'expected': ['保存成功']}], 'notes': []}
+            write('cases/presentation/1/content.json', json.dumps(content, ensure_ascii=False))
+            for name in ('cases.xlsx', 'cases.md', 'mapping.json'):
+                write('cases/presentation/1/' + name, 'fixture')
+            write('cases/presentation/1/jev.json', 'evidence')
+            write('cases/presentation/1/quality-review.json', json.dumps({'status': 'PASSED',
+                'contentHash': sha('cases/presentation/1/content.json'),
+                'evidence': [{'ref': 'cases/presentation/1/jev.json', 'sha256': sha('cases/presentation/1/jev.json')}]}))
+            refs = ['cases/' + name for name in files] + ['cases/presentation/1/' + name for name in
+                    ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json', 'quality-review.json')]
+            contract = (SKILLS / 'prd-to-cases/references/review-table.md').read_text(encoding='utf-8')
+            prompt = contract.split('## 固定提示词（原样派发）\n', 1)[1].split('\n## 主 Agent 验收', 1)[0].strip()
+            receipt = {'agentId': 'agent', 'model': 'model', 'effort': 'high', 'isolation': 'fresh',
+                       'promptHash': hashlib.sha256(prompt.encode()).hexdigest(),
+                       'artifactHashes': {ref: sha(ref) for ref in refs}}
+            write('cases/presentation/1/receipt.json', json.dumps(receipt))
+            command = [sys.executable, str(SKILLS / 'argus/scripts/phase_gate.py'), str(root), '--phase', 'presentation']
+            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            write('cases/presentation/1/jev.json', 'modified')
+            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 2)
 
 
 if __name__ == '__main__':
