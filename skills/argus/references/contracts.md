@@ -36,7 +36,7 @@ PRD sourceHash 是源文件原始字节的 SHA-256；RequirementAC 新增 source
 
 从本 run 的冻结配置读取 `execution.requireHumanCaseReview`，缺省为 `true`。仅布尔值 `false` 关闭人工门禁，并在 `manifest.gates.humanCaseReview` 记录 `status=N/A` 和关闭依据。关闭依据必须符合 [本地证据契约](case-review.md#本地证据契约)，并核验初始化配置哈希与关闭授权。开关按 [配置规范](../../setup-argus/references/config.md) 保存及冻结，Agent 不得自行关闭、因用户未回答而关闭，或以“全自动”“继续测试”等泛化授权推断关闭。
 
-开关开启时，完成用例及 design 覆盖检查后，交付按日期和功能命名的 Excel 评审副本及 `cases/cases.xlsx`、`cases/cases.md`、`cases/cases.json` 的可访问位置；确保 Excel 副本与固定路径内容一致。若所选终点包含探索、脚本或执行，明确请求人员评审本轮用例，将 `manifest.state` 设为 `awaiting_case_review`，`manifest.gates.humanCaseReview.status` 设为 `BLOCKED`，暂停验证流程。仅交付用例时记录 design_completed，humanCaseReview 保持 BLOCKED 并注明尚未请求后续验证；用例交付无需等待批准。没有实际回复、超时、空回复、仅收到文件、模型或 Jev 审查通过、用例条目的 approved、覆盖达标，均不能解除此门禁。
+开关开启时，完成用例及 design 覆盖检查后，按 [用例评审表规则](../../prd-to-cases/SKILL.md#7-输出人工评审表) 交付 `功能名称用例(V版本号).xlsx`；版本来自本轮冻结需求文档，无法确认时使用 `功能名称用例.xlsx`。确保命名副本与内部固定路径内容一致，内部 `cases/cases.xlsx`、`cases/cases.md` 和 `cases/cases.json` 保留供追踪与审批，不作为面向人员的评审附件展示。若所选终点包含探索、脚本或执行，明确请求人员评审本轮用例，将 `manifest.state` 设为 `awaiting_case_review`，`manifest.gates.humanCaseReview.status` 设为 `BLOCKED`，暂停验证流程。仅交付用例时记录 design_completed，humanCaseReview 保持 BLOCKED 并注明尚未请求后续验证；用例交付无需等待批准。没有实际回复、超时、空回复、仅收到文件、模型或 Jev 审查通过、用例条目的 approved、覆盖达标，均不能解除此门禁。
 
 只有人员查看本轮评审材料后明确表示用例评审通过并允许验证，才记录 `status=PASSED`。同一门禁对象必须保存 `runId`、`baselineHash`、`inputHash`、`artifactHashes`、`reviewer`、`reviewedAt`、`approvalRef` 和 `approvalHash`。`artifactHashes` 是 impact-analysis.json、requirements.json、acs.json、scenarios.json、cases.json、cases.md 和 cases.xlsx 原始字节的 SHA-256 映射；`approvalRef` 指向 [本地证据契约](case-review.md#本地证据契约) 的证据文件，其 sourceRef 关联真实人员回复或可核验的人工审批记录，不能由 Agent、子 Agent 或 Jev 代签。审批必须覆盖本轮全部选中用例与必需矩阵，未完整覆盖保持 BLOCKED。
 
