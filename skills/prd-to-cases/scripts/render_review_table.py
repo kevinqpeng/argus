@@ -5,8 +5,8 @@
     render_review_table.py <runDir> [--content cases/presentation/1/content.json]
                                        [--out-dir cases] [--round 1]
 
-`content.json` 是评审表 worker 的唯一业务产出：文案 + 分组；xlsx 版式、追踪表、
-关联影响、待确认规则、Markdown 和 step/assertion 映射均由本脚本确定性生成，
+`content.json` 是评审表 worker 的唯一业务产出：文案 + 分组；xlsx 版式、
+待确认事项、内部 Markdown 和 step/assertion 映射均由本脚本确定性生成，
 因此映射不会漏项、正文不会与 JSON 漂移。缺少某个源步骤或断言的去向时报错退出（exit 2）。
 
 content.json 结构：
@@ -24,13 +24,15 @@ content.json 结构：
     "stepExemptions": {"S4": "并入前置条件列"},      // 可选，源步骤无展示去向时必须写明理由
     "assertionExemptions": {"2": "同上"}           // 可选，断言索引（0 基）无展示去向时写明理由
   }],
-  "notes": [{"tag": "待确认 Q1", "text": "..."}]
+  "notes": [{"category": "规则适用版本", "question": "再次提交时按哪个版本审批？",
+             "action": "请产品确认适用版本", "sourceRefs": ["impact-analysis.json:..."]}]
 }
 """
 import argparse
 import json
 import pathlib
 import sys
+import unicodedata
 from math import ceil
 
 from openpyxl import Workbook
@@ -40,10 +42,8 @@ from openpyxl.worksheet.datavalidation import DataValidation
 RESULTS = ['未测试', '通过', '失败', '错误', '阻塞', '跳过', '不稳定', '取消']
 HEAD_MAIN = ['场景名称', '用例标题', '前置条件', '操作步骤', '预期结果', '测试结果']
 WIDTH_MAIN = [18, 44, 34, 42, 44, 14]
-HEAD_TRACK = ['用例ID', '场景ID', '场景名称', 'AC ID', '测试类型', '优先级', '评审状态', '自动化入口']
-WIDTH_TRACK = [14, 22, 30, 34, 12, 8, 12, 60]
-HEAD_IMPACT = ['编号', '类别', '内容', '预期/来源', '覆盖用例', '状态']
-WIDTH_IMPACT = [18, 16, 60, 46, 26, 12]
+HEAD_NOTES = ['类别', '待确认内容', '建议处理']
+WIDTH_NOTES = [22, 64, 50]
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
@@ -131,10 +131,14 @@ def est_height(cells):
     lines = 1
     for text, width in cells:
         text = str(text or '')
-        per_line = max(int(width * 1.05), 8)
-        count = sum(max(1, ceil(len(seg) / per_line)) for seg in text.split('\n'))
+        count = sum(max(1, ceil(sum(2 if unicodedata.east_asian_width(ch) in 'WF' else 1
+                                    for ch in seg) / max(width - 2, 8)))
+                    for seg in text.split('\n'))
         lines = max(lines, count)
-    return min(max(28, lines * 15 + 6), 409)
+    height = max(28, lines * 15 + 6)
+    if height > 409:
+        raise ValueError('单行内容超过 Excel 行高上限：请在不遗漏业务义务的前提下精简文案')
+    return height
 
 
 def style_head(ws, width=None):
@@ -169,9 +173,13 @@ def render_main(wb, units, source):
     rows = []
     for unit in units:
         row = unit['row']
-        rows.append(body(ws, [row['group'], row['title'], numbered(row['fixtures']),
+        row_no = body(ws, [row['group'], row['title'], numbered(row['fixtures']),
                               numbered(row['steps']), numbered(row['expected']), '未测试'],
-                         WIDTH_MAIN, center=(1, 6)))
+                         WIDTH_MAIN, center=(1, 6))
+        ws.cell(row_no, 7, unit['case']['caseId'])
+        rows.append(row_no)
+    ws.cell(1, 7, '内部用例ID')
+    ws.column_dimensions['G'].hidden = True
     dv = DataValidation(type='list', formula1='"' + ','.join(RESULTS) + '"', allow_blank=False,
                         showDropDown=False, errorStyle='stop', error='请选择测试结果',
                         errorTitle='测试结果', prompt='选择执行结果', promptTitle='测试结果')
@@ -194,37 +202,12 @@ def render_main(wb, units, source):
     return rows
 
 
-def render_track(wb, units, source):
-    ws = wb.create_sheet('用例追踪')
-    ws.append(HEAD_TRACK)
-    style_head(ws, WIDTH_TRACK)
-    for unit in units:
-        case, row = unit['case'], unit['row']
-        ac_ids = sum((source['scenarios'][s]['acIds'] for s in case['scenarioIds']), [])
-        body(ws, [case['caseId'], ','.join(case['scenarioIds']), row['group'],
-                  ','.join(dict.fromkeys(ac_ids)), case['suite'], case['priority'],
-                  case.get('reviewStatus', ''), case['automationRef']], WIDTH_TRACK, center=(5, 6, 7))
-    return ws
-
-
-def render_impact(wb, source, notes, low):
-    ws = wb.create_sheet('关联影响与待确认')
-    ws.append(HEAD_IMPACT)
-    style_head(ws, WIDTH_IMPACT)
-    owner = {}
-    for case in source['cases']:
-        for sid in case['scenarioIds']:
-            for ac in source['scenarios'][sid]['acIds']:
-                owner[ac] = case['caseId']
-    for o in source['impact'].get('obligations', []):
-        body(ws, [o['obligationId'], '测试义务', o['text'], o.get('expected', ''),
-                  ','.join(sorted({owner[a] for a in o['acIds'] if a in owner})),
-                  o.get('reviewStatus', '')], WIDTH_IMPACT, center=(6,))
+def render_notes(wb, notes):
+    ws = wb.create_sheet('待确认事项')
+    ws.append(HEAD_NOTES)
+    style_head(ws, WIDTH_NOTES)
     for note in notes:
-        body(ws, [note['tag'], '待确认' if '待确认' in note['tag'] else '已知限制',
-                  note['text'], '', '', ''], WIDTH_IMPACT)
-    for line in low:
-        body(ws, ['语义低分', '语义审查', line, '', '', ''], WIDTH_IMPACT)
+        body(ws, [note['category'], note['question'], note['action']], WIDTH_NOTES)
     return ws
 
 
@@ -260,8 +243,14 @@ def render_md(path, content, units, source, notes, low):
                '**追踪**', '',
                '- 步骤映射: ' + '; '.join(f"{i}→{'+'.join(g)}" for i, g in enumerate(unit['stepSources'], 1)),
                '- 预期映射: ' + '; '.join(f"{i}→{'+'.join(str(x) for x in g)}"
-                                       for i, g in enumerate(unit['expectedSources'], 1)), '']
-    md += ['## 待确认事项与已知限制', ''] + [f"- **{n['tag']}**：{n['text']}" for n in notes]
+                                       for i, g in enumerate(unit['expectedSources'], 1)), '',
+               '**源用例数据**', '', '```json',
+               json.dumps(case, ensure_ascii=False, indent=2), '```', '']
+    md += ['## 待确认事项与已知限制', ''] + [
+        f"- **{n['category']}**：{n['question']}；{n['action']}（来源：{', '.join(n['sourceRefs'])}）"
+        for n in notes]
+    md += ['', '## 影响分析与追踪原始数据', '', '```json',
+           json.dumps(source['impact'], ensure_ascii=False, indent=2), '```']
     md += ['', '## 语义审查低分项与处置', ''] + [f'- {line}' for line in low]
     path.write_text('\n'.join(md) + '\n', encoding='utf-8')
     return len(md)
@@ -289,7 +278,7 @@ def build_mapping(units, source, sheet_rows, round_dir):
                 for i, group in enumerate(unit['expectedSources'], 1)],
             'stepExemptions': unit['stepExemptions'],
             'assertionExemptions': {str(k): v for k, v in unit['assertionExemptions'].items()},
-            'tracking': {'file': 'cases.xlsx', 'sheet': '用例追踪', 'row': row_no},
+            'tracking': {'file': 'cases.md', 'heading': f"{case['caseId']} {unit['row']['title']}"},
         })
     return {'schemaVersion': 1, 'generatedBy': 'render_review_table.py',
             'round': round_dir.name, 'caseCount': len(entries), 'cases': entries}
@@ -319,15 +308,25 @@ def main():
         sys.exit(2)
 
     notes = content.get('notes') or []
+    for i, note in enumerate(notes, 1):
+        if (not isinstance(note, dict) or
+                any(not isinstance(note.get(k), str) or not note[k].strip()
+                    for k in ('category', 'question', 'action')) or
+                not isinstance(note.get('sourceRefs'), list) or not note['sourceRefs'] or
+                any(not isinstance(ref, str) or not ref.strip() for ref in note['sourceRefs'])):
+            print(f'ERROR notes[{i}]: 需提供 category、question、action 和非空 sourceRefs', file=sys.stderr)
+            sys.exit(2)
     low = low_scores(source['semantic'])
     wb = Workbook()
     sheet_rows = render_main(wb, units, source)
-    render_track(wb, units, source)
-    render_impact(wb, source, notes, low)
+    render_notes(wb, notes)
     xlsx = out_dir / 'cases.xlsx'
     wb.save(xlsx)
     md_lines = render_md(out_dir / 'cases.md', content, units, source, notes, low)
     mapping = build_mapping(units, source, sheet_rows, round_dir)
+    mapping['notes'] = [
+        {'sheet': '待确认事项', 'row': i + 2, 'sourceRefs': note['sourceRefs']}
+        for i, note in enumerate(notes)]
     (round_dir / 'mapping.json').write_text(
         json.dumps(mapping, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(f'{xlsx} cases={len(units)} rows={len(sheet_rows)}; cases.md lines={md_lines}; '
