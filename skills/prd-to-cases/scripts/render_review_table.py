@@ -4,6 +4,7 @@
 用法：
     render_review_table.py <runDir> [--content cases/presentation/1/content.json]
                                        [--out-dir cases] [--round 1]
+    分片自检：同上加 --check-only --case-ids C1 C2（按冻结顺序）
 
 `content.json` 是评审表 worker 的唯一业务产出：文案 + 分组；xlsx 版式、
 待确认事项、内部 Markdown 和 step/assertion 映射均由本脚本确定性生成，
@@ -22,7 +23,9 @@ content.json 结构：
     "stepSources": [["S1"], ["S2", "S3"]],        // 可选，默认按位置 1:1
     "expectedSources": [[0], [1]],                 // 可选，默认按位置 1:1
     "stepExemptions": {"S4": "并入前置条件列"},      // 可选，源步骤无展示去向时必须写明理由
-    "assertionExemptions": {"2": "同上"}           // 可选，断言索引（0 基）无展示去向时写明理由
+    "assertionExemptions": {"2": "同上"},          // 可选，断言索引（0 基）无展示去向时写明理由
+    "technicalExceptions": [{"field": "steps", "index": 1, "token": "GET /api/x",
+                               "reason": "接口本身是测试对象", "evidenceRef": "cases.json:..."}]
   }],
   "notes": [{"category": "规则适用版本", "question": "再次提交时按哪个版本审批？",
              "action": "请产品确认适用版本", "sourceRefs": ["impact-analysis.json:..."]}]
@@ -31,6 +34,7 @@ content.json 结构：
 import argparse
 import json
 import pathlib
+import re
 import sys
 import unicodedata
 from math import ceil
@@ -47,6 +51,48 @@ WIDTH_NOTES = [22, 64, 50]
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
+
+
+# 只定位可核对的疑似技术信息；业务必要性仍由评审者判断。
+TECHNICAL = re.compile(
+    r'\b(?:GET|POST|PUT|PATCH|DELETE)\s+/[\w/{}<>?=.-]+'
+    r'|\b(?:FA-(?:ADMIN|STARTER|APPROVER(?:_[A-Z]+)?|OUTSIDER))\b'
+    r'|\bAR-[0-9a-fA-F]{8}(?:-[\w-]+)?\b'
+    r'|\b(?:[a-z]+:[a-z]+:[a-z]+|tenant-id|aria-checked)\b'
+    r'|\b(?:[a-z][A-Za-z0-9]*(?:Id|Ids|Info|Status|Version|Ref|Hash)|processDefinition)\b'
+    r'|\b(?:cases|semantic-review|impact-analysis)\.(?:json|md)\b'
+    r'|\b(?:AC|OB|SC|C)-[A-Z0-9]+(?:-[A-Z0-9]+)+\b'
+)
+
+
+def presentation_issues(content, source):
+    """定位疑似泄漏；UI 用例的精确例外需逐项说明并提供依据。"""
+    cases = {case['caseId']: case for case in source['cases']}
+    issues = []
+    for row in content['cases']:
+        case = cases.get(row['caseId'], {})
+        exceptions = row.get('technicalExceptions', [])
+        for field in ('group', 'title', 'fixtures', 'steps', 'expected'):
+            values = row.get(field, [])
+            values = values if isinstance(values, list) else [values]
+            for index, value in enumerate(values, 1):
+                for match in TECHNICAL.finditer(str(value)):
+                    token = match.group()
+                    # 纯 API、安全或性能用例的协议与字段可能正是被测对象。
+                    if case.get('suite') in ('api', 'security', 'performance'):
+                        continue
+                    allowed = any(e.get('field') == field and e.get('index') == index and
+                                  e.get('token') == token and str(e.get('reason', '')).strip() and
+                                  str(e.get('evidenceRef', '')).strip()
+                                  for e in exceptions if isinstance(e, dict))
+                    if not allowed:
+                        issues.append(f"{row['caseId']} {field}[{index}]: {token}")
+    for index, note in enumerate(content.get('notes') or [], 1):
+        for field in ('category', 'question', 'action'):
+            for match in TECHNICAL.finditer(str(note.get(field, ''))):
+                issues.append(f"notes[{index}] {field}: {match.group()}")
+    return issues
+
 
 
 def load_run(run_dir):
@@ -278,6 +324,7 @@ def build_mapping(units, source, sheet_rows, round_dir):
                 for i, group in enumerate(unit['expectedSources'], 1)],
             'stepExemptions': unit['stepExemptions'],
             'assertionExemptions': {str(k): v for k, v in unit['assertionExemptions'].items()},
+            'technicalExceptions': unit['row'].get('technicalExceptions', []),
             'tracking': {'file': 'cases.md', 'heading': f"{case['caseId']} {unit['row']['title']}"},
         })
     return {'schemaVersion': 1, 'generatedBy': 'render_review_table.py',
@@ -288,19 +335,31 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('run_dir', type=pathlib.Path)
     ap.add_argument('--content', type=pathlib.Path)
+    ap.add_argument('--check-only', action='store_true', help='只校验，不写文件')
+    ap.add_argument('--case-ids', nargs='+', help='仅自检：本分片分配的有序 caseId')
     ap.add_argument('--round', default='1')
     ap.add_argument('--out-dir', type=pathlib.Path)
     args = ap.parse_args()
+    if args.case_ids and not args.check_only:
+        ap.error('--case-ids 只能与 --check-only 一起使用')
 
     run_dir = args.run_dir.resolve()
     round_dir = run_dir / 'cases/presentation' / args.round
     content_path = args.content or round_dir / 'content.json'
     out_dir = (args.out_dir or run_dir / 'cases').resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     content = json.loads(content_path.read_text(encoding='utf-8'))
     source = load_run(run_dir)
     errors = []
+    if args.case_ids:
+        assigned = set(args.case_ids)
+        source['cases'] = [c for c in source['cases'] if c['caseId'] in assigned]
+        if [c['caseId'] for c in source['cases']] != args.case_ids:
+            errors.append('分片 caseIds 必须唯一、存在且保持源顺序')
+        if len(args.case_ids) > 8:
+            errors.append('分片最多 8 条用例，请拆分任务')
+        if content_path.stat().st_size > 25 * 1024:
+            errors.append('分片 content.json 超过 25 KiB，请拆分任务')
     units = normalize(content, source, errors)
     if errors:
         for line in errors:
@@ -316,6 +375,35 @@ def main():
                 any(not isinstance(ref, str) or not ref.strip() for ref in note['sourceRefs'])):
             print(f'ERROR notes[{i}]: 需提供 category、question、action 和非空 sourceRefs', file=sys.stderr)
             sys.exit(2)
+    issues = presentation_issues(content, source)
+    if issues:
+        for issue in issues:
+            print(f'ERROR 评审文案含疑似内部技术信息：{issue}', file=sys.stderr)
+        print('请改为业务表述；UI 用例确有必要时按契约记录逐项例外并复核。', file=sys.stderr)
+        sys.exit(2)
+    layout_errors = []
+    for row in content['cases']:
+        values = [row['group'], row['title'], numbered(row['fixtures']),
+                  numbered(row['steps']), numbered(row['expected']), '未测试']
+        for field, value, width in zip(HEAD_MAIN, values, WIDTH_MAIN):
+            try:
+                est_height([(value, width)])
+            except ValueError as exc:
+                layout_errors.append(f"{row['caseId']} {field}: {exc}")
+    for i, note in enumerate(notes, 1):
+        for field, width in zip(('category', 'question', 'action'), WIDTH_NOTES):
+            try:
+                est_height([(note[field], width)])
+            except ValueError as exc:
+                layout_errors.append(f'notes[{i}] {field}: {exc}')
+    if layout_errors:
+        for error in layout_errors:
+            print(f'ERROR {error}', file=sys.stderr)
+        sys.exit(2)
+    if args.check_only:
+        print(f'PASSED cases={len(units)}; 映射、文案与行高预检通过；仍需语义和视觉核验')
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
     low = low_scores(source['semantic'])
     wb = Workbook()
     sheet_rows = render_main(wb, units, source)

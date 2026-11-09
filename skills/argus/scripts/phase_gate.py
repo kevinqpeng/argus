@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -188,6 +189,44 @@ class Gate:
             validate_steps(case.get("steps"), case.get("assertions"))
         self._semantic_review(cases)
 
+    def presentation(self) -> None:
+        """评审表发布前验证固定提示词、输入输出哈希及业务文案检查。"""
+        from render_review_table import load_run, presentation_issues
+
+        if not self.need(isinstance(self.manifest, dict), '缺少 manifest.json'):
+            return
+        round_id = str((self.manifest.get('presentation') or {}).get('round', '1'))
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
+            raise ValueError('展示轮次无效')
+        base = f'cases/presentation/{round_id}'
+        receipt = read_json(safe_path(self.run_dir, f'{base}/receipt.json'))
+        if not self.need(isinstance(receipt, dict), '缺少展示任务 receipt.json'):
+            return
+        for key in ('agentId', 'model', 'effort', 'isolation'):
+            self.need(isinstance(receipt.get(key), str) and bool(receipt[key].strip()), f'展示回执缺少 {key}')
+        contract = (Path(__file__).resolve().parents[2] / 'prd-to-cases/references/review-table.md').read_text(encoding='utf-8')
+        prompt = contract.split('## 固定提示词（原样派发）\n', 1)[1].split('\n## 主 Agent 验收', 1)[0].strip()
+        prompt_hash = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
+        self.need(receipt.get('promptHash') == prompt_hash, '固定提示词哈希不一致')
+        required = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis', 'semantic-review')]
+        required += [f'{base}/{name}' for name in ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json', 'quality-review.json')]
+        hashes = receipt.get('artifactHashes') or {}
+        for ref in required:
+            path = safe_path(self.run_dir, ref)
+            self.need(path.is_file() and hashes.get(ref) == file_hash(path), f'展示材料缺失或哈希不一致：{ref}')
+        content = read_json(safe_path(self.run_dir, f'{base}/content.json'))
+        if content is not None:
+            for issue in presentation_issues(content, load_run(self.run_dir)):
+                self.gaps.append('评审文案待处理：' + issue)
+        quality = read_json(safe_path(self.run_dir, f'{base}/quality-review.json'))
+        if self.need(isinstance(quality, dict) and quality.get('status') == 'PASSED' and
+                     isinstance(quality.get('evidence'), list) and bool(quality['evidence']),
+                     '缺少展示语义与可读性核查证据'):
+            self.need(quality.get('contentHash') == hashes.get(f'{base}/content.json'), '展示文案与质量审查版本不一致')
+            for item in quality['evidence']:
+                path = safe_path(self.run_dir, item['ref'])
+                self.need(path.is_file() and item.get('sha256') == file_hash(path), '展示质量核查证据缺失或已变化')
+
     def publish(self, task_id=None) -> None:
         """Validate immutable approval, ownership and bytes before any publication."""
         from lifecycle import publication_inputs
@@ -304,6 +343,7 @@ PHASES = {
     "dispatch": "dispatch",
     "cases": "cases",
     "semantic": "semantic",
+    "presentation": "presentation",
     "scripts": "scripts",
     "publish": "publish",
     "review": "review",
