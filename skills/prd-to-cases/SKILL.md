@@ -65,7 +65,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 ## 7. 输出人工评审表
 
 - 从本 run 的 cases.json 和关联的 scenarios.json、acs.json 生成 `cases/cases.xlsx`，作为人工评审表；交付文件名和工作簿标题使用「YYYYMMDD-功能名称-用例表」，日期取生成评审表时的本地日期，功能名称取本轮测试范围的明确名称，多功能时使用概括名称。保留 `cases/cases.xlsx` 作为 run 内固定路径，交付副本命名为 `YYYYMMDD-功能名称-用例表.xlsx`，内容须与固定路径一致。JSON 是 Agent 使用的事实来源。同时保留 `cases/cases.md`，包含原有完整追踪信息，供文本读取和审计。
-- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发独立、干净上下文的 generation Agent，生成六列业务评审主表及逐条追踪映射；主 Agent 验证后发布。此任务在用例合并和语义审查之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
+- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发独立、干净上下文的 generation Agent，先按契约的小分片预算生成文案并自检，汇总后一次生成六列业务评审主表及逐条追踪映射；主 Agent 验证后发布。此任务在用例合并和语义审查之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
 - 每行「测试结果」使用真实的 Excel 数据验证下拉列表，选项为「未测试、通过、失败、错误、阻塞、跳过、不稳定、取消」，初始为「未测试」。分别对应未执行、passed、failed、error、blocked、skipped、flaky、cancelled；测试结果与人工评审批准是不同状态，下拉选择不能解除评审门禁。
 - 按 [评审表生成契约](references/review-table.md) 输出「用例主表」和「待确认事项」两张工作表。待确认事项用业务白话呈现，完整影响分析、来源与技术追踪保存在内部 JSON、Markdown 和映射中。
 - 交付前打开并核对 Excel 的内容、布局、下拉选项和默认值，以 mapping.json 对照 JSON 检查每项条件、步骤和断言及待确认事项，确认内部追踪可定位；缺失或不一致时修复后再交付。

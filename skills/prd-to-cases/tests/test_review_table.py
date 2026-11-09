@@ -33,6 +33,37 @@ class ReviewTableTest(unittest.TestCase):
                            'action': '请产品确认', 'sourceRefs': ['impact-analysis.json:obligations[0]']}]}
             file = presentation / 'content.json'
             file.write_text(json.dumps(content, ensure_ascii=False), encoding='utf-8')
+            check = [sys.executable, str(SCRIPT), str(root), '--check-only',
+                     '--out-dir', str(root / 'unused'), '--case-ids', 'C1']
+            result = subprocess.run(check, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((root / 'unused').exists())
+            self.assertFalse((cases / 'cases.xlsx').exists())
+            self.assertFalse((presentation / 'mapping.json').exists())
+            row = content['cases'][0]
+            for lines, expected_code in ((26, 0), (27, 2)):
+                row['steps'] = ['打开页面' + '\n继续操作' * (lines - 1)]
+                file.write_text(json.dumps(content, ensure_ascii=False), encoding='utf-8')
+                result = subprocess.run(check, capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected_code, result.stderr)
+                if expected_code:
+                    self.assertIn('C1 操作步骤', result.stderr)
+            row['steps'] = ['打开页面']
+            content['padding'] = '中' * 9000
+            file.write_text(json.dumps(content, ensure_ascii=False), encoding='utf-8')
+            result = subprocess.run(check, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('25 KiB', result.stderr)
+            del content['padding']
+            file.write_text(json.dumps(content, ensure_ascii=False), encoding='utf-8')
+            result = subprocess.run(check + ['C2'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            result = subprocess.run(check + ['C1'] * 8, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('最多 8 条', result.stderr)
+            result = subprocess.run([x for x in check if x != '--check-only'],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
             subprocess.run([sys.executable, str(SCRIPT), str(root)], check=True, capture_output=True)
             workbook = load_workbook(cases / 'cases.xlsx')
             self.assertEqual(workbook.sheetnames, ['用例主表', '待确认事项'])
@@ -91,6 +122,7 @@ class ReviewTableTest(unittest.TestCase):
         self.assertEqual([r['status'] for r in ambiguous], ['modified', 'unidentified', 'missing_unresolved'])
         reviewed[2]['caseId'] = 'C1'
         self.assertTrue(any(r['status'] == 'identity_conflict' for r in module.compare(old, reviewed, mapping)))
+
 
 
 if __name__ == '__main__':
