@@ -23,7 +23,9 @@ content.json 结构：
     "stepSources": [["S1"], ["S2", "S3"]],        // 可选，默认按位置 1:1
     "expectedSources": [[0], [1]],                 // 可选，默认按位置 1:1
     "stepExemptions": {"S4": "并入前置条件列"},      // 可选，源步骤无展示去向时必须写明理由
-    "assertionExemptions": {"2": "同上"}           // 可选，断言索引（0 基）无展示去向时写明理由
+    "assertionExemptions": {"2": "同上"},          // 可选，断言索引（0 基）无展示去向时写明理由
+    "technicalExceptions": [{"field": "steps", "index": 1, "token": "GET /api/x",
+                               "reason": "接口本身是测试对象", "evidenceRef": "cases.json:..."}]
   }],
   "notes": [{"category": "规则适用版本", "question": "再次提交时按哪个版本审批？",
              "action": "请产品确认适用版本", "sourceRefs": ["impact-analysis.json:..."]}]
@@ -32,6 +34,7 @@ content.json 结构：
 import argparse
 import json
 import pathlib
+import re
 import sys
 import unicodedata
 from math import ceil
@@ -48,6 +51,49 @@ WIDTH_NOTES = [22, 64, 50]
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
+
+
+# 只定位可核对的疑似技术信息；业务必要性仍由评审者判断。
+TECHNICAL = re.compile(
+    r'\b(?:GET|POST|PUT|PATCH|DELETE)\s+/[\w/{}<>?=.-]+'
+    r'|\b(?:FA-(?:ADMIN|STARTER|APPROVER(?:_[A-Z]+)?|OUTSIDER))\b'
+    r'|\bAR-[0-9a-fA-F]{8}(?:-[\w-]+)?\b'
+    r'|\b(?:[a-z]+:[a-z]+:[a-z]+|tenant-id|aria-checked)\b'
+    r'|\b(?:[a-z][A-Za-z0-9]*(?:Id|Ids|Info|Status|Version|Ref|Hash)|processDefinition)\b'
+    r'|\b(?:cases|semantic-review|impact-analysis)\.(?:json|md)\b'
+    r'|\b(?:AC|OB|SC|C)-[A-Z0-9]+(?:-[A-Z0-9]+)+\b'
+)
+
+
+def presentation_issues(content, source):
+    """定位疑似泄漏；UI 用例的精确例外需逐项说明并提供依据。"""
+    cases = {case['caseId']: case for case in source['cases']}
+    issues = []
+    for row in content['cases']:
+        case = cases.get(row['caseId'], {})
+        exceptions = row.get('technicalExceptions', [])
+        for field in ('group', 'title', 'fixtures', 'steps', 'expected'):
+            values = row.get(field, [])
+            values = values if isinstance(values, list) else [values]
+            for index, value in enumerate(values, 1):
+                for match in TECHNICAL.finditer(str(value)):
+                    token = match.group()
+                    # 纯 API、安全或性能用例的协议与字段可能正是被测对象。
+                    if case.get('suite') in ('api', 'security', 'performance'):
+                        continue
+                    allowed = any(e.get('field') == field and e.get('index') == index and
+                                  e.get('token') == token and str(e.get('reason', '')).strip() and
+                                  str(e.get('evidenceRef', '')).strip()
+                                  for e in exceptions if isinstance(e, dict))
+                    if not allowed:
+                        issues.append(f"{row['caseId']} {field}[{index}]: {token}")
+    for index, note in enumerate(content.get('notes') or [], 1):
+        for field in ('category', 'question', 'action'):
+            for match in TECHNICAL.finditer(str(note.get(field, ''))):
+                issues.append(f"notes[{index}] {field}: {match.group()}")
+    return issues
+
+
 
 def load_run(run_dir):
     cases_dir = run_dir / 'cases'
@@ -278,6 +324,7 @@ def build_mapping(units, source, sheet_rows, round_dir):
                 for i, group in enumerate(unit['expectedSources'], 1)],
             'stepExemptions': unit['stepExemptions'],
             'assertionExemptions': {str(k): v for k, v in unit['assertionExemptions'].items()},
+            'technicalExceptions': unit['row'].get('technicalExceptions', []),
             'tracking': {'file': 'cases.md', 'heading': f"{case['caseId']} {unit['row']['title']}"},
         })
     return {'schemaVersion': 1, 'generatedBy': 'render_review_table.py',
@@ -328,6 +375,12 @@ def main():
                 any(not isinstance(ref, str) or not ref.strip() for ref in note['sourceRefs'])):
             print(f'ERROR notes[{i}]: 需提供 category、question、action 和非空 sourceRefs', file=sys.stderr)
             sys.exit(2)
+    issues = presentation_issues(content, source)
+    if issues:
+        for issue in issues:
+            print(f'ERROR 评审文案含疑似内部技术信息：{issue}', file=sys.stderr)
+        print('请改为业务表述；UI 用例确有必要时按契约记录逐项例外并复核。', file=sys.stderr)
+        sys.exit(2)
     layout_errors = []
     for row in content['cases']:
         values = [row['group'], row['title'], numbered(row['fixtures']),
