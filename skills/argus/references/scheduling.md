@@ -8,6 +8,10 @@
 
 按场景数、步骤、预估 token、DB 断言复杂度、准备成本和历史同类耗时估计 estimatedSeconds；附估算依据到计划输入。默认用现有事实和轻量规则，不新增模型调用。确需语义依赖判断才批量复用 decision-router 的 Jev 题集及阈值。高优先级先行，同优先级先取预计较长的就绪任务。只有一个任务的小范围也有效；不要为了凑 5–6 组增加启动成本。短任务可在不冲突的前提下合并，空闲 worker 可复用，但必须传本次 token、范围和输入哈希，清除上次可变上下文。
 
+影响探索和用例生成规划时，先识别可独立处理的业务域与依赖，再估计每组工作量、启动与交接成本以及宿主实际可用槽位和预算。存在多个有意义的独立任务时，优先保留足够的就绪任务利用可用槽位；预计短任务的启动与交接成本抵消并行收益时可合并，强耦合任务按业务边界合并。复杂任务有五个独立任务且五个槽位可用时，可并行五组；小范围只有一个内聚任务时可单组。记录分组、合并依据、估计耗时和并发上限，不因凑满槽位拆散业务义务或压缩覆盖。
+
+收回任务时记录实际开始、结束、等待和重派；无数据标 unknown。比较估计和实际完成时间，若某组明显拖住其他组，在后续任务或新计划中沿可独立验证的业务边界细分；已冻结计划按原变更和回执规则处理。没有同输入实测时不声称提速。
+
 共享只读输入冻结一次；worker 只读本任务清单和必要的跨任务契约。相同哈希的规则、页面地图及设备信息不重复探索；来源、构建或设备状态变化才刷新。业务执行顺序、设备排队与生成依赖分别记录。
 
 ## 新 run 执行规划（必需）
@@ -113,7 +117,7 @@ Session ID、实际 capabilities、探测时间和驱动版本写入受保护执
 
 DB 断言代码可独立生成共享 helper；不为生成代码连接业务数据库。正式测试需要查库时，主 Agent 派发独立 SQL agent 执行 `kind=execution`、`platform=shared`、`taskType=db-assert` 任务，复用冻结 reasoning 角色；按 [数据库核验规则](mysql.md) 接收并合并回执。任务使用 `requiresLogin=false`（仅免除 Web/Mobile 账号绑定，数据库认证与授权仍必需），保留业务资源锁和实际隔离证据，计入冻结执行并发上限。后置核验 dependsOn 产生业务状态的任务，清理任务 dependsOn 核验任务；前置基线如为断言必需，则先派 SQL agent 采集，业务任务依赖其回执。普通 runner 不内联数据库断言，生成的 helper 仅供 SQL agent 调用。DB 环境准备不触发业务数据库探测；造数和清理由业务 API 负责。
 
-每 attempt 关联 taskId、worker、platform、taskType、开始/结束、超时、失败/重试和 evidence。`finish --usage <json>` 可附实测 llmSeconds、totalTokens、toolSeconds、queueSeconds、dependencyWaitSeconds、resourceWaitSeconds、agentIdleSeconds；缺失保留 unknown。宿主另外记录分析、生成、环境准备、E2E 执行、结果分析/报告的墙钟区间及可用槽位变化，写 manifest.timing 和本次计时证据。阶段墙钟不能由并行任务耗时求和替代。
+每 attempt 关联 taskId、worker、platform、taskType、开始/结束、超时、失败/重试和 evidence。`finish --usage <json>` 可附实测 llmSeconds、totalTokens、toolSeconds、queueSeconds、dependencyWaitSeconds、resourceWaitSeconds、agentIdleSeconds；缺失保留 unknown。宿主另外记录分析、生成、环境准备、E2E 执行、结果分析/报告的墙钟区间及可用槽位变化，写 manifest.timing 和本次计时证据。阶段墙钟不能由并行任务耗时求和替代。设计交付至少记录探索、汇总、用例生成每轮、语义请求与低置信度处理、覆盖/冻结、呈现、核对/发布的开始和结束，人工等待单独记录。复用 manifest.timing 和现有任务回执，首阶段开始即打点；只有 mtime 的历史数据标为产物时间边界估计，重叠区间按并集计算总墙钟，未知起点保留 unknown。
 
 report 按平台与生成/执行分组，统计占用时间、完成数、失败/重试和已知成本。占用包含 LLM/工具等待，不等于实际推理工作时间。利用率用该平台实际分配槽位时间积分作分母、worker 占用区间作分子，跨平台共享槽位不得重复计算；没有槽位轨迹则 unknown。Appium 另算设备会话占用/授权可用设备时间，合理设备等待不能计为 AI 空转。不能从完成时间差推断 LLM、工具或依赖阻塞。
 

@@ -42,7 +42,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 用例及脚本任务按 [资源规划契约](../argus/references/scheduling.md#新-run-执行规划必需) 声明 requiresLogin、accountRequirements、业务隔离依据、共享可变资源和 dependsOn；凭据仅用私有文件引用。实际执行并发留给主 Agent 根据真实资源计算，生成并发保持独立。
 
 - 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。
-- 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（cases.json + notes.md），不写 spec。切分粒度按 AC 域，任务数 ≥ 5，并按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再进入语义审查。生成分片完整性独立于覆盖门禁；所有必需场景和用例均须完整。
+- 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（cases.json + notes.md），不写 spec。切分粒度按 AC 域，任务数按工作量、依赖和启动成本确定，允许单组，并按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再进入语义审查。生成分片完整性独立于覆盖门禁；所有必需场景和用例均须完整。
 - 各用例有 fixtures、步骤、步骤绑定断言和 suite；按[回执和合并](references/parallel-generation.md#4-回执和合并)为每个业务步骤绑定断言、解释准备/清理豁免并回收未覆盖义务。脚本尚未生成时 automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`，文件在脚本阶段按此名落盘，标题逐字一致。
 - 用例先行、脚本后置：脚本按人工评审通过的用例分批生成，避免用例改一轮、脚本白写一轮。
 - 源码标注稳定 caseId。
@@ -67,9 +67,8 @@ description: Generates reviewable test cases from requirements, or imports exist
 - 从本 run 的 cases.json 和关联的 scenarios.json、acs.json 生成 `cases/cases.xlsx`，作为人工评审表；交付文件名和工作簿标题使用「YYYYMMDD-功能名称-用例表」，日期取生成评审表时的本地日期，功能名称取本轮测试范围的明确名称，多功能时使用概括名称。保留 `cases/cases.xlsx` 作为 run 内固定路径，交付副本命名为 `YYYYMMDD-功能名称-用例表.xlsx`，内容须与固定路径一致。JSON 是 Agent 使用的事实来源。同时保留 `cases/cases.md`，包含原有完整追踪信息，供文本读取和审计。
 - 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发独立、干净上下文的 generation Agent，生成六列业务评审主表及逐条追踪映射；主 Agent 验证后发布。此任务在用例合并和语义审查之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
 - 每行「测试结果」使用真实的 Excel 数据验证下拉列表，选项为「未测试、通过、失败、错误、阻塞、跳过、不稳定、取消」，初始为「未测试」。分别对应未执行、passed、failed、error、blocked、skipped、flaky、cancelled；测试结果与人工评审批准是不同状态，下拉选择不能解除评审门禁。
-- 按 [影响分析评审规则](references/impact-analysis.md#4-冻结评审和复用) 增加关联影响与待确认规则工作表，并同步 Markdown。
-- 在同一工作簿的追踪工作表逐行提供用例 ID、场景 ID、AC ID、测试类型、优先级、评审状态和自动化入口，以 caseId 唯一关联主表行；Markdown 保留这些字段及主表内容。用例或关联信息变化后重新生成两份评审材料。
-- 交付前打开并核对 Excel 的内容、布局、下拉选项和默认值，确认主表与追踪表的 caseId 一一对应，Excel、Markdown 与 JSON 的用例集合及业务含义一致，按评审表映射核对每项条件、步骤和断言，技术细节完整保留在追踪材料，文件可读。缺失或不一致时修复后再交付。
+- 按 [评审表生成契约](references/review-table.md) 输出「用例主表」和「待确认事项」两张工作表。待确认事项用业务白话呈现，完整影响分析、来源与技术追踪保存在内部 JSON、Markdown 和映射中。
+- 交付前打开并核对 Excel 的内容、布局、下拉选项和默认值，以 mapping.json 对照 JSON 检查每项条件、步骤和断言及待确认事项，确认内部追踪可定位；缺失或不一致时修复后再交付。
 - 交付评审表只表示生成完成。用户只请求用例时在此结束；调用方还需脚本或验证时，按 [人工用例评审门禁](../argus/references/contracts.md#人工用例评审门禁) 等待人员批准后才能继续，语义审查 approved 不代表人工批准。
 
 ## 7.5 交接脚本阶段

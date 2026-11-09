@@ -33,7 +33,7 @@ sourceUnits 保留该行的 sourceExcerpt 原文和单元格定位。无断言�
 
 协调者合并后在 `cases/import-map.json` 保存 `{schemaVersion:1, sources:[{sourceId, sourceHash}], rows:[{sourceRef, originalCaseId, caseId, disposition, reason}]}`。每条原始用例有且只有一条处置记录，选中行与 caseId 一一对应；排除必须有用户范围依据。核对原行的前置、步骤顺序和预期未丢失，转换后没有未解释的新用例。映射和原始来源纳入生成 inputArtifacts、inputHash 及人工评审 artifactHashes；不覆盖历史文件。
 
-按 decision-router 对原用例预期 → AC/场景 → 规范化步骤断言做语义审查；沿用概率阈值、低置信度处理和真实回执。随后运行 dispatch 与 `coverage.py --phase design`，生成与核对同一组 JSON、Markdown、Excel 评审材料，展示原 ID 与 caseId 对照及待确认项。
+按 decision-router 对原用例预期 → AC/场景 → 规范化步骤断言做语义审查；沿用概率阈值、低置信度处理和真实回执。随后运行 dispatch 与 `coverage.py --phase design`，生成与核对同一组 JSON、Markdown、Excel 评审材料；原 ID 与 caseId 对照保存在内部映射，待确认项以业务白话展示。
 
 ## 4. 交接
 
