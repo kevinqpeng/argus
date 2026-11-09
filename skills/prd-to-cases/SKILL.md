@@ -64,7 +64,8 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 ## 7. 输出人工评审表
 
-- 从本 run 的 cases.json 和关联的 scenarios.json、acs.json 生成 `cases/cases.xlsx`，作为人工评审表；交付文件名和工作簿标题使用「YYYYMMDD-功能名称-用例表」，日期取生成评审表时的本地日期，功能名称取本轮测试范围的明确名称，多功能时使用概括名称。保留 `cases/cases.xlsx` 作为 run 内固定路径，交付副本命名为 `YYYYMMDD-功能名称-用例表.xlsx`，内容须与固定路径一致。JSON 是 Agent 使用的事实来源。同时保留 `cases/cases.md`，包含原有完整追踪信息，供文本读取和审计。
+- 从本 run 的 cases.json、scenarios.json 和 acs.json 生成内部 `cases/cases.xlsx` 与 `cases/cases.md`。面向人员的 Excel 名称为「功能名称用例(V版本号).xlsx」，例如「审批驳回后重新发起用例(V0.3).xlsx」。功能名称取当前评审范围，版本取本轮冻结 PRD 版本历史中的最新版本；不加日期或「用例表」后缀。读取文档并核对来源哈希，不从截图、旧 run、文件名或模型版本猜测。版本缺失、来源不唯一、格式无法识别或记录与文档不一致时，不展示版本号，文件名改为「功能名称用例.xlsx」，无需因此暂停交付。
+- 通过展示门禁并将本轮表发布到内部固定路径后，运行 `python3 <本目录>/scripts/publish_review.py <runDir> --feature <功能名称> [--source-id <PRD来源ID>]`。脚本从可核实的 Markdown 版本历史生成命名 Excel；版本无法确认时省略版本号。脚本仍核验冻结快照哈希、展示门禁与内部文件一致性；文件冲突时停止。只将 `deliverables/` 中的命名文件展示或交付给人员；内部 cases.xlsx、JSON、Markdown 和映射用于追踪，不展示为评审附件。
 - 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发独立、干净上下文的 generation Agent，先按契约的小分片预算生成文案并自检，汇总后一次生成六列业务评审主表及逐条追踪映射；主 Agent 验证后发布。此任务在用例合并和语义审查之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
 - 每行「测试结果」使用真实的 Excel 数据验证下拉列表，选项为「未测试、通过、失败、错误、阻塞、跳过、不稳定、取消」，初始为「未测试」。分别对应未执行、passed、failed、error、blocked、skipped、flaky、cancelled；测试结果与人工评审批准是不同状态，下拉选择不能解除评审门禁。
 - 按 [评审表生成契约](references/review-table.md) 输出「用例主表」和「待确认事项」两张工作表。待确认事项用业务白话呈现，完整影响分析、来源与技术追踪保存在内部 JSON、Markdown 和映射中。
