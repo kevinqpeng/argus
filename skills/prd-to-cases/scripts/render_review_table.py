@@ -32,6 +32,7 @@ content.json 结构：
 }
 """
 import argparse
+import hashlib
 import json
 import pathlib
 import re
@@ -51,7 +52,6 @@ WIDTH_NOTES = [22, 64, 50]
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
-
 
 # 只定位可核对的疑似技术信息；业务必要性仍由评审者判断。
 TECHNICAL = re.compile(
@@ -94,10 +94,13 @@ def presentation_issues(content, source):
     return issues
 
 
-
 def load_run(run_dir):
     cases_dir = run_dir / 'cases'
-    read = lambda n: json.loads((cases_dir / n).read_text(encoding='utf-8'))
+    artifacts = {}
+    def read(name):
+        raw = (cases_dir / name).read_bytes()
+        artifacts['cases/' + name] = hashlib.sha256(raw).hexdigest()
+        return json.loads(raw)
     data = {
         'cases': read('cases.json'),
         'scenarios': {s['scenarioId']: s for s in read('scenarios.json')},
@@ -105,8 +108,32 @@ def load_run(run_dir):
         'impact': read('impact-analysis.json'),
     }
     semantic = cases_dir / 'semantic-review.json'
-    data['semantic'] = json.loads(semantic.read_text(encoding='utf-8')) if semantic.is_file() else None
+    data['semantic'] = read('semantic-review.json') if semantic.is_file() else None
+    data['sourceArtifacts'] = artifacts
     return data
+
+
+def presentation_input(source, case_ids):
+    """保留分配用例原文及全局影响证据，不用摘要替代业务输入。"""
+    assigned = set(case_ids)
+    cases = [case for case in source['cases'] if case['caseId'] in assigned]
+    if (not case_ids or len(case_ids) > 8 or
+            [case['caseId'] for case in cases] != case_ids):
+        raise ValueError('分片 caseIds 必须为 1–8 个唯一、存在且保持源顺序的 ID')
+    if source['semantic'] is None:
+        raise ValueError('缺少 semantic-review.json；先完成语义门禁')
+    scenario_ids = set(sid for case in cases for sid in case['scenarioIds'])
+    scenarios = [source['scenarios'][sid] for sid in sorted(scenario_ids)]
+    ac_ids = set(aid for scenario in scenarios for aid in scenario['acIds'])
+    return {
+        'schemaVersion': 1, 'caseIds': case_ids,
+        'sourceArtifacts': source['sourceArtifacts'],
+        'caseIndex': [{key: case[key] for key in ('caseId', 'scenarioIds')}
+                      for case in source['cases']],
+        'cases': cases, 'scenarios': scenarios,
+        'acs': [source['acs'][aid] for aid in sorted(ac_ids)],
+        'impact': source['impact'], 'semantic': source['semantic'],
+    }
 
 
 def check_destination(label, source_ids, groups, exemptions):
@@ -336,14 +363,24 @@ def main():
     ap.add_argument('run_dir', type=pathlib.Path)
     ap.add_argument('--content', type=pathlib.Path)
     ap.add_argument('--check-only', action='store_true', help='只校验，不写文件')
-    ap.add_argument('--case-ids', nargs='+', help='仅自检：本分片分配的有序 caseId')
+    ap.add_argument('--print-input', action='store_true', help='输出无损分片输入 JSON，不写文件或批准门禁')
+    ap.add_argument('--case-ids', nargs='+', help='自检或输入提取：本分片分配的有序 caseId')
     ap.add_argument('--round', default='1')
     ap.add_argument('--out-dir', type=pathlib.Path)
     args = ap.parse_args()
-    if args.case_ids and not args.check_only:
-        ap.error('--case-ids 只能与 --check-only 一起使用')
+    if args.case_ids and not (args.check_only or args.print_input):
+        ap.error('--case-ids 只能与 --check-only 或 --print-input 一起使用')
+    if args.print_input and (not args.case_ids or args.check_only or args.content or args.out_dir):
+        ap.error('--print-input 需要 --case-ids，不能与自检、文案或输出目录参数混用')
 
     run_dir = args.run_dir.resolve()
+    if args.print_input:
+        try:
+            packet = presentation_input(load_run(run_dir), args.case_ids)
+        except (ValueError, KeyError) as exc:
+            ap.error(str(exc))
+        print(json.dumps(packet, ensure_ascii=False, separators=(',', ':')))
+        return
     round_dir = run_dir / 'cases/presentation' / args.round
     content_path = args.content or round_dir / 'content.json'
     out_dir = (args.out_dir or run_dir / 'cases').resolve()
