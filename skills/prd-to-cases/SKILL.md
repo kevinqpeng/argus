@@ -60,15 +60,15 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 ## 6. 检查用例覆盖
 
-- 用例评审前先通过 dispatch，再跑 `coverage.py --phase design` 并保存 coverage-design.json：来源、影响义务、场景/AC 关联与 P0 必须 100%，入口用声明式 automationRef，discovered=[]；矩阵发现留到脚本阶段。
+- 用例评审前先通过 dispatch；语义审查和确定性覆盖可基于同一冻结输入并行；语义尚未完成时覆盖结果为临时结果，审查完成或用例变更后重算最终覆盖。运行 `coverage.py --phase design` 并保存 coverage-design.json：来源、影响义务、场景/AC 关联与 P0 必须 100%，入口用声明式 automationRef，discovered=[]；矩阵发现留到脚本阶段。
 - 脚本生成后再用 runner 实际发现结果复核关联与全部矩阵入口（由 [脚本生成子技能](../argus/skills/script-generation/SKILL.md) 负责）；发现集合必须覆盖每条已批准用例。
-- 补全最多两轮，仍不足交付缺口。关键规则不明保持阻断。
+- 默认只检查一次；发现缺口才定向补充，最多两轮，修改后复查受影响项并重算全量覆盖。独立复杂业务缺口可派多个 Agent 并行处理；无需为确定性覆盖统计派 Agent。关键规则不明保持阻断。
 
 ## 7. 输出人工评审表
 
 - 从本 run 的 cases.json、scenarios.json 和 acs.json 生成内部 `cases/cases.xlsx` 与 `cases/cases.md`。面向人员的 Excel 名称为「功能名称用例(V版本号).xlsx」，例如「审批驳回后重新发起用例(V0.3).xlsx」。功能名称取当前评审范围，版本取本轮冻结 PRD 版本历史中的最新版本；不加日期或「用例表」后缀。读取文档并核对来源哈希，不从截图、旧 run、文件名或模型版本猜测。版本缺失、来源不唯一、格式无法识别或记录与文档不一致时，不展示版本号，文件名改为「功能名称用例.xlsx」，无需因此暂停交付。
 - 通过展示门禁并将本轮表发布到内部固定路径后，运行 `python3 <本目录>/scripts/publish_review.py <runDir> --feature <功能名称> [--source-id <PRD来源ID>]`。脚本从可核实的 Markdown 版本历史生成命名 Excel；版本无法确认时省略版本号。脚本仍核验冻结快照哈希、展示门禁与内部文件一致性；文件冲突时停止。只将 `deliverables/` 中的命名文件展示或交付给人员；内部 cases.xlsx、JSON、Markdown 和映射用于追踪，不展示为评审附件。
-- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发独立、干净上下文的 generation Agent，先按契约的小分片预算生成文案并自检，汇总后一次生成六列业务评审主表及逐条追踪映射；主 Agent 验证后发布。此任务在用例合并和语义审查之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
+- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发独立、干净上下文的 generation Agent，默认一次生成文案并自检，超出宿主限制时才分片，汇总后一次生成六列业务评审主表及逐条追踪映射；主 Agent 验证后发布。此任务在用例合并和语义审查之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
 - 每行「测试结果」使用真实的 Excel 数据验证下拉列表，选项为「未测试、通过、失败、错误、阻塞、跳过、不稳定、取消」，初始为「未测试」。分别对应未执行、passed、failed、error、blocked、skipped、flaky、cancelled；测试结果与人工评审批准是不同状态，下拉选择不能解除评审门禁。
 - 按 [评审表生成契约](references/review-table.md) 输出「用例主表」和「待确认事项」两张工作表。待确认事项用业务白话呈现，完整影响分析、来源与技术追踪保存在内部 JSON、Markdown 和映射中。
 - 交付前按评审表契约运行 `phase_gate.py <runDir> --phase presentation`，并核对 Excel 的内容、布局、下拉选项和默认值，以 mapping.json 对照 JSON 检查每项条件、步骤和断言及待确认事项，确认内部追踪可定位；缺失或不一致时修复后再交付。

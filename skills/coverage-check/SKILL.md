@@ -19,7 +19,7 @@ description: Checks source and change-impact obligations, mandatory design and e
 
 ## 2. 运行计划门禁
 
-- 用例设计或导入完成后运行 `python3 <本目录>/scripts/coverage.py <input.json> --phase design`；使用 planned 入口及空 discovered，不要求浏览器、目标或脚本。
+- 用例设计或导入完成后先运行一次；只有缺口修复或输入变更时重算，独立复杂业务缺口可派 Agent 并行分析，统计由脚本完成。design 的 draft 用例可计入设计覆盖，但必须语义审查 approved；plan/execution 仍要求人工批准的 approved 用例。运行 `python3 <本目录>/scripts/coverage.py <input.json> --phase design`；使用 planned 入口及空 discovered，不要求浏览器、目标或脚本。
 - 脚本发布并 bind 后，使用 execution-cases.json 与真实 discovery 运行 `python3 <本目录>/scripts/coverage.py <input.json> --phase plan`。plan 和 execution 拒绝 planned 入口，不接受设计声明冒充发现结果。
 - stdout 为 JSON，退出 0 表示门禁通过，2 表示阻断。
 - 未知格式拒绝。

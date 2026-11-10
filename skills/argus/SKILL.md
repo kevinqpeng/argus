@@ -62,14 +62,14 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 用例与脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取，分两阶段、不混批：本阶段**只生成用例**（按 prd-to-cases 的分组契约分配场景，产出 cases.json + notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 仅写各自分片。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
 - 调度证据是产物的一部分：影响探索写 `cases/exploration.md`（方式判定、依据、任务与回执），生成写 `cases/generation/plan.json`、`state.json` 和每个任务 `result.json`。主会话直接写出 `cases.json` 而无任何任务回执时，产物无效，按 [门禁二](references/gates.md#门禁二并行调度阶段-3进入阶段-4-前必须-passed) BLOCKED。宿主无子 Agent 能力或冻结角色不可调用时保持 BLOCKED，主会话不能冒充。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。
-- 合并后按 [语义门禁](references/gates.md#门禁三五语义审查阶段-41-人工评审前必须-passed) 汇总来源召回、影响证据、条件触发、结果断言和预期依据的 Jev 回执，写 `cases/semantic-review.json` 并运行 `phase_gate.py --phase semantic`。通过后按 [评审表生成契约](../prd-to-cases/references/review-table.md) 原样派发固定提示词，生成业务化文案并运行 `phase_gate.py --phase presentation`；主 Agent 核对真实派发与质量证据，门禁通过后才发布。低于阈值时补证据或修改后复核；缺陷探测型用例按 PRD 写断言，不按实测行为写。
+- 合并后按 [语义门禁](references/gates.md#门禁三五语义审查阶段-41-人工评审前必须-passed) 汇总来源召回、影响证据、条件触发、结果断言和预期依据的 Jev 回执，写 `cases/semantic-review.json` 并运行 `phase_gate.py --phase semantic`。通过后按 [评审表生成契约](../prd-to-cases/references/review-table.md) 原样派发固定提示词，生成业务化文案并运行 `phase_gate.py --phase presentation`；主 Agent 核对真实派发、映射及工作簿基础检查，门禁通过后才发布。语义低置信度时补证据或修改受影响项后复核；缺陷探测型用例按 PRD 写断言，不按实测行为写。
 - 范围内业务义务预期未明确、影响分析缺口或未授权关联范围保留记录并阻断全量执行；可交付 partial 材料，不通过删除义务提高覆盖。
 
 ## 4. 检查计划覆盖门禁
 
 - 先跑 `phase_gate.py --phase dispatch`，再读 [coverage-check](../coverage-check/SKILL.md) 跑 `coverage.py --phase design`：来源/影响/规则门禁通过，全部必需场景及关联用例 100% 有效，P0 100%。95% 仅保留为进度指标，不豁免必需项。
 - 将覆盖输出的 impactAnalysis 状态和缺口写入 manifest.gates.impactAnalysis，evidenceRef 指向 coverage-design.json；缺失或 BLOCKED 不能进入全量执行。脚本发布后再以真实 discovery 跑 plan，更新执行就绪证据。
-- 最多补齐两轮，仍不足交付缺口。
+- 默认只算一次；发现缺口才定向补齐，最多两轮，修改后复查受影响项并重算全量覆盖。独立复杂业务缺口可并行派 Agent；覆盖统计本身使用脚本。
 
 ## 4.1. 等待人工用例评审
 
