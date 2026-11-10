@@ -1,6 +1,6 @@
 # Web / Mobile 共享调度
 
-生成和执行分别建队列，使用 `argus/scripts/scheduler.py`。宿主负责调用冻结角色、接受回执、操作 Playwright/Appium 和停止进程；脚本负责持久化领取、依赖、并发上限、资源互斥及 attempt token。它不替代生成校验、人工评审、runner discovery 或覆盖门禁。
+生成和执行分别建队列，使用 `argus/scripts/scheduler.py`。宿主负责调用冻结角色、接受回执、操作 Playwright/Appium 和停止进程；脚本负责持久化领取、依赖、并发上限、资源互斥及 attempt token。它不替代生成校验、人工评审、runner discovery 或 scripts 门禁。
 
 ## 规划
 
@@ -88,7 +88,7 @@ python3 <argus>/scripts/scheduler.py <plan> <state> report --leases <registry>
 
 1. claim 先持久化预约再返回任务；null 表示当前无可领任务，保留等待原因。宿主收到任务后立即启动/复用 worker，传 token、独占 attempt 目录及输入清单。claim 后宿主调用失败也要登记 failed，不丢失预约。
 2. 任一 worker 完成即收取回执，确认停止写入，用已有 generation.py 验证内容、哈希及审批，再 finish。completed 指本任务产物/执行事实已接受，不表示业务测试 passed。失败则 outcome=failed，保留真实错误及证据。每次回收立即 claim 补位，不等待整批。
-3. 用例阶段镜像 claim/finish 到现有 GenerationState 的 running/failed/attempts；生成回执仍走原契约。脚本产物沿用现有 generation.py 回执校验和合并契约，接受前确认当前 token 对应的 worker 已停止写入。共享文件任务单独验证其输出哈希，全部必需依赖接受后才开始消费者。最终对全部业务任务执行 discovery 和 coverage 门禁。
+3. 用例阶段镜像 claim/finish 到现有 GenerationState 的 running/failed/attempts；生成回执仍走原契约。脚本产物沿用现有 generation.py 回执校验和合并契约，接受前确认当前 token 对应的 worker 已停止写入。共享文件任务单独验证其输出哈希，全部必需依赖接受后才开始消费者。最终对全部业务任务执行 discovery 和 scripts 门禁。
 4. status 的 overdue 由宿主每次等待返回后检查；按最近 deadline 设置等待上限。超时先取消 worker/子进程、结束 Session，再 finish failed。超时本身不释放资源、不自动重派。设备断连、Session 关闭无法确认时保留 running 与租约并报告 blocked。
 5. 仅 failed 且 retrySafe=true、未超 maxAttempts 时可显式 `retry --task <id> --token <旧token>`；后续 claim 产生新 token 和 attempt，迟到旧回执拒绝。生成重试先停止旧写入者，使用新 attempt 目录；业务执行默认 maxAttempts=1/retrySafe=false，只有诊断、幂等/补偿和定向重跑条件已验证才重试。已完成上游不修改；必须修改则新建计划并按原契约使传递下游失效。
 6. 恢复先核对宿主、输入哈希、running worker 和真实 Session；不能因过期自动恢复 pending。队列采用原子写与跨 run 文件锁；崩溃可能留孤儿租约，核对 registry 的 runId/taskId/token、确证进程和 Session 已停止后，由协调者在相同 registry 锁内清理并留恢复证据。宁可 blocked，也不重复操作设备。
@@ -101,7 +101,7 @@ python3 <argus>/scripts/scheduler.py <plan> <state> report --leases <registry>
 
 同一浏览器会话或真机登记共享资源锁，页面有顺序依赖或后端数据无法隔离时串行；不同隔离会话才可并发。allow 检查、预算预约和事件合并由协调者串行处理，不能重复使用同一份剩余预算。页面完成即释放会话资源并补位，脚本生成不占设备。探索任务不计业务用例或通过数量。
 
-全量执行仍等待无 caseIds 的 check、全部脚本发布、discovery 和覆盖门禁。相关地图失效沿现有新计划规则重建受影响下游，保留无关且仍有效的产物。记录首个 spec 就绪时间、全量生成墙钟及探索/生成重叠区间；无真实时间记录不宣称提速。
+全量执行仍等待无 caseIds 的 check、全部脚本发布、discovery 和 scripts 门禁。人工评审通过即接受执行。相关地图失效沿现有新计划规则重建受影响下游，保留无关且仍有效的产物。记录首个 spec 就绪时间、全量生成墙钟及探索/生成重叠区间；无真实时间记录不宣称提速。
 
 ## Web 执行
 
@@ -119,7 +119,7 @@ Session ID、实际 capabilities、探测时间和驱动版本写入受保护执
 
 DB 断言代码可独立生成共享 helper；不为生成代码连接业务数据库。正式测试需要查库时，主 Agent 派发独立 SQL agent 执行 `kind=execution`、`platform=shared`、`taskType=db-assert` 任务，复用冻结 reasoning 角色；按 [数据库核验规则](mysql.md) 接收并合并回执。任务使用 `requiresLogin=false`（仅免除 Web/Mobile 账号绑定，数据库认证与授权仍必需），保留业务资源锁和实际隔离证据，计入冻结执行并发上限。后置核验 dependsOn 产生业务状态的任务，清理任务 dependsOn 核验任务；前置基线如为断言必需，则先派 SQL agent 采集，业务任务依赖其回执。普通 runner 不内联数据库断言，生成的 helper 仅供 SQL agent 调用。DB 环境准备不触发业务数据库探测；造数和清理由业务 API 负责。
 
-每 attempt 关联 taskId、worker、platform、taskType、开始/结束、超时、失败/重试和 evidence。`finish --usage <json>` 可附实测 llmSeconds、totalTokens、toolSeconds、queueSeconds、dependencyWaitSeconds、resourceWaitSeconds、agentIdleSeconds；缺失保留 unknown。宿主另外记录分析、生成、环境准备、E2E 执行、结果分析/报告的墙钟区间及可用槽位变化，写 manifest.timing 和本次计时证据。阶段墙钟不能由并行任务耗时求和替代。设计交付从输入接收到最终文件发布另设总区间（例如 phase_timer 的 designTotal），保留失败与返工在内的实际墙钟；去掉作废轮次的重算值单列为反事实估计，不能当实测提速。已嵌入 input 的探测不再重复相加；阶段有重叠时按区间并集统计活动时间。设计交付至少记录探索、汇总、用例生成每轮、语义请求与低置信度处理、覆盖/冻结、呈现、核对/发布的开始和结束，人工等待单独记录。复用 manifest.timing 和现有任务回执，首阶段开始即打点；只有 mtime 的历史数据标为产物时间边界估计，重叠区间按并集计算总墙钟，未知起点保留 unknown。
+每 attempt 关联 taskId、worker、platform、taskType、开始/结束、超时、失败/重试和 evidence。`finish --usage <json>` 可附实测 llmSeconds、totalTokens、toolSeconds、queueSeconds、dependencyWaitSeconds、resourceWaitSeconds、agentIdleSeconds；缺失保留 unknown。宿主另外记录分析、生成、环境准备、E2E 执行、结果分析/报告的墙钟区间及可用槽位变化，写 manifest.timing 和本次计时证据。阶段墙钟不能由并行任务耗时求和替代。设计交付从输入接收到最终文件发布另设总区间（manifest.timing 的 designTotal），保留失败与返工在内的实际墙钟；去掉作废轮次的重算值单列为反事实估计，不能当实测提速。已嵌入 input 的探测不再重复相加；阶段有重叠时按区间并集统计活动时间。设计交付至少记录探索、汇总、用例生成每轮、语义请求与低置信度处理、冻结、呈现、核对/发布的开始和结束，人工等待单独记录。复用 manifest.timing 和现有任务回执，首阶段开始即打点；只有 mtime 的历史数据标为产物时间边界估计，重叠区间按并集计算总墙钟，未知起点保留 unknown。
 
 report 按平台与生成/执行分组，统计占用时间、完成数、失败/重试和已知成本。占用包含 LLM/工具等待，不等于实际推理工作时间。利用率用该平台实际分配槽位时间积分作分母、worker 占用区间作分子，跨平台共享槽位不得重复计算；没有槽位轨迹则 unknown。Appium 另算设备会话占用/授权可用设备时间，合理设备等待不能计为 AI 空转。不能从完成时间差推断 LLM、工具或依赖阻塞。
 

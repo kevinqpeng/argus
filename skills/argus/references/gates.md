@@ -1,6 +1,6 @@
 # 阶段门禁与反绕过
 
-独立阶段与组合任务按 [工作流组合](workflows.md) 选择必需门禁。设计阶段使用 dispatch + coverage.py --phase design，不调用要求地图和 discovery 的 cases 门禁；脚本发布后仍须 review、scripts、真实 discovery 的 plan 和适用的全量地图 check。design 不替代执行就绪或人工审批；完整工作流保持下列门禁。
+独立阶段与组合任务按 [工作流组合](workflows.md) 选择必需门禁。设计阶段使用 dispatch 和语义审查，不跑覆盖脚本，也不调用要求地图和 discovery 的 cases 门禁。人工评审通过即接受执行。脚本发布后仍须 review、scripts、真实 discovery 和适用的全量地图 check。设计完成不替代人工审批；完整工作流保持下列门禁。
 
 本文件把主流程中易被跳过的要求变成可执行检查。门禁只核对过程证据是否存在且自洽，不判断业务结论。
 
@@ -39,12 +39,12 @@
 ## 门禁三·五：语义审查（阶段 4.1 人工评审前必须 PASSED）
 
 - 用例合并后、送人工评审前，运行 `phase_gate.py RUN --phase semantic`。此阶段接受 draft 用例，不依赖页面地图、脚本、账号或 runner。旧 `cases` 阶段继续复核同一语义证据。
-- `cases/semantic-review.json` 保存 `model`、当前 `questionSetVersion` 和 `inputHash=phase_gate.semantic_input_hash(Path(RUN))`，绑定 impact-analysis、AC、场景和用例业务内容。仅用例的评审标签与后续 automationRef 绑定不影响该指纹。
+- `cases/semantic-review.json` 保存 `model`、当前 `questionSetVersion`、`inputHash` 和每项 `subjectHash`。哈希只覆盖该主体的判定切片，不覆盖整份 impact、AC、场景或用例文件。评审标签、automationRef、reviewRef、approvalRef 不计入。检查项、分组和字节上限以 `python3 <argus>/scripts/phase_gate.py --phase semantic --contract` 为准，不读 phase_gate.py 或 jev.py。
 - 回执包含五组键值映射：`sources`（所有 prd/history/contract/business_rule 的 sourceId，source_inventory）、`impacts`（全部 checkId，impact_evidence）、`cases`（全部 caseId，mapping）、`realization`（全部 caseId，scenario_realization）、`ruleSupport`（全部 caseId，rule_support）。各组完整，不以另一组的高分替代。一个来源分段或一用例对应多项 AC 时，在原始回执保留每项判断，汇总 final 取最小概率，逐项解决缺口。
 - 每项为 `{final:实际noul概率, evidenceRef:run内回执路径, evidenceHash:文件SHA256}`；路径指向可核对题目、完整证据、实际模型和概率的 decision-router 回执。低于 questions.json 的 noulYes 时补证据/改用例复查，或记录 `acceptedReason` 及其实际核查依据到回执。缺回执、文件变化、输入/题集版本变化、非法概率、未处理低分均 BLOCKED；不能降低本地 pass 值放行。
 - state 里放完整原始依据、fixtures、步骤和断言，不截断。空内容、部分办结、时间边界等条件要有保证触发的样本；步骤豁免也进入语义核查。
 - 用 `argus/scripts/semantic_batch.py` 构造 Jev 请求和汇总回执，不为每次 run 编写组装脚本。先将实际证据写成 JSON 数组，每项为 `{group,id,subject,evidence}`：group 分别为 sources、impacts、cases、realization、ruleSupport，id 为对应 sourceId、checkId 或 caseId；subject 明确本题主体，evidence 符合 decision-router 的文本输入契约。每个来源段、每个关联 AC 需各自提交记录；程序按同一 group/id 的最低概率汇总，不能只给每个 ID 一条摘要代替逐项判断。来源原文、影响依赖证据和断言依据由宿主核对并完整提供，不从案例生成推测。
-- `python3 <argus>/scripts/semantic_batch.py RUN prepare SUBJECTS.json` 按字节预算生成 `cases/semantic-batch/NNNN.input.json` 和计划。对每批执行 `python3 <argus>/scripts/semantic_batch.py RUN request NNNN`，把返回的 questions 和 state 原样传给 `jev_ask` MCP；将实际返回的 model、answers 和 usage 原样保存为 `cases/semantic-batch/NNNN.raw.json`，运行 `python3 <argus>/scripts/semantic_batch.py RUN record NNNN` 生成规范化回执。宿主须保存真实派发与返回的关联证据，文件哈希不能证明调用发生。最后执行 `python3 <argus>/scripts/semantic_batch.py RUN assemble`。脚本核对输入、题集、原始响应、模型和概率，缺项阻断，不自动接受低分。再按原契约逐项补证据复审或记录有依据的 acceptedReason，运行语义门禁；变更输入时使用新 run 或保存旧批次后重新准备。
+- 先运行 `python3 <argus>/scripts/semantic_batch.py RUN outline` 一次查看主体数量、缺证、字节上限和可复用批次。证据用 `python3 <argus>/scripts/semantic_batch.py RUN subjects SUBJECTS.json` 从冻结文件生成；缺原文、验收条件或义务时命令失败，不写出只有 ID 的主体。再运行 `prepare SUBJECTS.json`。prepare 按完整请求拆批，单批必须小于契约里的 maxBytes。对每个 `rewritten` 批次执行 `request NNNN`，把返回的 questions 和 state 原样传给 `jev_ask`；将实际返回的 model、answers 和 usage 原样保存为 `NNNN.raw.json`，再 `record NNNN`。`reused` 批次保留已有 raw，不重新调用。最后 `assemble`。回执的 final、evidenceRef、evidenceHash 未变时，assemble 保留 acceptedReason。判定切片变了但主体文件没重生成时 prepare 拒绝并保持旧回执；重生成后再 prepare，只重跑失配批次。不要删除 `cases/semantic-batch` 或 `semantic-review.json`。
 
 - 缺陷探测型用例（预期按 PRD 失败）也要按 PRD 写断言，不能改成「断言实测行为」——那样用例永远不失败，也就抓不到缺陷。
 
@@ -66,7 +66,7 @@
 
 ## 门禁五：计时与报告（阶段 8）
 
-- `manifest.timing` 按阶段记录墙钟与等待时间：输入、目标探测、影响探索、用例生成、计划门禁、人工评审等待、执行、诊断与修复、发布。
+- `manifest.timing` 按阶段记录墙钟与等待时间：输入、目标探测、影响探索、用例生成、人工评审等待、执行、诊断与修复、发布。
 - 报告必须给出计划/执行/通过分子分母、失败处置、门禁状态、阶段耗时与最慢环节；无法采集标 `unknown`，不估算。
 - 出现"某阶段耗时显著高于同类阶段"时，报告写明原因归类：调度未并行、每用例重复冷启动、失败重试、真实业务等待、真实诊断。
 

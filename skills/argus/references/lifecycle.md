@@ -9,7 +9,7 @@
 - 冻结配置是 run/argus-model.json，runId 与 manifest 一致，原始字节哈希必须匹配初始化记录的 manifest.runConfigHash。
 - 人工门禁按 [评审证据契约](case-review.md#本地证据契约) 校验真实来源回执、审批材料、用例/矩阵和状态；关闭评审也必须提供绑定本轮配置的授权证据。旧裸 approvalRef 或任意 reason 不再足以通过。
 - 脚本计划沿用 cases/scripts/plan.json，specFile 是相对 harness/tests 的安全路径，各任务及文件唯一。源文件为 cases/scripts/<taskId>/<specFile>。回执增加 runId、planHash、taskId；discoveredTitles 是 caseId → 标题。回执是本地契约证据，不能替代真实 runner discovery。
-- 已批准 cases/cases.json 保留。bind 生成 execution-cases.json；执行覆盖、runner 和结果映射使用这份派生用例，计划及人工审批仍绑定原文件。两份用例只允许 automationRef 不同。
+- 已批准 cases/cases.json 保留。bind 生成 execution-cases.json；执行、runner 和结果映射使用这份派生用例，计划及人工审批仍绑定原文件。两份用例只允许 automationRef 不同。
 
 ## 命令顺序
 

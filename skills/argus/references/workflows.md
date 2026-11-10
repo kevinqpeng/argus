@@ -8,13 +8,13 @@
 
 | 用户需要 | 入口 | 必需依赖与完成边界 |
 | --- | --- | --- |
-| 需求生成用例 | prd-to-cases | 新 run 复用配置（缺项才补）→ 来源/影响分析 → 用例生成与语义审查 → design 覆盖门禁 → Excel/Markdown/JSON；交付后结束 |
+| 需求生成用例 | prd-to-cases | 新 run 复用配置（缺项才补）→ 来源/影响分析 → 用例生成 → 补齐遗漏并语义审查 → Excel/Markdown/JSON；交付后结束 |
 | 外部用例整理或导入 | prd-to-cases | 按[外部用例接入](../../prd-to-cases/references/existing-cases.md)规范化，保留原步骤和预期；完成边界同用例设计 |
-| 已有用例执行 Web/H5/API | web-e2e-test | 复用完整基线或接入外部用例 → design → 本轮人工评审 → UI 地图（API 跳过）→ 脚本与 discovery → plan → 执行与 execution → 所选交付 |
+| 已有用例执行 Web/H5/API | web-e2e-test | 复用完整基线或接入外部用例 → design → 本轮人工评审 → UI 地图（API 跳过）→ 脚本与 discovery → 执行与 execution → 所选交付 |
 | 已有用例执行移动端 | mobile-e2e-test | 同上，使用本地真机与 Appium 的平台检查和隔离 |
 | 只探索页面 | argus-page-exploration | 批准用例、矩阵、目标与预算就绪 → 平台准备和探针 → 全量地图 check；交付地图及缺口，不执行测试 |
-| 只生成脚本 | argus-script-generation | 批准用例与矩阵 → 缺失 UI 地图 → 生成、发布、bind、真实 discovery、scripts 与 plan 门禁；交付脚本，不执行测试 |
-| 只查覆盖、记录缺陷或做语义判断 | coverage-check / bug-reporter / decision-router | 校验本技能输入后执行自身职责；不触发用例重写、平台启动或业务重跑 |
+| 只生成脚本 | argus-script-generation | 批准用例与矩阵 → 缺失 UI 地图 → 生成、发布、bind、真实 discovery、scripts 门禁；交付脚本，不执行测试 |
+| 记录缺陷或做语义判断 | bug-reporter / decision-router | 校验本技能输入后执行自身职责；不触发用例重写、平台启动或业务重跑。不再运行覆盖脚本 |
 | 性能、安全或形式化专项 | 对应专项技能 | 仅补本技能所需来源、范围、配置和授权；真实执行仍受人工评审及专项门禁约束 |
 | 一条完整工作流 | argus | 按主流程串联上列能力，复用相同 run、指纹和回执；维持原验收和交付要求 |
 
@@ -25,14 +25,14 @@
 1. 已有 run 先按[恢复契约](resume.md)核对文件、输入/配置/目标指纹、审批及资源交接。完整且有效的交接直接消费，不重新生成用例、探索已验证页面或重跑业务。
 2. 新任务先走 [新 run 复用入口](../../setup-argus/SKILL.md#新-run-复用入口)，读取已保存配置并独立冻结快照；首次或当前阶段缺项才定向配置，不重跑整套 setup。用例设计不需要可达测试环境、账号、浏览器、设备或 Bug 发布通道；执行阶段才冻结真实目标并按平台验证。
 3. 外部 Excel/Markdown/JSON 不是完整 run。交给 prd-to-cases 的接入分支补齐结构和来源证据，不能伪造原 Argus 生成回执、审批或 runner discovery。缺关键步骤/预期时交付问题清单，保持 BLOCKED。
-4. 只补当前终点需要且尚未完成的前置。用例、矩阵或预期变化回设计和评审；真实依赖未知仍保留 unknown，不能通过缩小基线使门禁通过。全局覆盖、P0、隔离、预算、首次失败证据和 SQL agent 规则保持原样。
+4. 只补当前终点需要且尚未完成的前置。用例、矩阵或预期变化回设计和评审；真实依赖未知仍保留 unknown，不能通过缩小基线使门禁通过。隔离、预算、首次失败证据和 SQL agent 规则保持原样。
 5. 前置需要真实页面交互、数据库访问、负载、安全扫描或外部写入时仍核对具体授权。明确只生成脚本且未授权接触目标时，只消费已有有效地图；缺地图说明所需目标与操作，保持阻断，不自行扩展授权。
 
 ## 分阶段门禁和交付
 
-- **design**：`coverage.py <input.json> --phase design`，只认可有效 `planned:文件::标题`、来源/影响分析、语义审查和完整场景/矩阵。`discovered=[]`，不伪造发现记录。生成/导入任务仍先通过 `phase_gate.py --phase dispatch`。输出 `coverage-design.json`，这是设计完成，不是执行就绪。
-- **review / scripts / plan**：沿用人工评审、发布、地图及脚本门禁；脚本 bind 后用 execution-cases.json 和真实 discovery 运行 `coverage.py --phase plan`，输出 `coverage-plan.json`。只有完整依赖通过才能进入执行；design 不能替代 plan。
-- **execution**：沿用真实 attempts、矩阵、分片、失败证据和执行覆盖。只测用户提供用例时，结论限于该基线；不宣称完整 PRD 验收。选中子集仍按现有 partial 规则展示原基线缺口。
+- **design**：用例合并后按 prd-to-cases 第 5 节补上原文已经写明的遗漏，做一轮语义审查，出评审表。生成/导入任务仍先通过 `phase_gate.py --phase dispatch`。
+- **review / scripts**：人工评审通过即接受执行。沿用发布、地图及脚本门禁；scripts 核对已批准用例都有真实 discovery。
+- **execution**：沿用真实 attempts、矩阵、分片和失败证据。结论来自本次 results.json。只测用户提供用例时，结论限于该基线；不宣称完整 PRD 验收。选中子集仍按现有 partial 规则展示原基线缺口。
 - **delivery**：设计、地图、脚本任务在本阶段产物验证后结束，报告“该阶段完成、业务测试未执行”；缺陷和运行汇总只在执行或用户选中发布时交给 bug-reporter，按 local/online/both 读回。发布失败只恢复发布。
 
 仅设计任务保留待评审材料和门禁状态，不为了交付用例而要求用户先批准后续测试。组合任务包含执行时，交付用例后按默认人工门禁等待。后续新增执行请求若需要改变冻结配置、目标或输入，创建关联原任务的新 run，复用可验证材料并取得本轮审批；配置与输入均未变时按恢复契约继续。

@@ -7,11 +7,11 @@ description: Executes supplied cases or an Argus baseline on authorized local An
 
 ## Inputs and required references
 
-Read the [Argus contract](../argus/references/contracts.md), [private storage rules](../setup-argus/references/storage.md), [platform routing](../decision-router/references/platform-routing.md), and [coverage gate](../coverage-check/SKILL.md). Use the frozen cases, authorized device matrix, App artifact, service target, budget, and `workspacePath`. Use local physical devices only; this release does not support simulators or cloud devices.
+Read the [Argus contract](../argus/references/contracts.md), [private storage rules](../setup-argus/references/storage.md), and [platform routing](../decision-router/references/platform-routing.md). Use the approved cases, authorized device matrix, App artifact, service target, budget, and `workspacePath`. Human approval releases execution. Use local physical devices only; this release does not support simulators or cloud devices.
 
 ## 1. Identify the app and test scope
 
-For direct calls, follow [workflow composition](../argus/references/workflows.md): reuse a verified run, or normalize supplied cases through [case import](../prd-to-cases/references/existing-cases.md) and scoped setup. Complete design and human review before exploration or script generation; require published discovery and plan coverage before execution. Do not restart the full PRD workflow. Probe calls keep their narrower boundary below.
+For direct calls, follow [workflow composition](../argus/references/workflows.md): reuse a verified run, or normalize supplied cases through [case import](../prd-to-cases/references/existing-cases.md) and scoped setup. Complete design and human review before exploration or script generation; require published discovery before execution. Human approval releases execution. Do not restart the full PRD workflow. Probe calls keep their narrower boundary below.
 
 - Identify the authorized app and read the PRD and available business rules.
 - Source code and a project path are optional; use device and app evidence when no repository is available.
@@ -85,9 +85,9 @@ Called by page exploration after this skill's configuration, authorization and d
 - Clean only registered resources, read back cleanup, close Appium/WDA sessions, and release the device.
 - On resume, inspect leftover resources before acting.
 
-## 8. Check coverage and delivery
+## 8. Check results and delivery
 
-- Use shared coverage-check and bug-reporter.
+- Use bug-reporter for defects. Do not run a coverage script.
 - Read back the selected Bug table and run summary.
 - Report each platform and device.
 - A blocked side of `both` blocks the combined result.
@@ -126,4 +126,4 @@ Request a device setting or permission change only when the observed error or ve
 
 Add one target per authorized device. Use the Android application ID or iOS bundle ID for `appId`. The user fills `accounts` locally; add entries for each required role and optional `tenant`. Use `{}` when no login is needed. Preserve existing `credentialsRef` entries for compatibility; new account configuration uses `accounts`.
 
-两阶段脚本生成时，执行与执行覆盖使用 `cases/execution-cases.json` 中已发布入口；人工评审与原始计划仍绑定不可变的 `cases/cases.json`。先按 [产物生命周期](../argus/references/lifecycle.md) 完成 bind 和 scripts 门禁，不能手工改写审批文件来匹配 runner。
+两阶段脚本生成时，执行使用 `cases/execution-cases.json` 中已发布入口；人工评审与原始计划仍绑定不可变的 `cases/cases.json`。先按 [产物生命周期](../argus/references/lifecycle.md) 完成 bind 和 scripts 门禁，不能手工改写审批文件来匹配 runner。
