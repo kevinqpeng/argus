@@ -24,6 +24,8 @@ PRD 输入时，主 Agent 先核对独立采集子 Agent 交付的初步来源�
 
 主 Agent 建立本 run 的轻量证据索引，记录冻结仓库、完整 SHA、对象或符号、路径行段、来源哈希及检索范围；将已有条目和完整变更对象索引发给 worker。索引只提供起点，worker 仍须从冻结提交验证引用并自主扩大搜索、追踪新依赖；未命中不是不存在的证据。新发现由主 Agent 汇入索引，记录覆盖边界与未搜索区域，不作为完整性证明。
 
+派发核验或补齐任务时，任务书列出已知待核验的仓库绝对路径、冻结 SHA、符号/行段、缺口 ID 和相关来源定位；只传本任务必要片段及索引，不继承完整探索历史。worker 先在指定仓库和路径批量核验（例如一次 `git show SHA:path1 SHA:path2`），需扩展时限定仓库及相关目录搜索，记录新边界；不从 `/` 或 `$HOME` 递归搜索。路径不存在时回报具体缺口，由主 Agent 核对后补发，不能猜测路径或忽略依赖。
+
 结构化回执顶层包含 `schemaVersion: 1`、`taskId`、正整数 `attempt`、与派发一致的 `inputHash`，以及 `sources`、`sourceUnits`、`objects`、`checks`、`obligations`、`handoffs` 六个数组（无项填空数组）。前五项采用共享 ImpactAnalysis 相应结构及稳定 ID；候选可以有待确认字段，不能标成已批准。每个 handoff 包含唯一 `handoffId`、生产者、接收任务、依赖路径、证据定位和未决问题；无接收任务或未闭环保留未知。证据内容只写一次，其他项引用可定位的来源或回执，不复制长段源码。
 
 主 Agent 写 `cases/exploration/plan.json`，包含 `schemaVersion: 1`、绑定冻结来源与任务输入的 `inputHash` 和 `tasks: [{taskId, attempt}]`，每次重派更新当前 attempt。收到回执立即运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py <plan.json> <当前回执...>`，将输出保存为候选汇总；未收到全部回执时允许 BLOCKED 的部分结果供局部整理。程序检查当前任务、attempt、输入指纹和数组/ID，按同 ID 且内容完全相同合并并保留任务映射；不同内容保留全部版本并阻断，不能按 ID、文本相似度或程序输出判定业务等价。它不验证完整 schema、证据真实性、交接闭环或语义，也不生成最终基线；主 Agent 核验这些事项并使用既有 coverage 门禁。历史 Markdown 回执按原流程恢复，不转换成虚假的新回执。
