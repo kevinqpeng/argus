@@ -24,6 +24,9 @@ content.json 结构：
     "expectedSources": [[0], [1]],                 // 可选，默认按位置 1:1
     "stepExemptions": {"S4": "并入前置条件列"},      // 可选，源步骤无展示去向时必须写明理由
     "assertionExemptions": {"2": "同上"},          // 可选，断言索引（0 基）无展示去向时写明理由
+    "densityExceptions": {"steps": {"display": ["必要的完整时序"],
+                                      "reason": "必须逐项核对的并发顺序",
+                                      "sourceRefs": ["acs.json:A1.text"]}},
     "technicalExceptions": [{"field": "steps", "index": 1, "token": "GET /api/x",
                                "reason": "接口本身是测试对象", "evidenceRef": "cases.json:..."}]
   }],
@@ -53,6 +56,11 @@ THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
 SLICE_CAP = 8
+# 评审密度独立于 Excel 的 409 pt 容量；超预算需来源支持的逐字段例外。
+REVIEW_LINE_BUDGET = {
+    'title': (WIDTH_MAIN[1], 2), 'fixtures': (WIDTH_MAIN[2], 6),
+    'steps': (WIDTH_MAIN[3], 10), 'expected': (WIDTH_MAIN[4], 12),
+}
 
 # 只定位可核对的疑似技术信息；业务必要性仍由评审者判断。
 TECHNICAL = re.compile(
@@ -67,11 +75,31 @@ TECHNICAL = re.compile(
 
 
 def presentation_issues(content, source):
-    """定位疑似泄漏；UI 用例的精确例外需逐项说明并提供依据。"""
+    """检查评审密度和疑似技术泄漏；业务必要性由主 Agent 对照来源复核。"""
     cases = {case['caseId']: case for case in source['cases']}
     issues = []
     for row in content['cases']:
         case = cases.get(row['caseId'], {})
+        density = row.get('densityExceptions') or {}
+        if not isinstance(density, dict):
+            issues.append(f"{row['caseId']}: densityExceptions 必须按字段记录")
+            density = {}
+        for field, (width, limit) in REVIEW_LINE_BUDGET.items():
+            value = row.get(field, [] if field != 'title' else '')
+            text = numbered(value) if isinstance(value, list) else value
+            lines = wrapped_lines(text, width)
+            if lines <= limit:
+                continue
+            exception = density.get(field) or {}
+            if not isinstance(exception, dict):
+                exception = {}
+            refs = exception.get('sourceRefs')
+            if not (exception.get('display') == value and
+                    isinstance(exception.get('reason'), str) and exception['reason'].strip() and
+                    isinstance(refs, list) and refs and
+                    all(isinstance(ref, str) and ref.strip() for ref in refs)):
+                issues.append(f"{row['caseId']} {field}: 评审密度 {lines} 行超过预算 {limit}；"
+                              '请合并重复背景和常规操作，必要边界须记录绑定当前文案的 densityExceptions')
         exceptions = row.get('technicalExceptions', [])
         for field in ('group', 'title', 'fixtures', 'steps', 'expected'):
             values = row.get(field, [])
@@ -258,14 +286,14 @@ def numbered(items):
     return '\n'.join(f'{i}. {text}' for i, text in enumerate(items, 1))
 
 
+def wrapped_lines(text, width):
+    return sum(max(1, ceil(sum(2 if unicodedata.east_asian_width(ch) in 'WF' else 1
+                              for ch in seg) / max(width - 2, 8)))
+               for seg in str(text or '').split('\n'))
+
+
 def est_height(cells):
-    lines = 1
-    for text, width in cells:
-        text = str(text or '')
-        count = sum(max(1, ceil(sum(2 if unicodedata.east_asian_width(ch) in 'WF' else 1
-                                    for ch in seg) / max(width - 2, 8)))
-                    for seg in text.split('\n'))
-        lines = max(lines, count)
+    lines = max([1] + [wrapped_lines(text, width) for text, width in cells])
     height = max(28, lines * 15 + 6)
     if height > 409:
         raise ValueError('单行内容超过 Excel 行高上限：请在不遗漏业务义务的前提下精简文案')
@@ -410,6 +438,7 @@ def build_mapping(units, source, sheet_rows, round_dir):
             'stepExemptions': unit['stepExemptions'],
             'assertionExemptions': {str(k): v for k, v in unit['assertionExemptions'].items()},
             'technicalExceptions': unit['row'].get('technicalExceptions', []),
+            'densityExceptions': unit['row'].get('densityExceptions', {}),
             'tracking': {'file': 'cases.md', 'heading': f"{case['caseId']} {unit['row']['title']}"},
         })
     return {'schemaVersion': 1, 'generatedBy': 'render_review_table.py',
@@ -484,8 +513,8 @@ def main():
     issues = presentation_issues(content, source)
     if issues:
         for issue in issues:
-            print(f'ERROR 评审文案含疑似内部技术信息：{issue}', file=sys.stderr)
-        print('请改为业务表述；UI 用例确有必要时按契约记录逐项例外并复核。', file=sys.stderr)
+            print(f'ERROR 评审文案待处理：{issue}', file=sys.stderr)
+        print('请按评审表契约精简业务表述；必要技术信息或复杂边界记录逐项例外并复核。', file=sys.stderr)
         sys.exit(2)
     layout_errors = []
     for row in content['cases']:
