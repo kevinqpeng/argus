@@ -1,21 +1,21 @@
 {
-  "version": 1,
+  "version": 4,
   "thresholdsRef": "../../decision-router/references/questions.json#thresholds",
   "questions": {
     "case_readability": {
       "type": "noul",
-      "instructions": "Can a tester understand and review this displayed case on first reading without referring to internal records? Judge the displayed title, conditions, steps and expected results against the supplied source case.",
+      "instructions": "Judge whether the displayed case is concise in business terms while preserving the material source facts. If repeated context, routine login/navigation, filler, or mechanical clicks can be removed or merged without losing a necessary condition, input, sequence, boundary or observable result, answer false even when the case is understandable. Do not impose a fixed length. Judge expected results against the supplied linked PRD/AC: routine intermediate outcomes that are not acceptance criteria need not appear in the review table; their internal trace is assessed separately.",
       "criteria": {
-        "true": "The title names the main behavior; roles, conditions, ordered actions and observable results are concrete, concise and consistent. Each numbered item carries a clear thought, unnecessary setup details and repetition are removed, and the important source conditions and results remain identifiable.",
-        "false": "The text uses long compound titles, repeated setup, unexplained internal labels, vague actions or results, or requires cross-referencing to understand the case. Compression omits a material role, condition, boundary, sequence or result. Do not reject a longer case solely because the source behavior is complex."
+        "true": "The title names the main behavior; conditions, ordered business actions and observable results use concise wording. Related actions are combined when order stays clear; routine login and navigation are included only when relevant. The linked PRD/AC business outcomes and necessary conditions remain identifiable; routine intermediate outcomes do not crowd the expected results. Include source-supported business state transitions, continuity of the original object, handler assignment and required history when relevant to the case.",
+        "false": "Repeated setup, repeated actor or application names, routine login or navigation, or mechanical clicks and confirmations add no test distinction and can be removed or merged. Also false if material roles, conditions, inputs, timing, boundaries or results are missing. Expected results read as a step-by-step log of routine confirmations instead of the linked PRD/AC outcomes. Missing a source-supported intermediate business state, original-object continuity or required history relevant to the case is over-compression."
       }
     },
     "note_readability": {
       "type": "noul",
-      "instructions": "Can a tester understand this pending issue and the requested decision on first reading without consulting internal IDs or files? Compare the displayed question and action with the supplied source issue.",
+      "instructions": "Judge whether the pending issue asks one specific business decision in concise language and preserves the material source meaning. Answer false if background, impact, or wording is repeated or can be removed without making the decision unclear.",
       "criteria": {
-        "true": "The issue states the relevant business situation and a specific unresolved question in plain language. The action identifies what needs confirmation without presenting a guess as a decision. Its material meaning is preserved.",
-        "false": "The issue relies on internal identifiers, file names, technical scoring or unexplained jargon; repeats background; leaves the question or requested decision unclear; omits the material context; or assumes an unconfirmed answer."
+        "true": "One brief business situation and specific unresolved question; the action says who should confirm which rule, without guessing the answer. Material context remains.",
+        "false": "Repeated background or impact, unnecessary technical detail, multiple unrelated decisions, unclear question or decision owner, missing material context, or an assumed answer."
       }
     }
   }
