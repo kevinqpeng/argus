@@ -252,6 +252,27 @@ def seal(plan, state, root, task_id, gaps):
     return {"taskId": task_id, "attempt": attempt, "resultHash": receipt["resultHash"]}
 
 
+def seal_ready(plan, state, root, gaps_by_task):
+    """Seal every finished cases-phase task that does not yet have a receipt."""
+    tasks, ordered = validate_plan(plan)
+    require(isinstance(gaps_by_task, dict), "gaps file must be an object")
+    require(set(gaps_by_task) <= set(tasks), "unknown task in gaps file")
+    sealed = []
+    for task_id in ordered:
+        task = tasks[task_id]
+        attempt = state["attempts"][task_id]
+        directory = safe_path(root, f"{task_id}/{attempt}")
+        if (directory / "result.json").is_file():
+            continue
+        if any(not safe_path(directory, name).is_file() for name in task["outputFiles"]):
+            continue
+        if any(not (safe_path(root, f"{dep}/{state['attempts'][dep]}") / "result.json").is_file()
+               for dep in task["dependsOn"]):
+            continue
+        sealed.append(seal(plan, state, root, task_id, gaps_by_task.get(task_id, [])))
+    return sealed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plan", type=Path)
@@ -259,18 +280,30 @@ def main():
     parser.add_argument("--root", type=Path, required=True, help="Private generation directory")
     parser.add_argument("--merge", type=Path, help="Write draft cases only when all shards are complete")
     parser.add_argument("--seal", help="Write result.json for this cases-phase task from its output files")
+    parser.add_argument("--seal-ready", action="store_true",
+                        help="Seal every finished cases-phase task that has no receipt")
     parser.add_argument("--gaps", default="[]", help="JSON array of unresolved obligations for --seal")
+    parser.add_argument("--gaps-file", type=Path,
+                        help="taskId to unresolvedObligations object for --seal-ready")
     parser.add_argument("--metrics", type=Path, help="Run metrics.jsonl")
     args = parser.parse_args()
     if args.seal and args.merge:
         parser.error("seal does not merge")
+    if args.seal_ready and (args.seal or args.merge):
+        parser.error("seal-ready does not combine with seal or merge")
+    if args.gaps_file and not args.seal_ready:
+        parser.error("--gaps-file requires --seal-ready")
     started = time.monotonic()
     status = "BLOCKED"
     try:
         plan = json.loads(args.plan.read_text())
         state = json.loads(args.state.read_text())
-        if args.seal:
-            result = seal(plan, state, args.root, args.seal, json.loads(args.gaps))
+        if args.seal or args.seal_ready:
+            if args.seal:
+                result = seal(plan, state, args.root, args.seal, json.loads(args.gaps))
+            else:
+                gaps_by_task = json.loads(args.gaps_file.read_text()) if args.gaps_file else {}
+                result = seal_ready(plan, state, args.root, gaps_by_task)
             status = "PASSED"
             print(json.dumps(result, ensure_ascii=False))
             return 0

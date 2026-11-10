@@ -266,6 +266,46 @@ class GenerationTests(unittest.TestCase):
         self.state = json.loads(state.read_text())
         self.assertEqual(self.evaluate()["status"], "PASSED")
 
+    def test_seal_ready_seals_finished_shards_once(self):
+        self.plan["phase"] = "cases"
+        self.plan["tasks"][1]["dependsOn"] = ["G1"]
+        for task in self.plan["tasks"]:
+            task["outputFiles"] = ["cases.json"]
+        self.reset_state()
+        for index in (1, 2):
+            directory = self.root / f"G{index}" / "1"
+            directory.mkdir(parents=True)
+            case = {"schemaVersion": 1, "caseId": f"C{index}", "scenarioIds": [f"S{index}"],
+                    "suite": "api", "priority": "P0", "fixtures": [],
+                    "steps": [{"id": "step1", "action": "Submit request"}],
+                    "assertions": [{"stepId": "step1", "expected": "Accepted"}],
+                    "reviewStatus": "draft", "semanticReview": "draft",
+                    "automationRef": f"planned:group{index}.spec.ts::case {index}"}
+            (directory / "cases.json").write_text(json.dumps([case]), encoding="utf-8")
+        (self.root / "G2" / "1" / "cases.json").unlink()
+        plan = self.root / "plan.json"
+        state = self.root / "state.json"
+        plan.write_text(json.dumps(self.plan), encoding="utf-8")
+        state.write_text(json.dumps(self.state), encoding="utf-8")
+        command = [sys.executable, str(SCRIPT), str(plan), str(state), "--root", str(self.root), "--seal-ready"]
+        first = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stdout)
+        self.assertEqual([item["taskId"] for item in json.loads(first.stdout)], ["G1"])
+        case = json.loads((self.root / "G1" / "1" / "cases.json").read_text())
+        (self.root / "G2" / "1" / "cases.json").write_text(json.dumps([{
+            **case[0], "caseId": "C2", "scenarioIds": ["S2"],
+            "automationRef": "planned:group2.spec.ts::case 2"}]), encoding="utf-8")
+        second = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(second.returncode, 0, second.stdout)
+        self.assertEqual([item["taskId"] for item in json.loads(second.stdout)], ["G2"])
+        sealed = (self.root / "G1" / "1" / "result.json").read_bytes()
+        third = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(json.loads(third.stdout), [])
+        self.assertEqual((self.root / "G1" / "1" / "result.json").read_bytes(), sealed)
+        self.plan = json.loads(plan.read_text())
+        self.state = json.loads(state.read_text())
+        self.assertEqual(self.evaluate()["status"], "PASSED")
+
     def test_cli_merge_refuses_partial_and_overwrite(self):
         plan = self.root / "plan.json"
         state = self.root / "state.json"
