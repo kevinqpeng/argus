@@ -90,6 +90,21 @@ class CoverageTests(unittest.TestCase):
         self.data["cases"][0]["assertions"] = []
         self.assertEqual(coverage["evaluate"](self.data, "design")["status"], "BLOCKED")
 
+    def test_design_accepts_semantically_reviewed_draft_but_plan_requires_approval(self):
+        case = self.data["cases"][0]
+        case["reviewStatus"] = "draft"
+        case["automationRef"] = "planned:owner.spec.ts::Change owner"
+        self.data["discovered"] = []
+        self.assertEqual(coverage["evaluate"](self.data, "design")["status"], "PASSED")
+        case["semanticReview"] = "draft"
+        self.assertEqual(coverage["evaluate"](self.data, "design")["status"], "BLOCKED")
+        case["semanticReview"] = "approved"
+        case["automationRef"] = "test:owner"
+        self.data["discovered"] = [dict(caseId="C1", matrixId="api", automationRef="test:owner")]
+        self.assertEqual(coverage["evaluate"](self.data, "plan")["status"], "BLOCKED")
+        case["reviewStatus"] = "approved"
+        self.assertEqual(coverage["evaluate"](self.data, "plan")["status"], "PASSED")
+
     def test_design_rejects_bad_declarations_and_unreviewed_sources(self):
         self.data["discovered"] = []
         for ref in (None, 3, "planned:", "planned:x::", "planned:.::title", "planned:C:/x::title",
