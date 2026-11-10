@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 import tempfile
 import unicodedata
@@ -12,6 +13,14 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus/scripts"))
 from case_contract import validate_steps
+
+CONTRACT = Path(__file__).resolve().parents[1] / "references" / "shared-contract.md"
+CONSTANT_FIXTURE = re.compile(
+    r"^(?:[A-Za-z_][\w.]*|[\u4e00-\u9fffA-Za-z0-9_]{1,16})\s*=\s*"
+    r"(?:[A-Za-z0-9_.\"'-]+|[\u4e00-\u9fffA-Za-z0-9_]{1,16})$")
+DELTA = re.compile(r"增量|比(?:原来|原先|之前|基线)多|(?:条数|数量|次数)(?:增加|变多)")
+BASELINE = re.compile(r"基线|当前条数|现有条数|读取条数|查询条数|记录条数")
+AC_CITE = re.compile(r"(?<![A-Za-z0-9])AC[-_][A-Za-z0-9.]+(?:-[A-Za-z0-9.]+)*")
 
 
 def digest(value):
@@ -68,15 +77,50 @@ def publish_bytes(target, content):
                     "publication conflicts with existing artifact: " + str(target))
 
 
-def validate_case(case, scenario_ids, review_status):
-    require(case["schemaVersion"] == 1 and case["reviewStatus"] == review_status
-            and case["semanticReview"] == review_status, "case review statuses must be " + review_status)
+def frozen_contract(plan, root):
+    names = [name for name in (plan.get("inputArtifacts") or {}) if name.endswith("shared-contract.md")]
+    if not names:
+        return
+    require(len(names) == 1, "multiple shared-contract.md inputs")
+    expected = file_hash(CONTRACT)
+    require(plan["inputArtifacts"][names[0]] == expected
+            and file_hash(safe_path(root, names[0])) == expected,
+            "shared-contract.md drifted from the skill")
+
+
+def contract_traps(case, task):
+    fixtures = case.get("fixtures") or []
+    steps = case["steps"]
+    if (fixtures and all(isinstance(item, str) and CONSTANT_FIXTURE.match(item.strip()) for item in fixtures)
+            and not any(step.get("kind") == "setup" for step in steps)):
+        raise ValueError(case["caseId"] + ": precondition is a constant; add the action that establishes it")
+    positions = {step["id"]: index for index, step in enumerate(steps)}
+    for assertion in case["assertions"]:
+        expected = assertion.get("expected") or ""
+        if "记录保留" in expected:
+            raise ValueError(case["caseId"] + ": unobservable assertion: 记录保留")
+        if DELTA.search(expected):
+            index = positions.get(assertion.get("stepId"), -1)
+            if not any(BASELINE.search(step.get("action") or "") for step in steps[:index + 1]):
+                raise ValueError(case["caseId"] + ": delta assertion has no baseline step")
+    allowed = task.get("acIds")
+    if isinstance(allowed, list):
+        cited = set(AC_CITE.findall(json.dumps(case, ensure_ascii=False)))
+        extra = cited - set(allowed)
+        if extra:
+            raise ValueError(case["caseId"] + ": AC outside this slice: " + ",".join(sorted(extra)))
+
+
+def validate_case(case, task, review_status):
+    require(case["schemaVersion"] == 1 and case["reviewStatus"] == review_status,
+            "case review status must be " + review_status)
     require(case["suite"] in ("ui", "api", "performance", "security")
             and case["priority"] in ("P0", "P1", "P2", "P3")
             and isinstance(case["fixtures"], list), "invalid case fields")
     assigned = unique(case["scenarioIds"], "case scenarios")
-    require(assigned and assigned <= set(scenario_ids), "case outside task scope")
+    require(assigned and assigned <= set(task["scenarioIds"]), "case outside task scope")
     validate_steps(case["steps"], case["assertions"])
+    contract_traps(case, task)
     return assigned
 
 
@@ -112,6 +156,8 @@ def validate_plan(plan):
         require(tid.isascii() and all(c.isalnum() or c in "_-" for c in tid), "invalid taskId")
         assigned = unique(task["scenarioIds"], "assigned scenarios")
         cases = unique(task["caseIds"], "assigned cases")
+        if "acIds" in task:
+            unique(task["acIds"], "task acIds")
         deps = unique(task["dependsOn"], "dependencies")
         files = unique(task["outputFiles"], "outputFiles")
         path_names([*files, "result.json"])
@@ -154,6 +200,7 @@ def evaluate(plan, state, root):
             "invalid active tasks")
     for name, expected in plan["inputArtifacts"].items():
         require(file_hash(safe_path(root, name)) == expected, "changed frozen input: " + name)
+    frozen_contract(plan, root)
     completed, cases, artifacts = {}, [], {}
     for tid in ordered:
         task = tasks[tid]
@@ -195,7 +242,7 @@ def evaluate(plan, state, root):
                 "case assignment mismatch: " + tid)
         covered = set()
         for case in shard_cases:
-            covered |= validate_case(case, task["scenarioIds"], "draft")
+            covered |= validate_case(case, task, "draft")
             validate_automation_ref(case, task, attempts[tid], receipt["files"], plan.get("phase", "legacy"))
         require(covered == set(task["scenarioIds"]), "unrepresented assigned scenarios: " + tid)
         completed[tid] = receipt["resultHash"]
@@ -209,18 +256,106 @@ def evaluate(plan, state, root):
             "artifacts": artifacts, "cases": sorted(cases, key=lambda c: c["caseId"])}
 
 
+def seal(plan, state, root, task_id, gaps):
+    """Write result.json from files the worker already put in its attempt directory."""
+    tasks, _ = validate_plan(plan)
+    frozen_contract(plan, root)
+    require(plan.get("phase") == "cases", "seal supports the cases phase")
+    require(task_id in tasks, "unknown task")
+    task = tasks[task_id]
+    require("cases.json" in task["outputFiles"], "cases phase requires cases.json output")
+    plan_hash = digest(plan)
+    require(state["schemaVersion"] == 1 and state["planHash"] == plan_hash, "stale generation state")
+    attempt = state["attempts"][task_id]
+    require(type(attempt) is int and attempt > 0, "invalid attempt")
+    require(isinstance(gaps, list), "unresolvedObligations must be a list")
+    for item in gaps:
+        require(isinstance(item, dict) and isinstance(item.get("obligationId"), str) and item["obligationId"]
+                and isinstance(item.get("reason"), str) and item["reason"].strip(),
+                "invalid unresolved obligation")
+    directory = safe_path(root, f"{task_id}/{attempt}")
+    files = {}
+    for name in task["outputFiles"]:
+        path = safe_path(directory, name)
+        require(path.is_file(), "missing worker output: " + name)
+        files[name] = file_hash(path)
+    shard_cases = json.loads(safe_path(directory, "cases.json").read_text(encoding="utf-8"))
+    require(unique([case["caseId"] for case in shard_cases], "caseIds") == set(task["caseIds"]),
+            "case assignment mismatch")
+    covered = set()
+    for case in shard_cases:
+        covered |= validate_case(case, task, "draft")
+        validate_automation_ref(case, task, attempt, files, "cases")
+    require(covered == set(task["scenarioIds"]), "unrepresented assigned scenarios")
+    dependency_hashes = {}
+    for dep in task["dependsOn"]:
+        dep_attempt = state["attempts"][dep]
+        dep_receipt = json.loads(safe_path(root, f"{dep}/{dep_attempt}/result.json").read_text(encoding="utf-8"))
+        dependency_hashes[dep] = dep_receipt["resultHash"]
+    receipt = {"schemaVersion": 1, "runId": plan["runId"], "planHash": plan_hash, "taskId": task_id,
+               "attempt": attempt, "state": "completed", "dependencyHashes": dependency_hashes,
+               "files": files, "cases": shard_cases, "unresolvedObligations": gaps}
+    receipt["resultHash"] = digest({key: value for key, value in receipt.items() if key != "resultHash"})
+    publish_bytes(directory / "result.json", (json.dumps(receipt, ensure_ascii=False, indent=2) + "\n").encode())
+    return {"taskId": task_id, "attempt": attempt, "resultHash": receipt["resultHash"]}
+
+
+def seal_ready(plan, state, root, gaps_by_task):
+    """Seal every finished cases-phase task that does not yet have a receipt."""
+    tasks, ordered = validate_plan(plan)
+    require(isinstance(gaps_by_task, dict), "gaps file must be an object")
+    require(set(gaps_by_task) <= set(tasks), "unknown task in gaps file")
+    sealed = []
+    for task_id in ordered:
+        task = tasks[task_id]
+        attempt = state["attempts"][task_id]
+        directory = safe_path(root, f"{task_id}/{attempt}")
+        if (directory / "result.json").is_file():
+            continue
+        if any(not safe_path(directory, name).is_file() for name in task["outputFiles"]):
+            continue
+        if any(not (safe_path(root, f"{dep}/{state['attempts'][dep]}") / "result.json").is_file()
+               for dep in task["dependsOn"]):
+            continue
+        sealed.append(seal(plan, state, root, task_id, gaps_by_task.get(task_id, [])))
+    return sealed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plan", type=Path)
     parser.add_argument("state", type=Path)
     parser.add_argument("--root", type=Path, required=True, help="Private generation directory")
     parser.add_argument("--merge", type=Path, help="Write draft cases only when all shards are complete")
+    parser.add_argument("--seal", help="Write result.json for this cases-phase task from its output files")
+    parser.add_argument("--seal-ready", action="store_true",
+                        help="Seal every finished cases-phase task that has no receipt")
+    parser.add_argument("--gaps", default="[]", help="JSON array of unresolved obligations for --seal")
+    parser.add_argument("--gaps-file", type=Path,
+                        help="taskId to unresolvedObligations object for --seal-ready")
     parser.add_argument("--metrics", type=Path, help="Run metrics.jsonl")
     args = parser.parse_args()
+    if args.seal and args.merge:
+        parser.error("seal does not merge")
+    if args.seal_ready and (args.seal or args.merge):
+        parser.error("seal-ready does not combine with seal or merge")
+    if args.gaps_file and not args.seal_ready:
+        parser.error("--gaps-file requires --seal-ready")
     started = time.monotonic()
     status = "BLOCKED"
     try:
-        result = evaluate(json.loads(args.plan.read_text()), json.loads(args.state.read_text()), args.root)
+        plan = json.loads(args.plan.read_text())
+        state = json.loads(args.state.read_text())
+        if args.seal or args.seal_ready:
+            if args.seal:
+                result = seal(plan, state, args.root, args.seal, json.loads(args.gaps))
+            else:
+                gaps_by_task = json.loads(args.gaps_file.read_text()) if args.gaps_file else {}
+                result = seal_ready(plan, state, args.root, gaps_by_task)
+            status = "PASSED"
+            print(json.dumps(result, ensure_ascii=False))
+            return 0
+        result = evaluate(plan, state, args.root)
         if args.merge:
             require(result["status"] == "PASSED", "cannot merge incomplete generation")
             content = json.dumps(result["cases"], ensure_ascii=False, indent=2) + "\n"

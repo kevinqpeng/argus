@@ -176,7 +176,6 @@ class GenerationTests(unittest.TestCase):
 
     def test_draft_and_reference_contracts(self):
         for field, value, error in [("reviewStatus", "approved", "draft"),
-                                    ("semanticReview", "approved", "draft"),
                                     ("automationRef", "", "missing automationRef"),
                                     ("automationRef", "G2/1/test.py:other", "outside owned")]:
             receipt = self.complete(1)
@@ -184,6 +183,41 @@ class GenerationTests(unittest.TestCase):
             self.write_receipt(1, receipt)
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, error):
                 self.evaluate()
+
+    def test_generation_does_not_require_semantic_review_status(self):
+        receipt = self.complete(1)
+        receipt["cases"][0].pop("semanticReview", None)
+        self.write_receipt(1, receipt)
+        self.evaluate()
+
+    def test_contract_traps_fail_on_the_first_seal(self):
+        receipt = self.complete(1)
+        case = receipt["cases"][0]
+        case["fixtures"] = ["status=REJECTED"]
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, "constant"):
+            self.evaluate()
+        case["steps"].insert(0, {"id": "prep", "action": "甲驳回申请", "kind": "setup",
+                                  "assertionExemption": "establishes the rejected application"})
+        case["fixtures"] = []
+        case["assertions"][0]["expected"] = "原记录保留"
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, "记录保留"):
+            self.evaluate()
+        case["assertions"][0]["expected"] = "条数增加"
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, "baseline"):
+            self.evaluate()
+        case["steps"].insert(0, {"id": "base", "action": "读取条数作为基线", "kind": "setup",
+                                  "assertionExemption": "reads the current count"})
+        case["assertions"][0]["expected"] = "Accepted"
+        self.plan["tasks"][0]["acIds"] = ["AC-1"]
+        self.reset_state()
+        case["assertions"][0]["expected"] = "见 AC-6.2-13"
+        receipt["planHash"] = generation.digest(self.plan)
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, "outside"):
+            self.evaluate()
 
     def test_business_step_without_assertion_cannot_merge(self):
         receipt = self.complete(1)
@@ -238,6 +272,73 @@ class GenerationTests(unittest.TestCase):
         self.state["failed"] = []
         with self.assertRaisesRegex(ValueError, "unsafe path"):
             self.evaluate()
+
+    def test_seal_writes_the_receipt_the_worker_used_to_compose(self):
+        self.plan["phase"] = "cases"
+        self.plan["tasks"][0]["outputFiles"] = ["cases.json"]
+        self.plan["tasks"][1]["dependsOn"] = ["G1"]
+        self.plan["tasks"][1]["outputFiles"] = ["cases.json"]
+        self.reset_state()
+        for index in (1, 2):
+            directory = self.root / f"G{index}" / "1"
+            directory.mkdir(parents=True)
+            case = {"schemaVersion": 1, "caseId": f"C{index}", "scenarioIds": [f"S{index}"],
+                    "suite": "api", "priority": "P0", "fixtures": [],
+                    "steps": [{"id": "step1", "action": "Submit request"}],
+                    "assertions": [{"stepId": "step1", "expected": "Accepted"}],
+                    "reviewStatus": "draft", "semanticReview": "draft",
+                    "automationRef": f"planned:group{index}.spec.ts::case {index}"}
+            (directory / "cases.json").write_text(json.dumps([case]), encoding="utf-8")
+        plan = self.root / "plan.json"
+        state = self.root / "state.json"
+        plan.write_text(json.dumps(self.plan), encoding="utf-8")
+        state.write_text(json.dumps(self.state), encoding="utf-8")
+        command = [sys.executable, str(SCRIPT), str(plan), str(state), "--root", str(self.root), "--seal", "G1"]
+        self.assertEqual(subprocess.run(command, capture_output=True, text=True).returncode, 0)
+        self.assertEqual(subprocess.run(command[:-1] + ["G2"], capture_output=True, text=True).returncode, 0)
+        self.plan = json.loads(plan.read_text())
+        self.state = json.loads(state.read_text())
+        self.assertEqual(self.evaluate()["status"], "PASSED")
+
+    def test_seal_ready_seals_finished_shards_once(self):
+        self.plan["phase"] = "cases"
+        self.plan["tasks"][1]["dependsOn"] = ["G1"]
+        for task in self.plan["tasks"]:
+            task["outputFiles"] = ["cases.json"]
+        self.reset_state()
+        for index in (1, 2):
+            directory = self.root / f"G{index}" / "1"
+            directory.mkdir(parents=True)
+            case = {"schemaVersion": 1, "caseId": f"C{index}", "scenarioIds": [f"S{index}"],
+                    "suite": "api", "priority": "P0", "fixtures": [],
+                    "steps": [{"id": "step1", "action": "Submit request"}],
+                    "assertions": [{"stepId": "step1", "expected": "Accepted"}],
+                    "reviewStatus": "draft", "semanticReview": "draft",
+                    "automationRef": f"planned:group{index}.spec.ts::case {index}"}
+            (directory / "cases.json").write_text(json.dumps([case]), encoding="utf-8")
+        (self.root / "G2" / "1" / "cases.json").unlink()
+        plan = self.root / "plan.json"
+        state = self.root / "state.json"
+        plan.write_text(json.dumps(self.plan), encoding="utf-8")
+        state.write_text(json.dumps(self.state), encoding="utf-8")
+        command = [sys.executable, str(SCRIPT), str(plan), str(state), "--root", str(self.root), "--seal-ready"]
+        first = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stdout)
+        self.assertEqual([item["taskId"] for item in json.loads(first.stdout)], ["G1"])
+        case = json.loads((self.root / "G1" / "1" / "cases.json").read_text())
+        (self.root / "G2" / "1" / "cases.json").write_text(json.dumps([{
+            **case[0], "caseId": "C2", "scenarioIds": ["S2"],
+            "automationRef": "planned:group2.spec.ts::case 2"}]), encoding="utf-8")
+        second = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(second.returncode, 0, second.stdout)
+        self.assertEqual([item["taskId"] for item in json.loads(second.stdout)], ["G2"])
+        sealed = (self.root / "G1" / "1" / "result.json").read_bytes()
+        third = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(json.loads(third.stdout), [])
+        self.assertEqual((self.root / "G1" / "1" / "result.json").read_bytes(), sealed)
+        self.plan = json.loads(plan.read_text())
+        self.state = json.loads(state.read_text())
+        self.assertEqual(self.evaluate()["status"], "PASSED")
 
     def test_cli_merge_refuses_partial_and_overwrite(self):
         plan = self.root / "plan.json"

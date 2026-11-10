@@ -24,6 +24,9 @@ content.json 结构：
     "expectedSources": [[0], [1]],                 // 可选，默认按位置 1:1
     "stepExemptions": {"S4": "并入前置条件列"},      // 可选，源步骤无展示去向时必须写明理由
     "assertionExemptions": {"2": "同上"},          // 可选，断言索引（0 基）无展示去向时写明理由
+    "densityExceptions": {"steps": {"display": ["必要的完整时序"],
+                                      "reason": "必须逐项核对的并发顺序",
+                                      "sourceRefs": ["acs.json:A1.text"]}},
     "technicalExceptions": [{"field": "steps", "index": 1, "token": "GET /api/x",
                                "reason": "接口本身是测试对象", "evidenceRef": "cases.json:..."}]
   }],
@@ -36,6 +39,7 @@ import hashlib
 import json
 import pathlib
 import re
+import shutil
 import sys
 import unicodedata
 from math import ceil
@@ -52,35 +56,69 @@ WIDTH_NOTES = [22, 64, 50]
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
+SLICE_CAP = 8
+# 评审密度独立于 Excel 的 409 pt 容量；超预算需来源支持的逐字段例外。
+REVIEW_LINE_BUDGET = {
+    'title': (WIDTH_MAIN[1], 2), 'fixtures': (WIDTH_MAIN[2], 6),
+    'steps': (WIDTH_MAIN[3], 10), 'expected': (WIDTH_MAIN[4], 12),
+}
 
-# 只定位可核对的疑似技术信息；业务必要性仍由评审者判断。
+# 人员评审表里一律不出现的执行细节；technicalExceptions 不能放行。
+ALWAYS_HIDDEN = re.compile(
+    r'\b(?:GET|POST|PUT|PATCH|DELETE)\s+/[\w/{}<>?=&.-]+'
+    r'|(?<![A-Za-z0-9])(?!AR-)[A-Z]{2,}-\d+\b'
+    r'|\{[^{}\n]{0,180}?["\']?[A-Za-z_][A-Za-z0-9_]*["\']?\s*:'
+    r'|\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){2,}\b'
+    r'|\b[a-z]{2,}(?:[A-Z][a-z0-9]+)+\b'
+)
+# 疑似内部记号；页面上必须原样核对时，可用 technicalExceptions 放行。
 TECHNICAL = re.compile(
-    r'\b(?:GET|POST|PUT|PATCH|DELETE)\s+/[\w/{}<>?=.-]+'
-    r'|\b(?:FA-(?:ADMIN|STARTER|APPROVER(?:_[A-Z]+)?|OUTSIDER))\b'
+    r'\b(?:FA-(?:ADMIN|STARTER|APPROVER(?:_[A-Z]+)?|OUTSIDER))\b'
     r'|\bAR-[0-9a-fA-F]{8}(?:-[\w-]+)?\b'
     r'|\b(?:[a-z]+:[a-z]+:[a-z]+|tenant-id|aria-checked)\b'
-    r'|\b(?:[a-z][A-Za-z0-9]*(?:Id|Ids|Info|Status|Version|Ref|Hash)|processDefinition)\b'
     r'|\b(?:cases|semantic-review|impact-analysis)\.(?:json|md)\b'
     r'|\b(?:AC|OB|SC|C)-[A-Z0-9]+(?:-[A-Z0-9]+)+\b'
 )
 
 
 def presentation_issues(content, source):
-    """定位疑似泄漏；UI 用例的精确例外需逐项说明并提供依据。"""
-    cases = {case['caseId']: case for case in source['cases']}
+    """检查评审密度和疑似技术泄漏；业务必要性由主 Agent 对照来源复核。
+
+    source 保留给调用方传入的冻结用例；主表不因 suite 放行接口细节。
+    """
+    del source
     issues = []
     for row in content['cases']:
-        case = cases.get(row['caseId'], {})
+        density = row.get('densityExceptions') or {}
+        if not isinstance(density, dict):
+            issues.append(f"{row['caseId']}: densityExceptions 必须按字段记录")
+            density = {}
+        for field, (width, limit) in REVIEW_LINE_BUDGET.items():
+            value = row.get(field, [] if field != 'title' else '')
+            text = numbered(value) if isinstance(value, list) else value
+            lines = wrapped_lines(text, width)
+            if lines <= limit:
+                continue
+            exception = density.get(field) or {}
+            if not isinstance(exception, dict):
+                exception = {}
+            refs = exception.get('sourceRefs')
+            if not (exception.get('display') == value and
+                    isinstance(exception.get('reason'), str) and exception['reason'].strip() and
+                    isinstance(refs, list) and refs and
+                    all(isinstance(ref, str) and ref.strip() for ref in refs)):
+                issues.append(f"{row['caseId']} {field}: 评审密度 {lines} 行超过预算 {limit}；"
+                              '请合并重复背景和常规操作，必要边界须记录绑定当前文案的 densityExceptions')
         exceptions = row.get('technicalExceptions', [])
         for field in ('group', 'title', 'fixtures', 'steps', 'expected'):
             values = row.get(field, [])
             values = values if isinstance(values, list) else [values]
             for index, value in enumerate(values, 1):
-                for match in TECHNICAL.finditer(str(value)):
+                text = str(value)
+                for match in ALWAYS_HIDDEN.finditer(text):
+                    issues.append(f"{row['caseId']} {field}[{index}]: {match.group()}")
+                for match in TECHNICAL.finditer(text):
                     token = match.group()
-                    # 纯 API、安全或性能用例的协议与字段可能正是被测对象。
-                    if case.get('suite') in ('api', 'security', 'performance'):
-                        continue
                     allowed = any(e.get('field') == field and e.get('index') == index and
                                   e.get('token') == token and str(e.get('reason', '')).strip() and
                                   str(e.get('evidenceRef', '')).strip()
@@ -89,7 +127,10 @@ def presentation_issues(content, source):
                         issues.append(f"{row['caseId']} {field}[{index}]: {token}")
     for index, note in enumerate(content.get('notes') or [], 1):
         for field in ('category', 'question', 'action'):
-            for match in TECHNICAL.finditer(str(note.get(field, ''))):
+            text = str(note.get(field, ''))
+            for match in ALWAYS_HIDDEN.finditer(text):
+                issues.append(f"notes[{index}] {field}: {match.group()}")
+            for match in TECHNICAL.finditer(text):
                 issues.append(f"notes[{index}] {field}: {match.group()}")
     return issues
 
@@ -113,6 +154,63 @@ def load_run(run_dir):
     return data
 
 
+def slice_case_ids(case_ids, cap=SLICE_CAP):
+    """Keep source order. A short list stays one slice; a longer list is cut at cap."""
+    if (not isinstance(case_ids, list) or not case_ids
+            or any(not isinstance(item, str) or not item for item in case_ids)
+            or len(case_ids) != len(set(case_ids))):
+        raise ValueError('用例 ID 无效')
+    if len(case_ids) <= cap:
+        return [list(case_ids)]
+    return [list(case_ids[i:i + cap]) for i in range(0, len(case_ids), cap)]
+
+
+def write_slice_plan(run_dir, round_id):
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
+        raise ValueError('展示轮次无效')
+    cases = json.loads((run_dir / 'cases/cases.json').read_text(encoding='utf-8'))
+    plan = {'schemaVersion': 1, 'cap': SLICE_CAP, 'slices': [
+        {'name': f'{index:02d}', 'caseIds': chunk}
+        for index, chunk in enumerate(slice_case_ids([case['caseId'] for case in cases]), 1)]}
+    path = run_dir / 'cases/presentation' / round_id / 'plan.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = json.dumps(plan, ensure_ascii=False, indent=2) + '\n'
+    if path.exists() and path.read_text(encoding='utf-8') != data:
+        raise ValueError('分片计划已存在且不一致')
+    path.write_text(data, encoding='utf-8')
+    return plan
+
+
+def prompt_text():
+    contract = (pathlib.Path(__file__).resolve().parents[1] / 'references/review-table.md').read_text(encoding='utf-8')
+    return contract.split('## 固定提示词（原样派发）\n', 1)[1].split('\n## 主 Agent 验收', 1)[0].strip()
+
+
+def fill_receipt(run_dir, round_id):
+    """Fill prompt and artifact hashes. Identity fields stay as the dispatcher wrote them."""
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
+        raise ValueError('展示轮次无效')
+    base = run_dir / 'cases/presentation' / round_id
+    path = base / 'receipt.json'
+    receipt = json.loads(path.read_text(encoding='utf-8'))
+    for key in ('agentId', 'model', 'effort', 'isolation'):
+        if not isinstance(receipt.get(key), str) or not receipt[key].strip():
+            raise ValueError('展示回执缺少 ' + key)
+    names = ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')
+    refs = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis')]
+    refs += [f'cases/presentation/{round_id}/{name}' for name in names]
+    hashes = {}
+    for ref in refs:
+        artifact = run_dir / ref
+        if not artifact.is_file():
+            raise ValueError('缺少 ' + ref)
+        hashes[ref] = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    receipt['promptHash'] = hashlib.sha256(prompt_text().encode('utf-8')).hexdigest()
+    receipt['artifactHashes'] = hashes
+    path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    return {'status': 'FILLED', 'artifacts': len(hashes)}
+
+
 def presentation_input(source, case_ids):
     """保留分配用例原文及全局影响证据，不用摘要替代业务输入。"""
     assigned = set(case_ids)
@@ -120,8 +218,6 @@ def presentation_input(source, case_ids):
     if (not case_ids or
             [case['caseId'] for case in cases] != case_ids):
         raise ValueError('分片 caseIds 必须为唯一、存在且保持源顺序的 ID')
-    if source['semantic'] is None:
-        raise ValueError('缺少 semantic-review.json；先完成语义门禁')
     scenario_ids = set(sid for case in cases for sid in case['scenarioIds'])
     scenarios = [source['scenarios'][sid] for sid in sorted(scenario_ids)]
     ac_ids = set(aid for scenario in scenarios for aid in scenario['acIds'])
@@ -200,14 +296,14 @@ def numbered(items):
     return '\n'.join(f'{i}. {text}' for i, text in enumerate(items, 1))
 
 
+def wrapped_lines(text, width):
+    return sum(max(1, ceil(sum(2 if unicodedata.east_asian_width(ch) in 'WF' else 1
+                              for ch in seg) / max(width - 2, 8)))
+               for seg in str(text or '').split('\n'))
+
+
 def est_height(cells):
-    lines = 1
-    for text, width in cells:
-        text = str(text or '')
-        count = sum(max(1, ceil(sum(2 if unicodedata.east_asian_width(ch) in 'WF' else 1
-                                    for ch in seg) / max(width - 2, 8)))
-                    for seg in text.split('\n'))
-        lines = max(lines, count)
+    lines = max([1] + [wrapped_lines(text, width) for text, width in cells])
     height = max(28, lines * 15 + 6)
     if height > 409:
         raise ValueError('单行内容超过 Excel 行高上限：请在不遗漏业务义务的前提下精简文案')
@@ -352,6 +448,7 @@ def build_mapping(units, source, sheet_rows, round_dir):
             'stepExemptions': unit['stepExemptions'],
             'assertionExemptions': {str(k): v for k, v in unit['assertionExemptions'].items()},
             'technicalExceptions': unit['row'].get('technicalExceptions', []),
+            'densityExceptions': unit['row'].get('densityExceptions', {}),
             'tracking': {'file': 'cases.md', 'heading': f"{case['caseId']} {unit['row']['title']}"},
         })
     return {'schemaVersion': 1, 'generatedBy': 'render_review_table.py',
@@ -367,13 +464,26 @@ def main():
     ap.add_argument('--case-ids', nargs='+', help='自检或输入提取：本分片分配的有序 caseId')
     ap.add_argument('--round', default='1')
     ap.add_argument('--out-dir', type=pathlib.Path)
+    ap.add_argument('--plan-slices', action='store_true', help='按源顺序写出展示分片计划')
+    ap.add_argument('--fill-receipt', action='store_true', help='写入固定提示词和产物哈希')
     args = ap.parse_args()
     if args.case_ids and not (args.check_only or args.print_input):
         ap.error('--case-ids 只能与 --check-only 或 --print-input 一起使用')
-    if args.print_input and (not args.case_ids or args.check_only or args.content or args.out_dir):
+    if args.print_input and (not args.case_ids or args.check_only or args.content or args.out_dir or args.plan_slices or args.fill_receipt):
         ap.error('--print-input 需要 --case-ids，不能与自检、文案或输出目录参数混用')
+    if (args.plan_slices or args.fill_receipt) and (args.check_only or args.print_input or args.content or args.case_ids or args.out_dir):
+        ap.error('分片计划和回执哈希与渲染参数分开使用')
+    if args.plan_slices and args.fill_receipt:
+        ap.error('分片计划和回执哈希分开运行')
 
     run_dir = args.run_dir.resolve()
+    if args.plan_slices or args.fill_receipt:
+        try:
+            result = write_slice_plan(run_dir, args.round) if args.plan_slices else fill_receipt(run_dir, args.round)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            ap.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False))
+        return
     if args.print_input:
         try:
             packet = presentation_input(load_run(run_dir), args.case_ids)
@@ -393,6 +503,8 @@ def main():
         source['cases'] = [c for c in source['cases'] if c['caseId'] in assigned]
         if [c['caseId'] for c in source['cases']] != args.case_ids:
             errors.append('分片 caseIds 必须唯一、存在且保持源顺序')
+        if len(args.case_ids) > SLICE_CAP:
+            errors.append(f'分片最多 {SLICE_CAP} 条用例，请拆分任务')
     units = normalize(content, source, errors)
     if errors:
         for line in errors:
@@ -411,8 +523,8 @@ def main():
     issues = presentation_issues(content, source)
     if issues:
         for issue in issues:
-            print(f'ERROR 评审文案含疑似内部技术信息：{issue}', file=sys.stderr)
-        print('请改为业务表述；UI 用例确有必要时按契约记录逐项例外并复核。', file=sys.stderr)
+            print(f'ERROR 评审文案待处理：{issue}', file=sys.stderr)
+        print('请按评审表契约精简业务表述；必要技术信息或复杂边界记录逐项例外并复核。', file=sys.stderr)
         sys.exit(2)
     layout_errors = []
     for row in content['cases']:
@@ -444,6 +556,13 @@ def main():
     xlsx = out_dir / 'cases.xlsx'
     wb.save(xlsx)
     md_lines = render_md(out_dir / 'cases.md', content, units, source, notes, low)
+    # 展示门禁与 publish_review.py 要求 cases/ 与本轮目录的同一份字节；openpyxl 写入
+    # docProps 时戳，分别渲染会得到不同字节，因此这里只做一次字节拷贝。
+    round_dir.mkdir(parents=True, exist_ok=True)
+    for name in ('cases.xlsx', 'cases.md'):
+        rendered, mirrored = (out_dir / name).resolve(), round_dir / name
+        if rendered != mirrored.resolve():
+            shutil.copyfile(rendered, mirrored)
     mapping = build_mapping(units, source, sheet_rows, round_dir)
     mapping['notes'] = [
         {'sheet': '待确认事项', 'row': i + 2, 'sourceRefs': note['sourceRefs']}

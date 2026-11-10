@@ -23,6 +23,7 @@ from case_contract import validate_steps
 
 LOCAL_HOSTS = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?")
 URL_HOST = re.compile(r"https?://([^/\s\"'`)]+)")
+DELIVERY_NAME = re.compile(r'.+用例(?:\(V\d+(?:\.\d+)+\))?\.xlsx')
 STAGES = ("input", "targetProbe", "exploration", "generation", "planGate", "caseReview", "execution", "diagnosis", "publish")
 
 
@@ -129,8 +130,6 @@ class Gate:
             case_id = item.get("caseId") or "<no-id>"
             if item.get("reviewStatus") != "approved":
                 bad.append(f"{case_id}: reviewStatus={item.get('reviewStatus')!r}（需 approved，人工评审批准后转）")
-            if item.get("semanticReview") != "approved":
-                bad.append(f"{case_id}: semanticReview={item.get('semanticReview')!r}")
             if not item.get("automationRef"):
                 bad.append(f"{case_id}: automationRef")
             try:
@@ -140,12 +139,9 @@ class Gate:
         self.need(not bad, "用例字段不完整：" + ", ".join(bad[:10]))
         if any(item.get("suite") == "ui" for item in cases):
             self.need_file("evidence/page-map.json", "UI 用例缺少本 run 页面地图")
-        self._semantic_review(cases)
         self.need_file("cases/discovered.txt", "缺少 runner discovery 结果")
-        coverage = read_json(self.run_dir / "coverage-plan.json") or read_json(self.run_dir / "cases/coverage-plan.json")
-        self.need(coverage is not None, "缺少计划覆盖输出 coverage-plan.json")
 
-    def _semantic_review(self, cases: list) -> None:
+    def _semantic_review(self, _cases: list) -> None:
         """语义审查必须由 decision-router 的 Jev 回执证明，不接受散文自述。"""
         review = read_json(self.run_dir / "cases/semantic-review.json")
         if not self.need(isinstance(review, dict) and bool(review), "缺少 cases/semantic-review.json（Jev 语义审查回执）"):
@@ -153,22 +149,17 @@ class Gate:
         self.need(bool(review.get("model")), "semantic-review 缺少 model 标识")
         definitions = read_json(Path(__file__).resolve().parents[2] / "decision-router/references/questions.json")
         self.need(review.get("questionSetVersion") == definitions["questionSetVersion"], "语义题集版本不匹配")
-        self.need(review.get("inputHash") == semantic_input_hash(self.run_dir), "语义审查输入已变化或缺少绑定")
-        impact = read_json(self.run_dir / "cases/impact-analysis.json")
-        case_ids = {c["caseId"] for c in cases}
-        groups = {
-            "sources": {s["sourceId"] for s in impact["sources"] if s["kind"] in {"prd", "history", "contract", "business_rule"}},
-            "impacts": {c["checkId"] for c in impact["checks"]},
-            "cases": case_ids, "realization": case_ids, "ruleSupport": case_ids,
-        }
+        hashes = semantic_subject_hashes(self.run_dir)
+        self.need(review.get("inputHash") == digest(hashes), "语义审查输入已变化或缺少绑定")
         pass_at = definitions["thresholds"]["noulYes"]
-        for group, expected in groups.items():
+        for group, expected in hashes.items():
             verdicts = review.get(group, {})
-            if not self.need(isinstance(verdicts, dict) and set(verdicts) == expected,
+            if not self.need(isinstance(verdicts, dict) and set(verdicts) == set(expected),
                              "语义审查主体不完整：" + group):
                 continue
             for ident, verdict in verdicts.items():
                 label = group + "/" + ident
+                self.need(verdict.get("subjectHash") == expected[ident], "语义主体已变化：" + label)
                 score = verdict.get("final")
                 valid = type(score) in (int, float) and 0 <= score <= 1
                 self.need(valid, "语义概率无效：" + label)
@@ -204,11 +195,31 @@ class Gate:
             return
         for key in ('agentId', 'model', 'effort', 'isolation'):
             self.need(isinstance(receipt.get(key), str) and bool(receipt[key].strip()), f'展示回执缺少 {key}')
-        contract = (Path(__file__).resolve().parents[2] / 'prd-to-cases/references/review-table.md').read_text(encoding='utf-8')
-        prompt = contract.split('## 固定提示词（原样派发）\n', 1)[1].split('\n## 主 Agent 验收', 1)[0].strip()
-        prompt_hash = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
+        from render_review_table import SLICE_CAP, prompt_text, slice_case_ids
+        cases = read_json(self.run_dir / 'cases/cases.json')
+        if isinstance(cases, list) and (len(cases) > SLICE_CAP or 'shards' in receipt):
+            expected = slice_case_ids([item.get('caseId') for item in cases])
+            plan = read_json(safe_path(self.run_dir, f'{base}/plan.json')) or {}
+            planned = [row.get('caseIds') for row in plan.get('slices') or []]
+            self.need(planned == expected, '评审表分片计划与脚本容量不一致，先运行 render_review_table.py --plan-slices')
+            shards = receipt.get('shards')
+            groups = [row.get('caseIds') for row in shards] if isinstance(shards, list) and all(isinstance(row, dict) for row in shards) else []
+            valid = all(isinstance(group, list) and group and len(group) <= SLICE_CAP for group in groups)
+            if valid:
+                for group in groups:
+                    original = next((chunk for chunk in expected if group[0] in chunk), [])
+                    if not original or group != original[original.index(group[0]):original.index(group[0]) + len(group)]:
+                        valid = False
+                        break
+                valid = valid and [item for group in groups for item in group] == [item for chunk in expected for item in chunk]
+            if self.need(valid,
+                         '评审表应按计划逐片派发，单次产出超过一片容量'):
+                for row in shards:
+                    self.need(row.get('status') == 'completed' and isinstance(row.get('agentId'), str) and bool(row['agentId'].strip()),
+                              '评审表分片缺少完成回执')
+        prompt_hash = hashlib.sha256(prompt_text().encode('utf-8')).hexdigest()
         self.need(receipt.get('promptHash') == prompt_hash, '固定提示词哈希不一致')
-        required = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis', 'semantic-review')]
+        required = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis')]
         required += [f'{base}/{name}' for name in ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')]
         hashes = receipt.get('artifactHashes') or {}
         for ref in required:
@@ -218,6 +229,24 @@ class Gate:
         if content is not None:
             for issue in presentation_issues(content, load_run(self.run_dir)):
                 self.gaps.append('评审文案待处理：' + issue)
+
+    def delivery(self) -> None:
+        """命名交付物必须已发布，且与内部 cases.xlsx 同字节（publish_review.py 之后才满足）。"""
+        named = []
+        deliverables = self.run_dir / 'deliverables'
+        if deliverables.is_dir():
+            named = sorted(path for path in deliverables.glob('*.xlsx')
+                           if DELIVERY_NAME.fullmatch(path.name))
+        if self.need(len(named) == 1,
+                     'deliverables/ 应有且只有一个「功能名称用例(V版本).xlsx」：运行 prd-to-cases/scripts/publish_review.py 发布并清理旧版本'):
+            internal = safe_path(self.run_dir, 'cases/cases.xlsx')
+            self.need(internal.is_file() and file_hash(named[0]) == file_hash(internal),
+                      '命名交付物与 cases/cases.xlsx 不一致，重新运行 publish_review.py')
+
+    def presentation_delivery(self) -> None:
+        """展示阶段的完整门禁：评审材料绑定 + 命名交付物已发布。"""
+        self.presentation()
+        self.delivery()
 
     def publish(self, task_id=None) -> None:
         """Validate immutable approval, ownership and bytes before any publication."""
@@ -335,7 +364,7 @@ PHASES = {
     "dispatch": "dispatch",
     "cases": "cases",
     "semantic": "semantic",
-    "presentation": "presentation",
+    "presentation": "presentation_delivery",
     "scripts": "scripts",
     "publish": "publish",
     "review": "review",
@@ -344,24 +373,147 @@ PHASES = {
 }
 
 
-def semantic_input_hash(run_dir):
-    inputs = {name: read_json(run_dir / "cases" / (name + ".json"))
-              for name in ("impact-analysis", "acs", "scenarios", "cases")}
-    if any(value is None for value in inputs.values()):
+SEMANTIC_GROUPS = {
+    "sources": "source_inventory",
+    "impacts": "impact_evidence",
+    "cases": "mapping",
+    "realization": "scenario_realization",
+    "ruleSupport": "rule_support",
+}
+JUDGED_SOURCE_KINDS = {"prd", "history", "contract", "business_rule"}
+SLICE_SKIP = {"reviewRef", "reviewStatus", "approvalRef", "semanticReview", "automationRef"}
+
+
+def _strip_slice(value):
+    if isinstance(value, list):
+        return [_strip_slice(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _strip_slice(item) for key, item in value.items() if key not in SLICE_SKIP}
+    return value
+
+
+def semantic_documents(run_dir):
+    docs = {name: read_json(run_dir / "cases" / f"{name}.json")
+            for name in ("impact-analysis", "acs", "scenarios", "cases")}
+    if any(value is None for value in docs.values()):
         raise ValueError("missing semantic review inputs")
-    # Review flags and later script binding do not change the approved business meaning.
-    inputs["cases"] = [{k: v for k, v in case.items()
-                        if k not in {"reviewStatus", "semanticReview", "automationRef"}}
-                       for case in inputs["cases"]]
-    return digest(inputs)
+    if not isinstance(docs["impact-analysis"], dict) or not all(isinstance(docs[name], list) for name in ("acs", "scenarios", "cases")):
+        raise ValueError("missing semantic review inputs")
+    return docs
+
+
+def source_content(run_dir, source):
+    content = source.get("sourceContent") if isinstance(source, dict) else None
+    if isinstance(content, str) and content.strip():
+        return content
+    source_id = source.get("sourceId") if isinstance(source, dict) else None
+    path = run_dir / "cases" / "source-collection" / f"{source_id}.txt"
+    if source_id and path.is_file():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+
+def semantic_document_hash(run_dir):
+    """Whole-document binding for batch plans that predate subjectHash."""
+    docs = semantic_documents(run_dir)
+    legacy = dict(docs)
+    legacy["cases"] = [{key: value for key, value in case.items() if key not in SLICE_SKIP}
+                       for case in docs["cases"] if isinstance(case, dict)]
+    return digest(legacy)
+
+
+def semantic_subject_hashes(run_dir):
+    """Hash only the business slice each semantic subject is judged on."""
+    docs = semantic_documents(run_dir)
+    impact = docs["impact-analysis"]
+    ac_by_id = {row.get("acId"): row for row in docs["acs"] if isinstance(row, dict) and row.get("acId")}
+    scenario_by_id = {row.get("scenarioId"): row for row in docs["scenarios"] if isinstance(row, dict) and row.get("scenarioId")}
+    units = [row for row in impact.get("sourceUnits") or [] if isinstance(row, dict)]
+    obligations = [row for row in impact.get("obligations") or [] if isinstance(row, dict)]
+    objects = {row.get("objectId"): row for row in impact.get("objects") or [] if isinstance(row, dict) and row.get("objectId")}
+    hashes = {group: {} for group in SEMANTIC_GROUPS}
+    for source in impact["sources"]:
+        if not isinstance(source, dict) or source.get("kind") not in JUDGED_SOURCE_KINDS:
+            continue
+        sid = source["sourceId"]
+        hashes["sources"][sid] = digest({
+            "source": _strip_slice(source),
+            "content": source_content(run_dir, source),
+            "units": [_strip_slice(row) for row in units if sid in (row.get("sourceIds") or [])],
+            "obligations": [_strip_slice(row) for row in obligations if sid in (row.get("sourceIds") or [])],
+        })
+    for check in impact["checks"]:
+        if not isinstance(check, dict):
+            continue
+        obligation_ids = set(check.get("obligationIds") or [])
+        hashes["impacts"][check["checkId"]] = digest({
+            "check": _strip_slice(check),
+            "change": _strip_slice(objects.get(check.get("objectId"))),
+            "obligations": [_strip_slice(row) for row in obligations if row.get("obligationId") in obligation_ids],
+        })
+    for case in docs["cases"]:
+        if not isinstance(case, dict):
+            continue
+        ac_ids = set()
+        linked = []
+        for scenario_id in case.get("scenarioIds") or []:
+            scenario = scenario_by_id.get(scenario_id)
+            if not isinstance(scenario, dict):
+                continue
+            linked.append(_strip_slice(scenario))
+            ac_ids.update(scenario.get("acIds") or [])
+        bound = {row.get("obligationId") for row in obligations if set(row.get("acIds") or []) & ac_ids}
+        piece = digest({
+            "case": _strip_slice(case),
+            "scenarios": linked,
+            "acs": [_strip_slice(ac_by_id[ac_id]) for ac_id in sorted(ac_ids) if ac_id in ac_by_id],
+            "obligations": [_strip_slice(row) for row in obligations if row.get("obligationId") in bound],
+            "units": [_strip_slice(row) for row in units if set(row.get("obligationIds") or []) & bound],
+        })
+        for group in ("cases", "realization", "ruleSupport"):
+            hashes[group][case["caseId"]] = piece
+    return hashes
+
+
+def semantic_input_hash(run_dir):
+    return digest(semantic_subject_hashes(run_dir))
+
+
+def semantic_contract():
+    definitions = read_json(Path(__file__).resolve().parents[2] / "decision-router/references/questions.json")
+    contract = definitions["textStateContract"]
+    return {
+        "questionSetVersion": definitions["questionSetVersion"],
+        "noulYes": definitions["thresholds"]["noulYes"],
+        "maxBytes": contract["maxBytes"],
+        "groups": SEMANTIC_GROUPS,
+        "evidence": {
+            "mapping": contract["mappingRequired"],
+            "reviewRequired": contract["reviewRequired"],
+            "ruleSupport": "非空 evidence，包含该用例关联义务的 text、expected 和验收条件",
+        },
+        "inputHash": "各主体判定切片的哈希。reviewStatus、semanticReview、automationRef、reviewRef、approvalRef 不计入",
+        "verdict": ["final", "evidenceRef", "evidenceHash", "subjectHash", "acceptedReason"],
+        "batch": "prepare 按 build_request 的完整请求拆批，单批必须小于 maxBytes。只重跑 subjectHash 失配的批次。assemble 在 final、evidenceRef、evidenceHash 未变时保留 acceptedReason",
+        "order": "用例合并后做一轮语义审查，只补原文已经写明的遗漏并重判新增主体。人工评审通过即接受执行",
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Argus 阶段门禁检查")
-    parser.add_argument("run_dir", type=Path, help="run 目录")
+    parser.add_argument("run_dir", nargs="?", type=Path, help="run 目录")
     parser.add_argument("--phase", required=True, choices=sorted(PHASES), help="要检查的阶段门禁")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出")
+    parser.add_argument("--contract", action="store_true", help="打印 semantic 门禁契约后退出")
     args = parser.parse_args()
+    if args.contract:
+        if args.phase != "semantic":
+            print("contract 只用于 semantic", file=sys.stderr)
+            return 1
+        print(json.dumps(semantic_contract(), ensure_ascii=False, indent=2))
+        return 0
+    if args.run_dir is None:
+        parser.error("run_dir is required unless --contract is set")
 
     run_dir = args.run_dir.expanduser().resolve()
     if not run_dir.is_dir():

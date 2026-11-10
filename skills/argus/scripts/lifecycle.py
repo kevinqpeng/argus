@@ -47,10 +47,11 @@ def approved_cases(run, manifest):
             "pending human response conflicts with approval")
     cases = read(run, "cases/cases.json")
     require(isinstance(cases, list) and cases, "missing approved cases")
-    require(all(c.get("reviewStatus") == "approved" and c.get("semanticReview") == "approved"
+    require(all(c.get("reviewStatus") == "approved"
                 for c in cases), "cases must be approved before publication")
+    scope = {"scenarioIds": sorted({s for case in cases for s in case["scenarioIds"]})}
     for case in cases:
-        validate_case(case, case["scenarioIds"], "approved")
+        validate_case(case, scope, "approved")
     gate = manifest.get("gates", {}).get("humanCaseReview", {})
     config = read(run, "argus-model.json")
     require(config.get("runId") == manifest.get("runId"), "stale frozen configuration")

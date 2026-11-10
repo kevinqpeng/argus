@@ -2,14 +2,14 @@
 
 ## 状态与路径
 
-生成用例使用 plan.phase="cases"：Worker 返回 reviewStatus=semanticReview=draft，automationRef 为 planned:<specFile>::<完整标题>。generation.py 是本地契约唯一实现；每个 Worker 结束写入后立即检查，全部通过再 --merge。draft 错误、缺引用或归属错误均 BLOCKED，不猜测修复。JSON 规范化不产生审批。旧计划无 phase 时保留旧版实际文件引用契约。
+生成用例使用 plan.phase="cases"：Worker 返回 reviewStatus=draft，automationRef 为 planned:<specFile>::<完整标题>。generation.py 是本地契约唯一实现；每个 Worker 结束写入后立即检查，全部通过再 --merge。draft 错误、缺引用或归属错误均 BLOCKED，不猜测修复。JSON 规范化不产生审批。旧计划无 phase 时保留旧版实际文件引用契约。
 
 脚本生命周期是 Draft（Worker 独占目录中的源文件）→ Validated（publish 门禁通过）→ Published（原子写入且 published.json 绑定哈希）。Validated 是当次对真实文件的检查结果，不缓存成可陈旧的布尔值；发布在同一把 run 锁内重新检查。Published 恢复时核验内容，异内容拒绝覆盖。
 
 - 冻结配置是 run/argus-model.json，runId 与 manifest 一致，原始字节哈希必须匹配初始化记录的 manifest.runConfigHash。
 - 人工门禁按 [评审证据契约](case-review.md#本地证据契约) 校验真实来源回执、审批材料、用例/矩阵和状态；关闭评审也必须提供绑定本轮配置的授权证据。旧裸 approvalRef 或任意 reason 不再足以通过。
 - 脚本计划沿用 cases/scripts/plan.json，specFile 是相对 harness/tests 的安全路径，各任务及文件唯一。源文件为 cases/scripts/<taskId>/<specFile>。回执增加 runId、planHash、taskId；discoveredTitles 是 caseId → 标题。回执是本地契约证据，不能替代真实 runner discovery。
-- 已批准 cases/cases.json 保留。bind 生成 execution-cases.json；执行覆盖、runner 和结果映射使用这份派生用例，计划及人工审批仍绑定原文件。两份用例只允许 automationRef 不同。
+- 已批准 cases/cases.json 保留。bind 生成 execution-cases.json；执行、runner 和结果映射使用这份派生用例，计划及人工审批仍绑定原文件。两份用例只允许 automationRef 不同。
 
 ## 命令顺序
 

@@ -29,6 +29,6 @@ description: 可独立或由 Argus 调用，按批准用例和已验证地图生
 
 ## 完成条件
 
-全部任务回执和发布哈希有效，execution-cases.json 仅绑定真实 automationRef、保留原批准用例，真实 discovery 精确覆盖批准用例与必需矩阵，scripts 门禁 PASSED。以 execution-cases.json 和真实 discovery 运行 coverage.py --phase plan，保存 coverage-plan.json；UI 还须页面探索全量 check 通过。按所选终点交付脚本或交回 Web/Mobile runner；生成或 discovery 成功不代表测试通过。
+全部任务回执和发布哈希有效，execution-cases.json 仅绑定真实 automationRef、保留原批准用例，真实 discovery 精确覆盖批准用例与必需矩阵，scripts 门禁 PASSED。UI 还须页面探索全量 check 通过。按所选终点交付脚本或交回 Web/Mobile runner；生成或 discovery 成功不代表测试通过。人工评审通过即接受执行。
 
 记录生成、等待、重试和发布的真实耗时及缺口；清理仅走生命周期入口，保留恢复材料。

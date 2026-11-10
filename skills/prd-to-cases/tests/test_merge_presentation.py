@@ -31,6 +31,13 @@ class MergePresentationTest(unittest.TestCase):
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(json.loads(output.read_text()), merged)
+            first.write_text(json.dumps({'title': 'Review', 'cases': [{'caseId': 'B', 'steps': ['本片只覆盖驳回']}],
+                                         'notes': []}), encoding='utf-8')
+            second.write_text(json.dumps({'title': 'Review', 'cases': [{'caseId': 'A'}], 'notes': []}), encoding='utf-8')
+            rejected = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn('本片', rejected.stderr)
+            self.assertEqual(json.loads(output.read_text()), merged)
 
 
 if __name__ == '__main__':

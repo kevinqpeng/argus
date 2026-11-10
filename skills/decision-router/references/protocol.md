@@ -16,7 +16,7 @@ payload, _ = build_request(data)
 
 文本 state 必须是 subjects 对象，按问题实例 ID 绑定非空 evidence 对象及其 evidenceHash。哈希算法由 jev.evidence_hash 定义；必须在证据完整组装时产生，传输前校验，不在发现缺失后重算来掩盖缺口。mapping 的 evidence 必须包含完整 acceptance、fixtures（可为空数组）、steps（id/action）和 assertions（stepId/expected）；按共享步骤契约检查未断言业务步骤。source_inventory 提供原文 sourceContent 与 sourceUnits、obligations 数组；scenario_realization 提供 acceptance、fixtures、steps；impact_evidence 提供 change、check、dependencyEvidence。完整字段与类型在 questions.json 集中维护；空清单可用于判断遗漏，不代表通过。其他题目的业务最小证据由题目定义与 subject 说明，Schema 无法证明业务证据充分。
 
-build_request 只保留本批问题的主体，移除外围诊断与未选主体；保留所选 evidence 的全部字段。按同一就绪阶段收集独立问题，在 questions.json 的本地 maxBytes 内合批；超过预算才拆分，逐批调用 build_request 校验完整请求，保留每题独立 subjects、evidenceHash 和输出绑定，不切断字段或 JSON。单题也超预算时回报证据范围缺口，不能截断后通过。题目隔离由实例与主体绑定表达，不为每个主体固定启动一次进程或请求。这个预算是本地策略，不声称等于 provider 的 Token 上限。校验不能识别在首次计算哈希前已被人手删去且仍符合 Schema 的业务内容，来源完整性仍需从冻结文件核对。
+build_request 只保留本批问题的主体，移除外围诊断与未选主体；保留所选 evidence 的全部字段。按同一就绪阶段收集独立问题。预算是 questions.json 的 maxBytes，计量 build_request 发出的完整文本 JSON（model、questions、state）；请求达到该字节数即超预算并拆批。只计量 evidence 会让贴着上限的请求被服务端拒绝后再重切。逐批调用 build_request 校验完整请求，保留每题独立 subjects、evidenceHash 和输出绑定，不切断字段或 JSON。单题也超预算时回报证据范围缺口，不能截断后通过。题目隔离由实例与主体绑定表达，不为每个主体固定启动一次进程或请求。这个预算不是 token 上限。校验不能识别在首次计算哈希前已被人手删去且仍符合 Schema 的业务内容，来源完整性仍需从冻结文件核对。
 
 
 `generation_dependency` 的 yes 表示 A 的生成依赖 B 尚未冻结的产物；业务执行先后不自动构成生成依赖。`generation_conflict` 判断共享输出写冲突，共读冻结输入不构成冲突。两题沿用 questions.json 的集中 noul 阈值，中间带交宿主核查；不确定不能当作可安全并行。主 Agent 根据证据和这些判断构建调度图、检查环和分配独占输出，Jev 不调度或生成脚本。
@@ -61,6 +61,6 @@ calibrated 必须来自已验证的 Provider 契约；不能通过手填字段�
 
 页面状态还需 `state.states` 中的 `first`、`second` 两个具体状态说明，同时提交 `visual_state` 与 `visual_state_applicable`；不适用、other 或不确定都需复核。脚本检查静态 PNG/JPEG、每边 280–1568、单图 16 MiB、JSON 请求 32 MiB；macOS 使用 sips 检查格式和尺寸，缺工具即拒绝。服务端处理后及展开后的大小、图像完整性和上下文限制仍由服务端检查。预处理应使用现有可靠图片工具，保留原图并在私有 run 保存派生图；小字和遮挡使用保留上下文的清晰局部截图，清晰度不足升级复核，不能仅缩小长截图。不得上传未授权图片或输出 base64、凭据及敏感页面。
 
-每个视觉判断均返回 `vision-review` 和 `judgment`，无论概率高低都由冻结的 vision 对照原图及业务证据复核；与日志或业务断言冲突时交 bug_analysis。视觉判断本身不产生 passed。`visual_obscured`、`visual_truncated` 的 yes 表示异常；`visual_error_visible` 的 yes 表示目标提示可见。候选不适用或复核角色不可用时保持未解决；调用错误为 BLOCKED/error，不能转成 no。runner 和 coverage 门禁仅在全部业务及视觉必需断言有独立证据时决定结果。精确数值用 DOM、布局或业务断言；不使用 Box 自动点击。
+每个视觉判断均返回 `vision-review` 和 `judgment`，无论概率高低都由冻结的 vision 对照原图及业务证据复核；与日志或业务断言冲突时交 bug_analysis。视觉判断本身不产生 passed。`visual_obscured`、`visual_truncated` 的 yes 表示异常；`visual_error_visible` 的 yes 表示目标提示可见。候选不适用或复核角色不可用时保持未解决；调用错误为 BLOCKED/error，不能转成 no。runner 仅在全部业务及视觉必需断言有独立证据时，把结果写入 results.json。精确数值用 DOM、布局或业务断言；不使用 Box 自动点击。
 
 输出记录请求及实际模型、图片和请求 SHA-256、耗时、usage、原始响应引用；宿主关联 case ID、题目版本、阈值、每题概率、路由、升级原因、每次重试和兜底调用，保留在受保护 run 目录。请求哈希包含随机图片引用，每次调用不同。重试按现有配置和预算执行，累计预处理、请求、重试和复核时间与成本；不得将单次模型耗时当作整体 E2E 加速。

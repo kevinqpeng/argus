@@ -12,7 +12,8 @@ description: Routes semantic test judgments using typed Jev or verified Laya res
 ## 1. 绑定问题与证据
 
 - 变更影响阶段按 prd-to-cases 的影响分析契约使用 impact_relevance、obligation_equivalence、rule_support；绑定具体依赖路径或规则证据。缺证据先补齐；no 不自动排除，低置信度保留 unknown，高置信度不代替业务确认。
-- 来源冻结前用 source_inventory 对照原文检查漏项、impact_evidence 检查逐维依赖证据；生成后分别用 scenario_realization 和 mapping 检查条件触发与结果断言。题目之间不读取彼此答案，独立问题批量提交；缺口解决前不能用较高的另一项概率放行。
+- 多来源采集按来源采集路由使用 source_collection_independent 判断任务依赖；来源数量由宿主清点。
+- 来源冻结前用 source_inventory 对照原文检查漏项、impact_evidence 检查逐维依赖证据。题目之间不读取彼此答案，独立问题批量提交；缺口解决前不能用较高的另一项概率放行。
 - 恢复或运行中配置变更按 [配置变更路由](references/config-changes.md) 使用 run_config_change，判断业务影响；不以配置哈希或模型名称变化自动新建 run。
 - 形式化验证适用性按 [形式化路由](references/formal-routing.md) 处理，选中后调用 Argus 子技能；不与平台路由互斥。
 - 选当前步骤需要的题目。绑定明确 AC/场景/用例 ID 与可定位证据。
@@ -59,4 +60,4 @@ description: Routes semantic test judgments using typed Jev or verified Laya res
 
 ## 完成条件
 
-完成：每个语义判断有证据与概率或明确不确定状态；确定性覆盖由 coverage-check 计算。
+完成：每个语义判断有证据与概率或明确不确定状态。

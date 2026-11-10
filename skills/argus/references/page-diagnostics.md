@@ -82,4 +82,4 @@ Web 沿用 `phase_gate.py --phase target` 的目标来源和证据要求；移�
 
 每次操作事件保存 platform、taskId、category、durationMs、command（如 getPageSource/findElements/screenshot）、status 及证据引用；按实际需要附 visitStart、locatorRetry、element、caseId/matrixId、collected/used 元素名数组、cacheResult=hit/miss/invalid。计时用单调时钟覆盖真实调用（含失败），排他分类为 caseAnalysis/planning/navigation/structure/locator/screenshot/aiDecision/cacheLookup/recovery/other；嵌套命令只记叶子耗时，父级墙钟另记。Android UiAutomator2 与 iOS XCUITest/WDA 分平台记录。
 
-统计结构读取/截图/重复访问次数、定位器采集与实际使用、缓存命中与失效比例、各命令耗时。脚本生成记录“引用”，真实 runner 执行时才记录 used。协调者另外测探索墙钟与 E2E 墙钟，从 coverage-check 取得通过率和有效覆盖；事件耗时相加不能冒充墙钟。未采集平台报告 unknown，不把零事件当零耗时或通过。历史 1073s/30.6%/6 页面/8 截图仅作参考，缺相同用例/环境/设备的复测时不报告提速百分比。
+统计结构读取/截图/重复访问次数、定位器采集与实际使用、缓存命中与失效比例、各命令耗时。脚本生成记录“引用”，真实 runner 执行时才记录 used。协调者另外测探索墙钟与 E2E 墙钟，通过情况从 results.json 统计；事件耗时相加不能冒充墙钟。未采集平台报告 unknown，不把零事件当零耗时或通过。历史 1073s/30.6%/6 页面/8 截图仅作参考，缺相同用例/环境/设备的复测时不报告提速百分比。

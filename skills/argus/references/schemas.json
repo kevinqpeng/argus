@@ -523,8 +523,7 @@
         "fixtures",
         "steps",
         "assertions",
-        "reviewStatus",
-        "semanticReview"
+        "reviewStatus"
       ],
       "properties": {
         "schemaVersion": {

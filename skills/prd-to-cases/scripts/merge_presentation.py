@@ -2,7 +2,24 @@
 """Merge presentation shards in frozen case order without changing their content."""
 import argparse
 import json
+import re
 from pathlib import Path
+
+SLICE_WORD = re.compile(r'本片|本用例片')
+
+
+def reject_slice_wording(value, path):
+    if isinstance(value, str):
+        found = SLICE_WORD.search(value)
+        if found:
+            raise ValueError(f'分片措辞进入交付正文 {path}: {found.group(0)}')
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            reject_slice_wording(item, f'{path}[{index}]')
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key != 'caseId':
+                reject_slice_wording(item, f'{path}.{key}')
 
 
 def main():
@@ -24,6 +41,7 @@ def main():
             title = part['title']
         if not isinstance(title, str) or not title.strip() or part['title'] != title:
             raise ValueError('shard titles must match and be nonempty')
+        reject_slice_wording(part, path.name)
         for row in part['cases']:
             case_id = row['caseId']
             if case_id not in ids or case_id in rows:

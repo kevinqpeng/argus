@@ -29,7 +29,6 @@
     harness/
     evidence/
     results.json
-    coverage.json
     bugs.json
     publish.json
     report.md

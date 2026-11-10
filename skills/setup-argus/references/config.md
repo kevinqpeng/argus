@@ -20,7 +20,7 @@ configPath 是唯一配置文件位置，runConfigPath 是产物目录的不可�
 
 用户确认选择后，Agent 通过现有 `--overrides` 或 `--project-overrides` 写入 `{"schemaVersion":1,"execution":{"requireHumanCaseReview":true}}`；选择“否”时写 `false`。加 `--init` 保存后续默认值，不加只用于新 run。沿用现有配置优先级，展示最终生效值与来源；运行时顶层 execution 覆盖项目同名字段，若覆盖导致结果与用户选择冲突，先明确保存范围并解决冲突。
 
-开关随 runConfigPath 冻结，运行中不可修改快照；更改开关须新建 runId。关闭后自动继续其余已授权流程，原有覆盖、语义映射和安全门禁仍须通过。
+开关随 runConfigPath 冻结，运行中不可修改快照；更改开关须新建 runId。关闭后自动继续其余已授权流程。来源核对、scripts 真实入口核对和安全门禁仍须通过。
 
 ## Web 辅助选择
 
@@ -59,7 +59,7 @@ python3 <skill>/scripts/host_config.py --host claude --project <仓库> --projec
 | decision.visualModel | 新 run 默认 jev-1.14.0；仅用于图片判断并冻结到快照，旧配置保持兼容 |
 | decision | activeProvider=jev、transport=api 默认且内置；旧配置的 Jev MCP 映射在新 run 改用内置 API；verification 不等于 READY；maxCallsPerRun 正整数，timeoutMs 正整数，maxRetries 0..2 |
 | decision.providers | 自定义时使用；activeProvider 要指向已验证条目，protocol/adapterVersion/model/targetFingerprint/概率类型变化后重验 |
-| coverage | scenarioThreshold 0.95..1 仅用于进度指标；必需场景设计/执行固定 100%，p0Threshold 固定 1，failOnFlaky=true |
+| coverage | 旧配置字段，保留兼容，不再作为门禁。人工评审通过即接受执行 |
 | execution | workers 正整数，retries 0..1，资源与数据隔离实测；requireHumanCaseReview 为布尔值，默认 true |
 | execution.exploration | 可选；预算/缓存字段及默认值由 [探索工具](../../argus/scripts/exploration.py) 的 limits 校验，流程见 [探索契约](../../argus/references/page-diagnostics.md)；缺省兼容旧配置，随 run 冻结，不改变 runner retries |
 | bugPublisher | provider 与 method 分开；provider 可为企微、飞书、其他实际平台或 local，method=auto/mcp/api/cli/browser/webhook/local，tableAction=create/existing/import；默认未启用，所选方式需能力验证 |
