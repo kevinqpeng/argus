@@ -39,6 +39,7 @@ import hashlib
 import json
 import pathlib
 import re
+import shutil
 import sys
 import unicodedata
 from math import ceil
@@ -555,6 +556,13 @@ def main():
     xlsx = out_dir / 'cases.xlsx'
     wb.save(xlsx)
     md_lines = render_md(out_dir / 'cases.md', content, units, source, notes, low)
+    # 展示门禁与 publish_review.py 要求 cases/ 与本轮目录的同一份字节；openpyxl 写入
+    # docProps 时戳，分别渲染会得到不同字节，因此这里只做一次字节拷贝。
+    round_dir.mkdir(parents=True, exist_ok=True)
+    for name in ('cases.xlsx', 'cases.md'):
+        rendered, mirrored = (out_dir / name).resolve(), round_dir / name
+        if rendered != mirrored.resolve():
+            shutil.copyfile(rendered, mirrored)
     mapping = build_mapping(units, source, sheet_rows, round_dir)
     mapping['notes'] = [
         {'sheet': '待确认事项', 'row': i + 2, 'sourceRefs': note['sourceRefs']}

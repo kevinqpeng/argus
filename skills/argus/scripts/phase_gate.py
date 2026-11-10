@@ -23,6 +23,7 @@ from case_contract import validate_steps
 
 LOCAL_HOSTS = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?")
 URL_HOST = re.compile(r"https?://([^/\s\"'`)]+)")
+DELIVERY_NAME = re.compile(r'.+用例(?:\(V\d+(?:\.\d+)+\))?\.xlsx')
 STAGES = ("input", "targetProbe", "exploration", "generation", "planGate", "caseReview", "execution", "diagnosis", "publish")
 
 
@@ -229,6 +230,24 @@ class Gate:
             for issue in presentation_issues(content, load_run(self.run_dir)):
                 self.gaps.append('评审文案待处理：' + issue)
 
+    def delivery(self) -> None:
+        """命名交付物必须已发布，且与内部 cases.xlsx 同字节（publish_review.py 之后才满足）。"""
+        named = []
+        deliverables = self.run_dir / 'deliverables'
+        if deliverables.is_dir():
+            named = sorted(path for path in deliverables.glob('*.xlsx')
+                           if DELIVERY_NAME.fullmatch(path.name))
+        if self.need(len(named) == 1,
+                     'deliverables/ 应有且只有一个「功能名称用例(V版本).xlsx」：运行 prd-to-cases/scripts/publish_review.py 发布并清理旧版本'):
+            internal = safe_path(self.run_dir, 'cases/cases.xlsx')
+            self.need(internal.is_file() and file_hash(named[0]) == file_hash(internal),
+                      '命名交付物与 cases/cases.xlsx 不一致，重新运行 publish_review.py')
+
+    def presentation_delivery(self) -> None:
+        """展示阶段的完整门禁：评审材料绑定 + 命名交付物已发布。"""
+        self.presentation()
+        self.delivery()
+
     def publish(self, task_id=None) -> None:
         """Validate immutable approval, ownership and bytes before any publication."""
         from lifecycle import publication_inputs
@@ -345,7 +364,7 @@ PHASES = {
     "dispatch": "dispatch",
     "cases": "cases",
     "semantic": "semantic",
-    "presentation": "presentation",
+    "presentation": "presentation_delivery",
     "scripts": "scripts",
     "publish": "publish",
     "review": "review",

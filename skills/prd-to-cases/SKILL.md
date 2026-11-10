@@ -65,7 +65,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 ## 7. 输出人工评审表
 
 - 从本 run 的 cases.json、scenarios.json 和 acs.json 生成内部 `cases/cases.xlsx` 与 `cases/cases.md`。面向人员的 Excel 名称为「功能名称用例(V版本号).xlsx」，例如「审批驳回后重新发起用例(V0.3).xlsx」。功能名称取当前评审范围，版本取本轮冻结 PRD 版本历史中的最新版本；不加日期或「用例表」后缀。读取文档并核对来源哈希，不从截图、旧 run、文件名或模型版本猜测。版本缺失、来源不唯一、格式无法识别或记录与文档不一致时，不展示版本号，文件名改为「功能名称用例.xlsx」，无需因此暂停交付。
-- 通过展示门禁并将本轮表发布到内部固定路径后，运行 `python3 <本目录>/scripts/publish_review.py <runDir> --feature <功能名称> [--source-id <PRD来源ID>]`。脚本从可核实的 Markdown 版本历史生成命名 Excel；版本无法确认时省略版本号。脚本仍核验冻结快照哈希、展示门禁与内部文件一致性；文件冲突时停止。只将 `deliverables/` 中的命名文件展示或交付给人员；内部 cases.xlsx、JSON、Markdown 和映射用于追踪，不展示为评审附件。
+- 通过展示门禁并将本轮表发布到内部固定路径后，运行 `python3 <本目录>/scripts/publish_review.py <runDir> --feature <功能名称> [--source-id <PRD来源ID>]`。脚本从可核实的 Markdown 版本历史生成命名 Excel；版本无法确认时省略版本号。脚本仍核验冻结快照哈希、展示门禁与内部文件一致性；文件冲突时停止。只将 `deliverables/` 中的命名文件展示或交付给人员；内部 cases.xlsx、JSON、Markdown 和映射用于追踪，不展示为评审附件。发布成功后把返回路径写入 `manifest.presentation.deliverables`，`deliverables/` 只保留该命名文件；`--phase presentation` 会校验它与 `cases/cases.xlsx` 同字节，没跑发布脚本无法通过门禁。
 - 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发。先运行 `render_review_table.py <runDir> --plan-slices`，按计划中的每片 caseIds 各派一个干净上下文的 generation Agent；合并后运行 `--fill-receipt` 写入 promptHash 和产物哈希。主 Agent 核对真实派发后发布。此任务在用例合并和遗漏核对之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
 - 每行「测试结果」使用真实的 Excel 数据验证下拉列表，选项为「未测试、通过、失败、错误、阻塞、跳过、不稳定、取消」，初始为「未测试」。分别对应未执行、passed、failed、error、blocked、skipped、flaky、cancelled；测试结果与人工评审批准是不同状态，下拉选择不能解除评审门禁。
 - 按 [评审表生成契约](references/review-table.md) 输出「用例主表」和「待确认事项」两张工作表。待确认事项用业务白话呈现，完整影响分析、来源与技术追踪保存在内部 JSON、Markdown 和映射中。
@@ -78,6 +78,6 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 ## 完成条件
 
-- 完成：每个场景可追到已确认的 PRD、业务规则或影响义务，全部必需用例有声明式 planned 入口和有效断言，范围内义务预期明确且影响门禁通过，JSON 与人工评审表一致且均已交付。
+- 完成：每个场景可追到已确认的 PRD、业务规则或影响义务，全部必需用例有声明式 planned 入口和有效断言，范围内义务预期明确且影响门禁通过，JSON 与人工评审表一致；`deliverables/` 中恰有一个命名的「功能名称用例(V版本).xlsx」且与 `cases/cases.xlsx` 同字节。
 - 源变更后旧映射失效。
 - 调整范围要记录责任人、时间、理由和原基线指标，不能删失败场景提高覆盖。
