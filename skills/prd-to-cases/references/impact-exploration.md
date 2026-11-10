@@ -1,6 +1,6 @@
 # 按复杂度调度影响探索
 
-由宿主执行本流程，复用冻结的 reasoning 角色、模型、强度与预算；不新增角色或后台服务。影响探索在场景冻结前进行，与后续 generation 用例生成分开。项目源码、文档及既有用例只读，不执行业务测试或数据库核验。
+由宿主执行本流程，不新增角色或后台服务。索引和探索 worker 派发冻结的 generation 角色；合并冲突与义务判定派发 reasoning。影响探索在场景冻结前进行，与后续用例生成分开，两者可以共用 generation 绑定。项目源码、文档及既有用例只读，不执行业务测试或数据库核验。
 
 ## 1. 决定探索方式
 
@@ -14,6 +14,8 @@ PRD 输入时，主 Agent 先核对来源采集完成的初步来源清单和变
 
 该规则是调度条件，不给业务结论打分。依赖相关性、规则支持和义务等价等语义判断沿用 decision-router 的集中题目与概率阈值，独立问题批量提交；证据不足先补证据，不以多数票决定事实。
 
+PRD 快照冻结后，来源清单和代码索引并行。采集只做快照和 sourceUnits；索引只依赖 PRD 原文里的对象、方法和契约名，不等 source_inventory 结束。索引墙钟 3 分钟，到点交出已命中的 `文件:行号` 和未命中符号。探索任务在该对象的行号写入任务书之后才派发。清单缺口仍阻断最终冻结。索引和探索派发前运行 `python3 <argus>/scripts/dispatch.py <runConfigPath> generation`，只传它打印的非 null 参数。generation 绑定为宿主已发现的快速模型，effort 取该模型关闭思考的档位；目录里没有关闭档时用它列出的最低档。不在任务书里另写模型名。已派发的 worker 保持原模型。
+
 ## 2. 派发只读任务
 
 主 Agent 在本 run 的 `cases/exploration.md` 记录方式、依据、来源指纹和任务清单。按业务对象或依赖链拆分；接口调用、数据消费者、异步链路、契约与权限可以成为任务边界，六个维度仍由主 Agent 逐对象核对。每个任务明确任务 ID、起点、负责范围、来源定位、跨任务交接对象和完成条件。所有已知依赖都有负责人；主 Agent 负责尚未归属的边界。
@@ -22,13 +24,17 @@ PRD 输入时，主 Agent 先核对来源采集完成的初步来源清单和变
 
 每次派发记录宿主 Agent 标识、任务 ID、attempt、输入指纹、状态与独占回执路径 `cases/exploration/<taskId>/<attempt>.json`。worker 只写该回执，读取完整变更对象索引及相关来源，不修改共享计划、最终影响分析或评审材料。回执逐条包含来源定位、依赖路径、六维归属、当前行为、候选义务、未知项、检索边界与停止依据；业务预期附权威依据，缺失则待确认。边界外发现作为交接项返回，不能以不属本任务为由丢弃。
 
-主 Agent 建立本 run 的轻量证据索引，记录冻结仓库、完整 SHA、对象或符号、路径行段、来源哈希及检索范围；将已有条目和完整变更对象索引发给 worker。索引只提供起点，worker 仍须从冻结提交验证引用并自主扩大搜索、追踪新依赖；未命中不是不存在的证据。新发现由主 Agent 汇入索引，记录覆盖边界与未搜索区域，不作为完整性证明。
+主 Agent 在派发前把索引写进任务书。每个对象写已经核对的 4 到 6 个 `文件:起始-结束` 窗口，窗口跨度不超过 3 行。没有行号的对象先留在索引任务，不派给探索 worker。新发现由主 Agent 汇入索引，记录覆盖边界与未搜索区域，不作为完整性证明。
 
-派发核验或补齐任务时，任务书列出已知待核验的仓库绝对路径、冻结 SHA、符号/行段、缺口 ID 和相关来源定位；只传本任务必要片段及索引，不继承完整探索历史。worker 先在指定仓库和路径批量核验（例如一次 `git show SHA:path1 SHA:path2`），需扩展时限定仓库及相关目录搜索，记录新边界；不从 `/` 或 `$HOME` 递归搜索。路径不存在时回报具体缺口，由主 Agent 核对后补发，不能猜测路径或忽略依赖。
+探索任务按互斥的 objectId 切分，每任务 4 到 5 个对象。同一对象和同一调用链只进一个任务；跨任务的边写成 handoff，不在两个任务里各查一遍。`plan.json` 的每个 task 写 `objectIds`。任务书只传本任务的窗口、对象和来源定位，不继承完整探索历史。
 
-结构化回执顶层包含 `schemaVersion: 1`、`taskId`、正整数 `attempt`、与派发一致的 `inputHash`，以及 `sources`、`sourceUnits`、`objects`、`checks`、`obligations`、`handoffs` 六个数组（无项填空数组）。前五项采用共享 ImpactAnalysis 相应结构及稳定 ID；候选可以有待确认字段，不能标成已批准。每个 handoff 包含唯一 `handoffId`、生产者、接收任务、依赖路径、证据定位和未决问题；无接收任务或未闭环保留未知。证据内容只写一次，其他项引用可定位的来源或回执，不复制长段源码。
+worker 只读任务书给出的基线工作树。一次 shell 可以用 `rg` 或 `sed -n` 输出多个已点名窗口。shell 不超过 25 次。每条 check 最多 2 条证据，每条不超过 3 行；这两条已经说明受影响或不受影响后停止，不再逐个调用者翻文件。点名窗口里没有该符号时，允许一次限定目录的 `rg`；仍没有则写入 handoff。不从 `/` 或 `$HOME` 递归搜索，禁止 `git show <SHA>:<path>`。路径不存在时回报具体缺口，由主 Agent 核对后补发，不能猜测路径或忽略依赖。
 
-主 Agent 写 `cases/exploration/plan.json`，包含 `schemaVersion: 1`、绑定冻结来源与任务输入的 `inputHash` 和 `tasks: [{taskId, attempt}]`，每次重派更新当前 attempt。收到回执立即运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py <plan.json> <当前回执...>`，将输出保存为候选汇总；未收到全部回执时允许 BLOCKED 的部分结果供局部整理。程序检查当前任务、attempt、输入指纹和数组/ID，按同 ID 且内容完全相同合并并保留任务映射；不同内容保留全部版本并阻断，不能按 ID、文本相似度或程序输出判定业务等价。它不验证完整 schema、证据真实性、交接闭环或语义，也不生成最终基线；主 Agent 核验这些事项。不要运行覆盖脚本。历史 Markdown 回执按原流程恢复，不转换成虚假的新回执。
+墙钟 6 分钟。到点把已完成的对象写入回执，`status` 为 `partial`，并列出未完成的 objectId 与 dimension。主 Agent 只补这些缺口。partial 不能当作探索完成。
+
+结构化回执顶层包含 `schemaVersion: 1`、`taskId`、正整数 `attempt`、与派发一致的 `inputHash`、`status`（`complete` 或 `partial`），以及 `sources`、`sourceUnits`、`objects`、`checks`、`obligations`、`handoffs` 六个数组（无项填空数组）。前五项采用共享 ImpactAnalysis 相应结构及稳定 ID；候选可以有待确认字段，不能标成已批准。`checks.dimension` 只能是 `data`、`inflight`、`lifecycle`、`permission`、`side_effect`、`ordering`。可测性、夹具和执行成本写入 handoffs，不写入 checks，也不要使用 `kind` 或 `result` 字段。每个 handoff 包含唯一 `handoffId`、生产者、接收任务、依赖路径、证据定位和未决问题；无接收任务或未闭环保留未知。证据内容只写一次，其他项引用可定位的来源或回执，不复制长段源码。
+
+主 Agent 写 `cases/exploration/plan.json`，包含 `schemaVersion: 1`、绑定冻结来源与任务输入的 `inputHash` 和 `tasks: [{taskId, attempt, objectIds}]`，每次重派更新当前 attempt。收到回执立即运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py <plan.json> <当前回执...>`，将输出保存为候选汇总；未收到全部回执时允许 BLOCKED 的部分结果供局部整理。程序检查当前任务、attempt、输入指纹、数组/ID、`dimension`、证据条数和行跨度、任务 `objectIds` 以及 partial 状态，按同 ID 且内容完全相同合并并保留任务映射；不同内容保留全部版本并阻断，不能按 ID、文本相似度或程序输出判定业务等价。它不验证完整 schema、证据真实性、交接闭环或语义，也不生成最终基线；主 Agent 核验这些事项。不要运行覆盖脚本。历史 Markdown 回执按原流程恢复，不转换成虚假的新回执。
 
 收到一项结果即核对证据并处理新边界，同时整理其 sourceUnits/checks/obligations 候选，关键路径有足够证据时即可派发独立复核；最终冻结仍等待全部回执、交接闭环和跨任务复核。exploration.md 保留调度、证据索引、交接处理和未决项，细节引用独占回执，避免再完整改写全部探索结论。失败重派前停止旧 worker，增加 attempt 并使用新回执路径；迟到旧结果不合并。预算不足时保留未完成任务和缺口，不减少原范围。恢复时先核对真实 Agent 状态、来源指纹和回执，避免重复派发；来源变化按影响分析规则新建 run。
 
