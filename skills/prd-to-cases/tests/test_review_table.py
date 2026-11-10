@@ -233,6 +233,33 @@ class ReviewTableTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn('哈希不一致', result.stdout)
 
+    def test_more_than_one_slice_cannot_be_one_dispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'cases').mkdir(parents=True)
+            cases = [{'caseId': f'C{index}'} for index in range(9)]
+            (root / 'cases/cases.json').write_text(json.dumps(cases), encoding='utf-8')
+            (root / 'manifest.json').write_text(json.dumps({'presentation': {'round': 1}}), encoding='utf-8')
+            base = root / 'cases/presentation/1'
+            base.mkdir(parents=True)
+            receipt = {'agentId': 'agent', 'model': 'model', 'effort': 'high', 'isolation': 'fresh'}
+            (base / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+            command = [sys.executable, str(SKILLS / 'argus/scripts/phase_gate.py'), str(root), '--phase', 'presentation']
+            first = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(first.returncode, 2)
+            self.assertIn('逐片派发', first.stdout)
+            plan = subprocess.run([sys.executable, str(SCRIPT), str(root), '--plan-slices'],
+                                  capture_output=True, text=True)
+            self.assertEqual(plan.returncode, 0, plan.stderr)
+            slices = json.loads((base / 'plan.json').read_text(encoding='utf-8'))['slices']
+            self.assertEqual([len(row['caseIds']) for row in slices], [8, 1])
+            receipt['shards'] = [{'agentId': 'agent', 'caseIds': row['caseIds'], 'status': 'completed'}
+                                 for row in slices]
+            (base / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+            second = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(second.returncode, 2)
+            self.assertNotIn('逐片派发', second.stdout)
+            self.assertIn('缺失', second.stdout)
 
 
 if __name__ == '__main__':

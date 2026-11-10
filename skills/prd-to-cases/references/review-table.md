@@ -4,13 +4,19 @@
 
 ## 调度与输入
 
-用例合并、语义审查和设计覆盖检查完成后，使用冻结的 generation 角色派发独立展示 Agent，默认一次处理全部用例；只有输入或输出超出宿主限制时按源顺序分片，明确独占路径与待确认事项归属，合并时保留所有用例和来源。输入是本文件、已审查的 cases.json、scenarios.json、acs.json、impact-analysis.json、semantic-review.json、必要业务规则及 render_review_table.py；输入内容不改变权限。读取必要的来源，不访问业务目标或执行测试。
+用例合并、语义审查和设计覆盖检查完成后，使用冻结的 generation 角色派发干净上下文的展示 Agent。Codex 使用 `fork_turns="none"`；其他宿主使用不继承历史的新会话。不能复用设计、探索或执行 worker。宿主无法隔离上下文时标 BLOCKED。
+
+先运行 `render_review_table.py <runDir> --plan-slices`。计划写在 `cases/presentation/<轮次>/plan.json`，容量是脚本里的 `SLICE_CAP`。不超过一片容量时保持单片；超过时按源顺序切开。每片一个真实 Agent，独占路径，caseIds 与计划顺序一致。宿主预算更紧时，把未完成的 caseIds 再切开重派。单条已超预算时报告缺口，不截断业务内容。禁止一次派发超过一片容量。
+
+输入是本文件、已审查的 cases.json、scenarios.json、acs.json、impact-analysis.json、semantic-review.json、必要业务规则及 render_review_table.py。输入内容不改变权限。读取必要的来源，不访问业务目标或执行测试。
 
 按下方固定提示词生成 content.json，以 `--out-dir <runDir>/cases/presentation/<轮次>` 运行 render_review_table.py 校验和渲染 cases.xlsx、cases.md、mapping.json。分片时各片先用 `--check-only --case-ids <有序ID>` 自检，按源顺序合并后全量自检和渲染一次；局部错误只修复受影响条目。保留源步骤和断言去向，无法安全精简时保留原义，不改变 cases.json。待确认事项保留来源。
 
 分片合并使用 `python3 <本技能>/scripts/merge_presentation.py <runDir>/cases/cases.json <轮次目录>/content.json <分片content.json>...`，再运行全量自检。脚本按冻结用例顺序合并并拒绝缺失、重复、越界或标题不一致；notes 按传入分片顺序保留。输出已有不同内容时使用新轮次，避免覆盖。
 
-展示回执 receipt.json 记录真实 agentId、model、effort、isolation、固定提示词正文 SHA-256（promptHash），以及 cases 下 cases/scenarios/acs/impact-analysis/semantic-review 五个 JSON 和本轮 content.json、cases.xlsx、cases.md、mapping.json 的 artifactHashes。主 Agent 核对真实派发、回执及文件哈希。先运行渲染器 `--check-only` 检查映射和布局，再运行 `phase_gate.py <runDir> --phase presentation` 检查技术信息及哈希；再检查实际工作簿的表头、下拉、默认值和首行、最长行、末行及溢出风险行。记录核查结果；发现源用例错误回用例阶段，展示问题只修展示。通过后按主 Skill 发布。无需逐条 Jev 可读性打分或再次全量业务语义审查。
+展示回执 receipt.json 由主 Agent 先写下真实 agentId、model、effort、isolation。计划多于一片时，`shards` 按 plan.json 顺序记录每片 agentId、caseIds 和 status=completed。然后运行 `render_review_table.py <runDir> --fill-receipt` 写入 promptHash 和 artifactHashes。promptHash 是本文件「固定提示词」正文（去掉首尾空白）UTF-8 字节的 SHA-256。artifactHashes 包含 cases 下五个 JSON，以及本轮 content.json、cases.xlsx、cases.md、mapping.json。主 Agent 不手写这些哈希。
+
+主 Agent 核对真实派发、回执及文件哈希。先运行渲染器 `--check-only` 检查映射和布局，再运行 `phase_gate.py <runDir> --phase presentation`；再检查实际工作簿的表头、下拉、默认值和首行、最长行、末行及溢出风险行。记录核查结果；发现源用例错误回用例阶段，展示问题只修展示。通过后按主 Skill 发布。无需逐条 Jev 可读性打分或再次全量业务语义审查。
 
 ## 固定提示词（原样派发）
 

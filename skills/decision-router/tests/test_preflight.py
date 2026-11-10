@@ -130,6 +130,21 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(calls, 0)
         self.assertIn("never truncate", error["reason"])
 
+    def test_full_request_body_reaches_the_byte_budget(self):
+        data = self.request()
+        payload, _ = jev.build_request(data)
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+        contract = jev.DEFINITIONS["textStateContract"]
+        original = contract["maxBytes"]
+        try:
+            contract["maxBytes"] = len(body)
+            with self.assertRaisesRegex(ValueError, "never truncate"):
+                jev.build_request(data)
+            contract["maxBytes"] = len(body) + 1
+            jev.build_request(data)
+        finally:
+            contract["maxBytes"] = original
+
     def test_transport_failures_classified_without_automatic_retries(self):
         for code, retryable in ((400, False), (401, False), (429, True), (503, True)):
             calls, error, metrics = self.invoke(self.request(), urllib.error.HTTPError("url", code, "failure", {}, None))

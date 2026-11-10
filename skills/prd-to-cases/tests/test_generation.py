@@ -239,6 +239,33 @@ class GenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsafe path"):
             self.evaluate()
 
+    def test_seal_writes_the_receipt_the_worker_used_to_compose(self):
+        self.plan["phase"] = "cases"
+        self.plan["tasks"][0]["outputFiles"] = ["cases.json"]
+        self.plan["tasks"][1]["dependsOn"] = ["G1"]
+        self.plan["tasks"][1]["outputFiles"] = ["cases.json"]
+        self.reset_state()
+        for index in (1, 2):
+            directory = self.root / f"G{index}" / "1"
+            directory.mkdir(parents=True)
+            case = {"schemaVersion": 1, "caseId": f"C{index}", "scenarioIds": [f"S{index}"],
+                    "suite": "api", "priority": "P0", "fixtures": [],
+                    "steps": [{"id": "step1", "action": "Submit request"}],
+                    "assertions": [{"stepId": "step1", "expected": "Accepted"}],
+                    "reviewStatus": "draft", "semanticReview": "draft",
+                    "automationRef": f"planned:group{index}.spec.ts::case {index}"}
+            (directory / "cases.json").write_text(json.dumps([case]), encoding="utf-8")
+        plan = self.root / "plan.json"
+        state = self.root / "state.json"
+        plan.write_text(json.dumps(self.plan), encoding="utf-8")
+        state.write_text(json.dumps(self.state), encoding="utf-8")
+        command = [sys.executable, str(SCRIPT), str(plan), str(state), "--root", str(self.root), "--seal", "G1"]
+        self.assertEqual(subprocess.run(command, capture_output=True, text=True).returncode, 0)
+        self.assertEqual(subprocess.run(command[:-1] + ["G2"], capture_output=True, text=True).returncode, 0)
+        self.plan = json.loads(plan.read_text())
+        self.state = json.loads(state.read_text())
+        self.assertEqual(self.evaluate()["status"], "PASSED")
+
     def test_cli_merge_refuses_partial_and_overwrite(self):
         plan = self.root / "plan.json"
         state = self.root / "state.json"

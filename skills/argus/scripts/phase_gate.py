@@ -204,9 +204,20 @@ class Gate:
             return
         for key in ('agentId', 'model', 'effort', 'isolation'):
             self.need(isinstance(receipt.get(key), str) and bool(receipt[key].strip()), f'展示回执缺少 {key}')
-        contract = (Path(__file__).resolve().parents[2] / 'prd-to-cases/references/review-table.md').read_text(encoding='utf-8')
-        prompt = contract.split('## 固定提示词（原样派发）\n', 1)[1].split('\n## 主 Agent 验收', 1)[0].strip()
-        prompt_hash = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
+        from render_review_table import SLICE_CAP, prompt_text, slice_case_ids
+        cases = read_json(self.run_dir / 'cases/cases.json')
+        if isinstance(cases, list) and len(cases) > SLICE_CAP:
+            expected = slice_case_ids([item.get('caseId') for item in cases])
+            plan = read_json(safe_path(self.run_dir, f'{base}/plan.json')) or {}
+            planned = [row.get('caseIds') for row in plan.get('slices') or []]
+            self.need(planned == expected, '评审表分片计划与脚本容量不一致，先运行 render_review_table.py --plan-slices')
+            shards = receipt.get('shards')
+            if self.need(isinstance(shards, list) and [row.get('caseIds') for row in shards] == expected,
+                         '评审表应按计划逐片派发，单次产出超过一片容量'):
+                for row in shards:
+                    self.need(row.get('status') == 'completed' and isinstance(row.get('agentId'), str) and bool(row['agentId'].strip()),
+                              '评审表分片缺少完成回执')
+        prompt_hash = hashlib.sha256(prompt_text().encode('utf-8')).hexdigest()
         self.need(receipt.get('promptHash') == prompt_hash, '固定提示词哈希不一致')
         required = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis', 'semantic-review')]
         required += [f'{base}/{name}' for name in ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')]
