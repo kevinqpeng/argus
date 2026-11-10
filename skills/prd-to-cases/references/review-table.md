@@ -8,6 +8,8 @@
 
 按下方固定提示词生成 content.json，以 `--out-dir <runDir>/cases/presentation/<轮次>` 运行 render_review_table.py 校验和渲染 cases.xlsx、cases.md、mapping.json。分片时各片先用 `--check-only --case-ids <有序ID>` 自检，按源顺序合并后全量自检和渲染一次；局部错误只修复受影响条目。保留源步骤和断言去向，无法安全精简时保留原义，不改变 cases.json。待确认事项保留来源。
 
+分片合并使用 `python3 <本技能>/scripts/merge_presentation.py <runDir>/cases/cases.json <轮次目录>/content.json <分片content.json>...`，再运行全量自检。脚本按冻结用例顺序合并并拒绝缺失、重复、越界或标题不一致；notes 按传入分片顺序保留。输出已有不同内容时使用新轮次，避免覆盖。
+
 展示回执 receipt.json 记录真实 agentId、model、effort、isolation、固定提示词正文 SHA-256（promptHash），以及 cases 下 cases/scenarios/acs/impact-analysis/semantic-review 五个 JSON 和本轮 content.json、cases.xlsx、cases.md、mapping.json 的 artifactHashes。主 Agent 核对真实派发、回执及文件哈希。先运行渲染器 `--check-only` 检查映射和布局，再运行 `phase_gate.py <runDir> --phase presentation` 检查技术信息及哈希；再检查实际工作簿的表头、下拉、默认值和首行、最长行、末行及溢出风险行。记录核查结果；发现源用例错误回用例阶段，展示问题只修展示。通过后按主 Skill 发布。无需逐条 Jev 可读性打分或再次全量业务语义审查。
 
 ## 固定提示词（原样派发）
