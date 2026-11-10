@@ -117,9 +117,9 @@ def presentation_input(source, case_ids):
     """保留分配用例原文及全局影响证据，不用摘要替代业务输入。"""
     assigned = set(case_ids)
     cases = [case for case in source['cases'] if case['caseId'] in assigned]
-    if (not case_ids or len(case_ids) > 8 or
+    if (not case_ids or
             [case['caseId'] for case in cases] != case_ids):
-        raise ValueError('分片 caseIds 必须为 1–8 个唯一、存在且保持源顺序的 ID')
+        raise ValueError('分片 caseIds 必须为唯一、存在且保持源顺序的 ID')
     if source['semantic'] is None:
         raise ValueError('缺少 semantic-review.json；先完成语义门禁')
     scenario_ids = set(sid for case in cases for sid in case['scenarioIds'])
@@ -393,10 +393,6 @@ def main():
         source['cases'] = [c for c in source['cases'] if c['caseId'] in assigned]
         if [c['caseId'] for c in source['cases']] != args.case_ids:
             errors.append('分片 caseIds 必须唯一、存在且保持源顺序')
-        if len(args.case_ids) > 8:
-            errors.append('分片最多 8 条用例，请拆分任务')
-        if content_path.stat().st_size > 25 * 1024:
-            errors.append('分片 content.json 超过 25 KiB，请拆分任务')
     units = normalize(content, source, errors)
     if errors:
         for line in errors:
