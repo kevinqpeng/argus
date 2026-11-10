@@ -190,6 +190,35 @@ class GenerationTests(unittest.TestCase):
         self.write_receipt(1, receipt)
         self.evaluate()
 
+    def test_contract_traps_fail_on_the_first_seal(self):
+        receipt = self.complete(1)
+        case = receipt["cases"][0]
+        case["fixtures"] = ["status=REJECTED"]
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, "constant"):
+            self.evaluate()
+        case["steps"].insert(0, {"id": "prep", "action": "甲驳回申请", "kind": "setup",
+                                  "assertionExemption": "establishes the rejected application"})
+        case["fixtures"] = []
+        case["assertions"][0]["expected"] = "原记录保留"
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, "记录保留"):
+            self.evaluate()
+        case["assertions"][0]["expected"] = "条数增加"
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, "baseline"):
+            self.evaluate()
+        case["steps"].insert(0, {"id": "base", "action": "读取条数作为基线", "kind": "setup",
+                                  "assertionExemption": "reads the current count"})
+        case["assertions"][0]["expected"] = "Accepted"
+        self.plan["tasks"][0]["acIds"] = ["AC-1"]
+        self.reset_state()
+        case["assertions"][0]["expected"] = "见 AC-6.2-13"
+        receipt["planHash"] = generation.digest(self.plan)
+        self.write_receipt(1, receipt)
+        with self.assertRaisesRegex(ValueError, "outside"):
+            self.evaluate()
+
     def test_business_step_without_assertion_cannot_merge(self):
         receipt = self.complete(1)
         receipt['cases'][0]['steps'].append({'id': 'empty', 'action': 'Clear content and submit'})

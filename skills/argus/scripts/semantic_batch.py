@@ -57,6 +57,11 @@ def batch_current(run, plan, batch):
 
 
 def prepare(run, subjects_path):
+    existing = run / 'cases/semantic-review.json'
+    if existing.is_file():
+        review = read(existing)
+        if isinstance(review, dict) and review.get('inputHash') == semantic_input_hash(run):
+            raise ValueError('semantic review already recorded for this input; run report and do not rerun')
     expected = expected_subjects(run)
     hashes = semantic_subject_hashes(run)
     subjects = read(subjects_path)
@@ -340,10 +345,26 @@ def write_subjects(run, output):
     print(json.dumps({'subjects': len(records)}))
 
 
+def report(run):
+    """List scores below the yes-threshold. Does not edit cases or call Jev."""
+    path = run / 'cases/semantic-review.json'
+    threshold = jev.DEFINITIONS['thresholds']['noulYes']
+    if not path.is_file():
+        return {'status': 'ABSENT', 'threshold': threshold, 'below': []}
+    review = read(path)
+    below = []
+    for group in GROUPS:
+        for ident, verdict in (review.get(group) or {}).items():
+            score = verdict.get('final') if isinstance(verdict, dict) else None
+            if type(score) in (int, float) and score < threshold:
+                below.append({'group': group, 'id': ident, 'final': score})
+    return {'status': 'REPORTED', 'threshold': threshold, 'below': below}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run', type=Path)
-    parser.add_argument('action', choices=['prepare', 'request', 'record', 'assemble', 'outline', 'subjects'])
+    parser.add_argument('action', choices=['prepare', 'request', 'record', 'assemble', 'outline', 'subjects', 'report'])
     parser.add_argument('argument', nargs='?')
     args = parser.parse_args()
     run = args.run.resolve()
@@ -357,6 +378,8 @@ def main():
         request(run, args.argument, record=args.action == 'record')
     elif args.action == 'outline':
         outline(run)
+    elif args.action == 'report':
+        print(json.dumps(report(run), ensure_ascii=False))
     elif args.action == 'subjects':
         if args.argument is None:
             parser.error('subjects requires output path')

@@ -12,11 +12,11 @@
 
 按下方固定提示词生成 content.json，以 `--out-dir <runDir>/cases/presentation/<轮次>` 运行 render_review_table.py 校验和渲染 cases.xlsx、cases.md、mapping.json。分片时各片先用 `--check-only --case-ids <有序ID>` 自检，按源顺序合并后全量自检和渲染一次；局部错误只修复受影响条目。保留源步骤和断言去向。主表写人员能扫读的业务句子；申请单号、无关造数、接口和字段留在 cases.json，不把它们当成必须展示的原义。业务分支、边界和副作用无法合并时保留原义。不改变 cases.json。待确认事项保留来源。
 
-分片合并使用 `python3 <本技能>/scripts/merge_presentation.py <runDir>/cases/cases.json <轮次目录>/content.json <分片content.json>...`，再运行全量自检。脚本按冻结用例顺序合并并拒绝缺失、重复、越界或标题不一致；notes 按传入分片顺序保留。输出已有不同内容时使用新轮次，避免覆盖。
+分片合并使用 `python3 <本技能>/scripts/merge_presentation.py <runDir>/cases/cases.json <轮次目录>/content.json <分片content.json>...`，再运行全量自检。脚本按冻结用例顺序合并并拒绝缺失、重复、越界或标题不一致；notes 按传入分片顺序保留。正文里的「本片」「本用例片」也会被拒绝，改该片措辞后再合并。输出已有不同内容时使用新轮次，避免覆盖。固定提示词保持原样。
 
 展示回执 receipt.json 由主 Agent 先写下真实 agentId、model、effort、isolation。计划多于一片时，`shards` 按 plan.json 顺序记录每片 agentId、caseIds 和 status=completed。然后运行 `render_review_table.py <runDir> --fill-receipt` 写入 promptHash 和 artifactHashes。promptHash 是本文件「固定提示词」正文（去掉首尾空白）UTF-8 字节的 SHA-256。artifactHashes 包含 cases 下五个 JSON，以及本轮 content.json、cases.xlsx、cases.md、mapping.json。主 Agent 不手写这些哈希。
 
-主 Agent 核对真实派发、回执及文件哈希。先运行渲染器 `--check-only` 检查映射和布局，再运行 `phase_gate.py <runDir> --phase presentation`；再检查实际工作簿的表头、下拉、默认值和首行、最长行、末行及溢出风险行。记录核查结果；发现源用例错误回用例阶段，展示问题只修展示。通过后按主 Skill 发布。无需逐条 Jev 可读性打分或再次全量业务语义审查。
+主 Agent 核对真实派发、回执及文件哈希。先运行渲染器 `--check-only` 检查映射和布局，再运行 `phase_gate.py <runDir> --phase presentation`；再检查实际工作簿的表头、下拉、默认值和首行、最长行、末行及溢出风险行。记录核查结果；发现源用例错误回用例阶段，展示问题只修展示。通过后先按主 Skill 运行 `publish_review.py --precheck`，再发布。无需逐条 Jev 可读性打分或再次全量业务语义审查。
 
 ## 固定提示词（原样派发）
 

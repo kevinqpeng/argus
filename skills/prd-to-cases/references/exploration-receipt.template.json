@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "taskId": "<taskId>",
+  "attempt": 1,
+  "inputHash": "<plan.inputHash>",
+  "status": "complete",
+  "sources": [
+    {
+      "schemaVersion": 1,
+      "sourceId": "PRD",
+      "kind": "prd",
+      "sourceRef": "run://cases/sources/prd.md",
+      "sourceHash": "<64 hex of the frozen snapshot>"
+    }
+  ],
+  "sourceUnits": [
+    {
+      "schemaVersion": 1,
+      "unitId": "<taskId>-U1",
+      "sourceIds": ["PRD"],
+      "sourceExcerpt": "<原文>",
+      "evidenceRef": "cases/sources/prd.md:1",
+      "disposition": "covered",
+      "obligationIds": ["<taskId>-OB-1"],
+      "reason": "<处置理由>",
+      "reviewRef": ""
+    }
+  ],
+  "objects": [
+    {
+      "schemaVersion": 1,
+      "objectId": "<plan 分配给本任务的 objectId>",
+      "description": "<变更前后>"
+    }
+  ],
+  "checks": [
+    {
+      "schemaVersion": 1,
+      "checkId": "<taskId>-C1",
+      "objectId": "<本任务 objectId>",
+      "dimension": "data",
+      "sourceIds": ["PRD"],
+      "evidenceRef": "File.java:10-12",
+      "disposition": "unknown",
+      "obligationIds": [],
+      "reason": "<依赖路径与停止依据>",
+      "reviewRef": ""
+    }
+  ],
+  "obligations": [
+    {
+      "schemaVersion": 1,
+      "obligationId": "<taskId>-OB-1",
+      "sourceIds": ["PRD"],
+      "text": "<规则>",
+      "expected": "",
+      "acIds": [],
+      "reviewStatus": "needs_clarification",
+      "approvalRef": ""
+    }
+  ],
+  "handoffs": [
+    {
+      "schemaVersion": 1,
+      "handoffId": "<taskId>-H1",
+      "producer": "<taskId>",
+      "receiver": "",
+      "path": "<依赖路径>",
+      "evidenceRef": "File.java:10-12",
+      "question": "<未决问题>"
+    }
+  ]
+}

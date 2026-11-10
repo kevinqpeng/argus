@@ -9,8 +9,10 @@ from pathlib import Path
 GROUPS = {"sources": "sourceId", "sourceUnits": "unitId", "objects": "objectId",
           "checks": "checkId", "obligations": "obligationId", "handoffs": "handoffId"}
 DIMENSIONS = {"data", "inflight", "lifecycle", "permission", "side_effect", "ordering"}
+DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
 FORBIDDEN_CHECK_KEYS = {"kind", "result", "testability"}
 CODE_REF = re.compile(r"(.+):(\d+)(?:-(\d+))?$")
+ID_RULES = {"sourceUnits": "-U", "checks": "-C", "obligations": "-OB-", "handoffs": "-H"}
 
 
 def evidence_errors(value):
@@ -28,6 +30,13 @@ def evidence_errors(value):
         if end < start or end - start + 1 > 3:
             errors.append(f"evidence span > 3 lines: {part}")
     return errors
+
+
+def identifier_ok(task_id, group, value):
+    marker = ID_RULES.get(group)
+    if marker is None:
+        return True
+    return re.fullmatch(re.escape(task_id + marker) + r"[1-9][0-9]*", value) is not None
 
 
 def owners(tasks):
@@ -81,6 +90,16 @@ def collect(plan, receipts):
                 if not isinstance(row, dict) or not isinstance(row.get(key), str) or not row[key].strip():
                     errors.append(f"{tid}: invalid {group} identifier")
                     continue
+                if not identifier_ok(tid, group, row[key]):
+                    errors.append(f"{tid}: {group} id must be {tid}{ID_RULES[group]}<n>: {row[key]}")
+                if group == "sourceUnits" and row.get("disposition") not in DISPOSITIONS:
+                    errors.append(f"{tid}: source unit {row[key]}: invalid disposition")
+                if group == "sources" and row.get("kind") == "prd":
+                    ref = row.get("sourceRef")
+                    if not isinstance(ref, str) or not ref.startswith("run://"):
+                        errors.append(f"{tid}: prd sourceRef must start with run://")
+                if group == "objects" and object_owner and object_owner.get(row.get("objectId")) != tid:
+                    errors.append(f"{tid}: object not assigned: {row.get('objectId')}")
                 if group == "checks":
                     if row.get("dimension") not in DIMENSIONS:
                         errors.append(f"{tid}: check {row[key]}: invalid dimension")

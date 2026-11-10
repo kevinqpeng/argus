@@ -24,6 +24,9 @@ class PublishReviewTest(unittest.TestCase):
                          '审批驳回后重新发起用例(V0.3).xlsx')
         self.assertEqual(publisher.delivery_name('审批驳回后重新发起用例', 'V0.3'),
                          '审批驳回后重新发起用例(V0.3).xlsx')
+        aligned = '版本    日期    说明\nV0.1    2026-10-26    初稿\nV0.3    2026-11-09    驳回意见\n'
+        self.assertEqual(publisher.latest_version(aligned), 'V0.3')
+        self.assertIsNone(publisher.latest_version(doc + '\n' + aligned))
         self.assertIsNone(publisher.latest_version('文档里有业务模型 V1.2，但没有版本历史表'))
         self.assertIsNone(publisher.latest_version('| 版本 |\n|---|\n| V0.3 |\n| V0.4-beta |\n'))
         self.assertEqual(publisher.delivery_name('审批驳回后重新发起', None),
@@ -73,6 +76,33 @@ class PublishReviewTest(unittest.TestCase):
                 source.write_text(text + ' changed', encoding='utf-8')
                 with self.assertRaises(ValueError):
                     publisher.publish(run, '审批驳回后重新发起')
+
+    def test_precheck_catches_copy_ref_and_aligned_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / 'cases/sources').mkdir(parents=True)
+            (run / 'cases/presentation/1').mkdir(parents=True)
+            text = '版本    日期\nV0.3    2026-11-09\n'
+            source = run / 'cases/sources/prd.md'
+            source.write_text(text, encoding='utf-8')
+            sha = hashlib.sha256(source.read_bytes()).hexdigest()
+            impact = {'sources': [{'sourceId': 'PRD', 'kind': 'prd', 'sourceRef': 'file://prd.md',
+                                    'sourceHash': sha, 'version': 'V0.3'}]}
+            (run / 'cases/impact-analysis.json').write_text(json.dumps(impact), encoding='utf-8')
+            (run / 'manifest.json').write_text(json.dumps({'presentation': {'round': 1}}), encoding='utf-8')
+            (run / 'cases/cases.xlsx').write_bytes(b'workbook')
+            (run / 'cases/presentation/1/cases.xlsx').write_bytes(b'stale')
+            blocked = publisher.precheck(run, '审批驳回后重新发起')
+            self.assertEqual(blocked['status'], 'BLOCKED')
+            self.assertTrue(any('sourceRef' in item for item in blocked['issues']))
+            self.assertTrue(any('不一致' in item for item in blocked['issues']))
+            impact['sources'][0]['sourceRef'] = 'run://cases/sources/prd.md'
+            (run / 'cases/impact-analysis.json').write_text(json.dumps(impact), encoding='utf-8')
+            (run / 'cases/presentation/1/cases.xlsx').write_bytes(b'workbook')
+            ready = publisher.precheck(run, '审批驳回后重新发起')
+            self.assertEqual(ready['status'], 'OK', ready)
+            self.assertEqual(ready['version'], 'V0.3')
+            self.assertEqual(ready['deliveryName'], '审批驳回后重新发起用例(V0.3).xlsx')
 
 
 if __name__ == '__main__':
