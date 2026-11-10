@@ -83,6 +83,20 @@ class LifecycleTests(unittest.TestCase):
             "approvalHash": lifecycle.file_hash(self.run / "evidence/approval.json")}
         self.write("manifest.json", self.manifest)
 
+    def test_human_approval_does_not_require_semantic_review(self):
+        for case in self.cases:
+            case.pop("semanticReview", None)
+        self.write("cases/cases.json", self.cases)
+        self.approve()
+        self.assertEqual(lifecycle.approved_cases(self.run, self.manifest), self.cases)
+        (self.run / "cases/discovered.txt").write_text("discovered")
+        gate = Gate(self.run)
+        gate.cases()
+        self.assertEqual(gate.gaps, [])
+        self.manifest["gates"]["humanCaseReview"]["status"] = "BLOCKED"
+        with self.assertRaises(ValueError):
+            lifecycle.approved_cases(self.run, self.manifest)
+
     def test_unverifiable_approval_and_pending_state_block(self):
         self.approve()
         original = copy.deepcopy(self.manifest)

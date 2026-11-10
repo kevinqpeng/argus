@@ -129,8 +129,6 @@ class Gate:
             case_id = item.get("caseId") or "<no-id>"
             if item.get("reviewStatus") != "approved":
                 bad.append(f"{case_id}: reviewStatus={item.get('reviewStatus')!r}（需 approved，人工评审批准后转）")
-            if item.get("semanticReview") != "approved":
-                bad.append(f"{case_id}: semanticReview={item.get('semanticReview')!r}")
             if not item.get("automationRef"):
                 bad.append(f"{case_id}: automationRef")
             try:
@@ -140,7 +138,6 @@ class Gate:
         self.need(not bad, "用例字段不完整：" + ", ".join(bad[:10]))
         if any(item.get("suite") == "ui" for item in cases):
             self.need_file("evidence/page-map.json", "UI 用例缺少本 run 页面地图")
-        self._semantic_review(cases)
         self.need_file("cases/discovered.txt", "缺少 runner discovery 结果")
 
     def _semantic_review(self, _cases: list) -> None:
@@ -221,7 +218,7 @@ class Gate:
                               '评审表分片缺少完成回执')
         prompt_hash = hashlib.sha256(prompt_text().encode('utf-8')).hexdigest()
         self.need(receipt.get('promptHash') == prompt_hash, '固定提示词哈希不一致')
-        required = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis', 'semantic-review')]
+        required = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis')]
         required += [f'{base}/{name}' for name in ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')]
         hashes = receipt.get('artifactHashes') or {}
         for ref in required:

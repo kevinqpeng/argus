@@ -6,7 +6,7 @@
 
 | 阶段 | 时机 | 切分粒度 | 任务数 | 产出 |
 |---|---|---|---|---|
-| A 用例 | 语义审查与人工评审前 | AC 域 / 场景组 | 按工作量，可单组 | cases.json、notes.md |
+| A 用例 | 人工评审前 | AC 域 / 场景组 | 按工作量，可单组 | cases.json、notes.md |
 | B 脚本 | 人工评审批准后 | **spec 文件级**，DB 核验单列 | 按工作量，可单组 | 一个任务一个 spec + notes.md |
 
 理由：脚本依赖用例的期望值与断言。用例改一轮、脚本白写一轮；先批准用例再写脚本，脚本永远对应最新用例，且人工评审等待期不用干等脚本。脚本按 spec 拆分，实际并发受依赖与宿主槽位限制，利用率按真实占用记录计算。
@@ -52,7 +52,9 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 ## 3.1 worker 输入包与工具预算
 
-派发前，主 Agent 为每个任务写 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的既有用例骨架（有上一轮时），以及任务点名的探索小节原文。任务输入同时指出必须保留的数量词、其作用对象及已确认的接收集合；worker 不得把「任一人可以完成」改成「仅一人收到」。整份 PRD、影响分析、场景全集、上一轮全量用例和整篇探索回执留在冻结源里，不放进任务书的阅读清单。
+派发前，主 Agent 为每个任务写 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的既有用例骨架（有上一轮时），以及任务点名的探索小节原文。每个任务包逐项列出关联 AC 的 Given 和 Then，以及分配 caseId；每个 Given 必须落实到 fixtures 或步骤，每个 Then 必须有对应业务断言。场景缺少 AC 关联时，先追溯并补齐；来源没有明确 AC 的，依据原文建立可追溯 AC，规则不明则列待确认，不凭空补预期。任务包附最小有效契约示例：`suite` 只能是 `ui`、`api`、`performance`、`security`；步骤 `kind` 为 `action`、`setup` 或 `cleanup`；仅准备/清理步骤可用非空字符串 `assertionExemption` 说明豁免。按场景和步骤复杂度平衡分组，避免单组明显过重。
+
+任务输入同时指出必须保留的数量词、其作用对象及已确认的接收集合；worker 不得把「任一人可以完成」改成「仅一人收到」。整份 PRD、影响分析、场景全集、上一轮全量用例和整篇探索回执留在冻结源里，不放进任务书的阅读清单。
 
 任务书只给三样路径：这份输入包、独占目录、写完 outputFiles 后要运行的 seal 命令。主 Agent 从已加载的 Skill 位置解析并核实 seal 命令中 `generation.py` 的绝对路径；若任务确需 `case_contract.py` 或 `phase_gate.py`，也直接给出核实后的绝对路径及完整命令，缺失则回报，不搜索全盘。写明不得搜索其他目录，不得递归 `find`/`grep -r`，不读其他 run，不跑 `playwright`/`mvn`/`npm`，不连业务目标。shell 只用于建目录、写 outputFiles 和运行指定校验命令。
 
@@ -60,27 +62,27 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 ## 4. 回执和合并
 
-worker 写完 outputFiles 后运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录> --seal <taskId> --gaps '[]'`。脚本写入 `任务ID/attempt/result.json` 并计算文件哈希和 resultHash。有未覆盖义务时 `--gaps` 传 `[{obligationId, reason}]`。主 Agent 不编写回执字段或哈希，也不改已有回执。多名 worker 已写出 outputFiles 但未 seal 时，主 Agent 运行一次 `--seal-ready --gaps-file <json>`；文件是 taskId → unresolvedObligations，缺省 `[]`。已有回执或输出未齐的任务跳过。dependencyHashes 绑定直接上游已接受的 resultHash。每组 cases 必须完整包含分配的 caseIds，场景关联不能越组，reviewStatus 和 semanticReview 均为 draft。
+worker 写完 outputFiles 后运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录> --seal <taskId> --gaps '[]'`。脚本写入 `任务ID/attempt/result.json` 并计算文件哈希和 resultHash。有未覆盖义务时 `--gaps` 传 `[{obligationId, reason}]`。主 Agent 不编写回执字段或哈希，也不改已有回执。多名 worker 已写出 outputFiles 但未 seal 时，主 Agent 运行一次 `--seal-ready --gaps-file <json>`；文件是 taskId → unresolvedObligations，缺省 `[]`。已有回执或输出未齐的任务跳过。dependencyHashes 绑定直接上游已接受的 resultHash。每组 cases 必须完整包含分配的 caseIds，场景关联不能越组，reviewStatus 为 draft。
 
 回执另必填 `unresolvedObligations`：无缺口填 `[]`；未覆盖或交给其他组的义务填 `{obligationId, reason}`，新增候选也先分配稳定义务ID。notes 同步解释但不替代此字段。非空或缺字段时 generation.py 阻断。主 Agent 对照原始回执逐项落实到接收任务、场景、caseId和断言；缺失场景按新计划版本补生成并重新收回回执，不能只把清单清空、代 worker 改哈希或说“其他组负责”就合并。
 
 每个业务步骤必须有绑定其 stepId 的断言。仅准备/清理步骤可标 `kind=setup|cleanup` 并填写 `assertionExemption`，解释为何不是本用例待测行为；未标 kind 默认为 action，不能靠豁免文字跳过。准备数据本身是验收目标、取消操作要验证不发信、空内容提交要验证默认正文时，均是业务步骤。条件断言需由 fixtures 保证触发；“有空值则显示占位”不能代替明确的空值样本。
 
-阶段 A 没有脚本，automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`：只承诺脚本阶段会落这个文件名与标题，不声称文件已存在。阶段 B 生成脚本后，主 Agent 跑 runner discovery，在独立的 execution-cases.json 中把 automationRef 绑定为真实入口 `文件::标题`，保留已审批 cases.json；文件存在只说明入口存在，业务断言仍由语义审查与执行验证。
+阶段 A 没有脚本，automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`：只承诺脚本阶段会落这个文件名与标题，不声称文件已存在。阶段 B 生成脚本后，主 Agent 跑 runner discovery，在独立的 execution-cases.json 中把 automationRef 绑定为真实入口 `文件::标题`，保留已审批 cases.json；文件存在只说明入口存在，业务断言仍由人工评审与执行验证。
 
 脚本检查全部分片、输入/输出哈希、依赖、文件所有权、唯一 ID、场景集合、步骤断言及入口文件。所有任务完整才给生成 status=PASSED。用 `--merge <新的输出路径>` 写合并的 draft 用例数组；输出相同字节时幂等成功，异内容拒绝覆盖；只规范化 JSON 格式与排序，不自动补写或改写 draft、审批状态和关键引用。缺少 phase 的旧计划仍按旧版文件入口契约校验，迁移必须创建新计划。该状态仅代表生成结构完整，不代表覆盖或业务测试通过。
 
-主 Agent 先停止所有 worker 写入，再运行合并，保留合并后的 cases.json。随后按 prd-to-cases 第 5 节做一轮语义审查，只为原文已经写明的遗漏 ID 追加生成，再出评审表。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现在脚本发布后执行。人工评审通过即接受执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
+主 Agent 先停止所有 worker 写入，再运行合并，保留合并后的 cases.json。随后按 prd-to-cases 第 5 节对照来源核对遗漏，只为原文已经写明的遗漏 ID 追加生成，再出评审表。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现在脚本发布后执行。人工评审通过即接受执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
 
 ## 阶段交接准备
 
-冻结后的 worker 工作期间，主 Agent 依据同一版本预先准备回执校验命令、五组语义题的主体索引、覆盖输入结构和展示固定任务书；用例内容、哈希、概率和状态在真实产物到达后填入。准备过程不写 worker 独占目录，不提前批准或发布。来源与影响阶段已有真实回执直接按输入指纹索引，避免生成完成后再次搜索规则和重建审查材料。
+冻结后的 worker 工作期间，主 Agent 依据同一版本预先准备回执校验命令、来源与 AC 索引、展示固定任务书；用例内容、哈希和状态在真实产物到达后填入。准备过程不写 worker 独占目录，不提前批准或发布。来源与影响阶段已有真实回执直接按输入指纹索引，避免生成完成后再次搜索规则和重建审查材料。
 
 最后一个 worker 结束后立即校验、合并，并按 prd-to-cases 第 5 节补齐遗漏后派发展示。每个交接记录上阶段完成、下阶段输入就绪和首次派发时间；区分必要复核、工具等待、人工等待与未知原因，不把所有间隔视作可删除空转。复用的是准备工作，不是缺失的判断或审批。
 
 ## 5. 汇总
 
-manifest.generation 由主 Agent 记录计划路径/哈希、状态路径、任务与重派结果、产物哈希及未完成任务。报告区分生成完整性和执行结果，保留现有人工评审规则。分别记录分组/Jev、生成、等待、重试、合并与评审耗时、模型调用和未知成本。生成墙钟从首次派发到合并 PASSED；与之重叠的语义审查只计入那个阶段。比较提速时用同一冻结输入与质量门禁下的全流程墙钟时间。
+manifest.generation 由主 Agent 记录计划路径/哈希、状态路径、任务与重派结果、产物哈希及未完成任务。报告区分生成完整性和执行结果，保留现有人工评审规则。分别记录分组/Jev、生成、等待、重试、合并与评审耗时、模型调用和未知成本。生成墙钟从首次派发到合并 PASSED；比较提速时用同一冻结输入与质量门禁下的全流程墙钟时间。
 
 借鉴 Arena 的统一输入、独立目录和最终验证；各 worker 负责互补分片，不重复生成全量候选，也不因一个 worker 失败而静默缩小范围。
 
@@ -88,7 +90,7 @@ manifest.generation 由主 Agent 记录计划路径/哈希、状态路径、任�
 
 ## 6. 调度证据即产物
 
-主会话直接写出 `cases/cases.json`、没有任何 `result.json` 回执时，本次生成视为未调度，用例无效，不能进入语义审查。宿主无子 Agent 能力、冻结 generation 角色不可调用或预算不足时保持 BLOCKED，主会话不能冒充 worker，也不能用"单 Agent 也写完了"代替调度证据。
+主会话直接写出 `cases/cases.json`、没有任何 `result.json` 回执时，本次生成视为未调度，用例无效，不能进入评审表。宿主无子 Agent 能力、冻结 generation 角色不可调用或预算不足时保持 BLOCKED，主会话不能冒充 worker，也不能用"单 Agent 也写完了"代替调度证据。
 
 单组分支同样要有 `plan.json`、`state.json` 和 `result.json`，便于核对是谁写的、写了什么。阶段 3 结束前运行 `python3 <argus>/scripts/phase_gate.py <runDir> --phase dispatch`，BLOCKED 时停在该阶段并把缺口写入 `manifest.generation`。
 

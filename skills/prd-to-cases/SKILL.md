@@ -11,7 +11,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 输入：完整 PRD/AC 或已有用例、目标范围、现有测试结构及私有 workspacePath。产物写本次的 run/cases：impact-analysis.json、requirements.json、acs.json、scenarios.json、cases.json、cases.md、cases.xlsx、baselineHash 和来源 sourceHash。现有用例库只读，生成测试代码写外部 harness，不写项目仓库。
 
-独立调用按 [工作流组合](../argus/references/workflows.md) 只准备设计阶段依赖；缺少 run/workspace 时调用 setup 的按需配置，不要求测试目标可达或账号就绪。输入为已有用例时先走 [外部用例接入](references/existing-cases.md)，按原步骤和预期规范化后复用本技能的生成校验、语义审查与评审交付，不重新设计已有业务内容。
+独立调用按 [工作流组合](../argus/references/workflows.md) 只准备设计阶段依赖；缺少 run/workspace 时调用 setup 的按需配置，不要求测试目标可达或账号就绪。输入为已有用例时先走 [外部用例接入](references/existing-cases.md)，按原步骤和预期规范化后复用本技能的生成校验与评审交付，不重新设计已有业务内容。
 
 ## 1. 采集并分析完整来源
 
@@ -47,7 +47,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 用例及脚本任务按 [资源规划契约](../argus/references/scheduling.md#新-run-执行规划必需) 声明 requiresLogin、accountRequirements、业务隔离依据、共享可变资源和 dependsOn；凭据仅用私有文件引用。实际执行并发留给主 Agent 根据真实资源计算，生成并发保持独立。
 
 - 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。
-- 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（cases.json + notes.md），不写 spec。切分粒度按 AC 域，任务数按工作量、依赖和启动成本确定，允许单组，并按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再进入语义审查。生成分片必须齐全，所有必需场景和用例均须完整。
+- 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（cases.json + notes.md），不写 spec。切分粒度按 AC 域，任务数按工作量、依赖和启动成本确定，允许单组，并按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再核对遗漏。生成分片必须齐全，所有必需场景和用例均须完整。
 - 各用例有 fixtures、步骤、步骤绑定断言和 suite；按[回执和合并](references/parallel-generation.md#4-回执和合并)为每个业务步骤绑定断言、解释准备/清理豁免并回收未覆盖义务。脚本尚未生成时 automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`，文件在脚本阶段按此名落盘，标题逐字一致。
 - 用例先行、脚本后置：脚本按人工评审通过的用例分批生成，避免用例改一轮、脚本白写一轮。
 - 源码标注稳定 caseId。
@@ -55,22 +55,22 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 ## 5. 一次补齐遗漏并审查
 
-用例合并后做一轮语义审查，并把原文已经写明的遗漏补进表里，然后出评审表。
+用例合并后对照生成回执和冻结来源核对遗漏，把原文已明确的遗漏补进表里，然后出评审表。
 
-- 先通过 dispatch，再按 [语义门禁](../argus/references/gates.md#门禁三五语义审查阶段-41-人工评审前必须-passed) 审查已有主体。来源和影响回执未变则复用。
+- 先通过 dispatch，来源和影响回执未变则复用。
 - 生成回执里的未覆盖义务，以及没有场景或没有用例的验收标准：原文和预期已经写明的，只为这些 ID 追加生成。预期不明、冲突或 needs_clarification 不编造，写入待确认事项。
-- 语义指出某条用例没有断言到验收标准、且原文写了应断言的结果时，补上该断言，只重判这个主体。低分按原文补一次；仍低分的把已核对原文写入 acceptedReason，并在待确认事项说明。已有实现与规则冲突写观察，不改成正确预期。
-- 然后运行 `phase_gate.py RUN --phase semantic`，直接进入评审表。入口用声明式 automationRef。人工评审通过即接受执行。
+- 对照 AC 的 Given/Then 核对测试数据、步骤和断言；原文明确的遗漏补齐。未知、冲突或影响探索发现但未解决的问题写入待确认事项供人工评审，不编造预期。已有实现与规则冲突写观察，不改成正确预期。
+- 核对完成后进入评审表，不派发逐项 Jev 语义审查。入口用声明式 automationRef。人工评审通过即接受执行。
 
 ## 7. 输出人工评审表
 
 - 从本 run 的 cases.json、scenarios.json 和 acs.json 生成内部 `cases/cases.xlsx` 与 `cases/cases.md`。面向人员的 Excel 名称为「功能名称用例(V版本号).xlsx」，例如「审批驳回后重新发起用例(V0.3).xlsx」。功能名称取当前评审范围，版本取本轮冻结 PRD 版本历史中的最新版本；不加日期或「用例表」后缀。读取文档并核对来源哈希，不从截图、旧 run、文件名或模型版本猜测。版本缺失、来源不唯一、格式无法识别或记录与文档不一致时，不展示版本号，文件名改为「功能名称用例.xlsx」，无需因此暂停交付。
 - 通过展示门禁并将本轮表发布到内部固定路径后，运行 `python3 <本目录>/scripts/publish_review.py <runDir> --feature <功能名称> [--source-id <PRD来源ID>]`。脚本从可核实的 Markdown 版本历史生成命名 Excel；版本无法确认时省略版本号。脚本仍核验冻结快照哈希、展示门禁与内部文件一致性；文件冲突时停止。只将 `deliverables/` 中的命名文件展示或交付给人员；内部 cases.xlsx、JSON、Markdown 和映射用于追踪，不展示为评审附件。
-- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发。先运行 `render_review_table.py <runDir> --plan-slices`，按计划中的每片 caseIds 各派一个干净上下文的 generation Agent；合并后运行 `--fill-receipt` 写入 promptHash 和产物哈希。主 Agent 核对真实派发后发布。此任务在用例合并和语义审查之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
+- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发。先运行 `render_review_table.py <runDir> --plan-slices`，按计划中的每片 caseIds 各派一个干净上下文的 generation Agent；合并后运行 `--fill-receipt` 写入 promptHash 和产物哈希。主 Agent 核对真实派发后发布。此任务在用例合并和遗漏核对之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
 - 每行「测试结果」使用真实的 Excel 数据验证下拉列表，选项为「未测试、通过、失败、错误、阻塞、跳过、不稳定、取消」，初始为「未测试」。分别对应未执行、passed、failed、error、blocked、skipped、flaky、cancelled；测试结果与人工评审批准是不同状态，下拉选择不能解除评审门禁。
 - 按 [评审表生成契约](references/review-table.md) 输出「用例主表」和「待确认事项」两张工作表。待确认事项用业务白话呈现，完整影响分析、来源与技术追踪保存在内部 JSON、Markdown 和映射中。
 - 交付前按评审表契约运行 `phase_gate.py <runDir> --phase presentation`，并核对 Excel 的内容、布局、下拉选项和默认值，以 mapping.json 对照 JSON 检查每项条件、步骤和断言及待确认事项，确认内部追踪可定位；缺失或不一致时修复后再交付。
-- 交付评审表只表示生成完成。用户只请求用例时在此结束；调用方还需脚本或验证时，按 [人工用例评审门禁](../argus/references/contracts.md#人工用例评审门禁) 等待人员批准后才能继续，语义审查 approved 不代表人工批准。
+- 交付评审表只表示生成完成。用户只请求用例时在此结束；调用方还需脚本或验证时，按 [人工用例评审门禁](../argus/references/contracts.md#人工用例评审门禁) 等待人员批准后才能继续。
 
 ## 7.5 交接脚本阶段
 
