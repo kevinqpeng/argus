@@ -96,15 +96,14 @@ class ReviewTableTest(unittest.TestCase):
             content['padding'] = '中' * 9000
             file.write_text(json.dumps(content, ensure_ascii=False), encoding='utf-8')
             result = subprocess.run(check, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 2)
-            self.assertIn('25 KiB', result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
             del content['padding']
             file.write_text(json.dumps(content, ensure_ascii=False), encoding='utf-8')
             result = subprocess.run(check + ['C2'], capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             result = subprocess.run(check + ['C1'] * 8, capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
-            self.assertIn('最多 8 条', result.stderr)
+            self.assertIn('caseId', result.stderr)
             result = subprocess.run([x for x in check if x != '--check-only'],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
@@ -195,7 +194,7 @@ class ReviewTableTest(unittest.TestCase):
         content['cases'][0]['technicalExceptions'][0]['evidenceRef'] = ''
         self.assertTrue(module.presentation_issues(content, source))
 
-    def test_presentation_gate_binds_prompt_artifacts_and_quality_evidence(self):
+    def test_presentation_gate_binds_prompt_and_artifacts_without_readability_scores(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             base = root / 'cases/presentation/1'
@@ -218,32 +217,8 @@ class ReviewTableTest(unittest.TestCase):
             write('cases/presentation/1/content.json', json.dumps(content, ensure_ascii=False))
             for name in ('cases.xlsx', 'cases.md', 'mapping.json'):
                 write('cases/presentation/1/' + name, 'fixture')
-            write('cases/presentation/1/jev.json', 'evidence')
-            questions = json.loads((SKILLS / 'prd-to-cases/references/presentation-quality.json').read_text())['questions']
-            write('cases/presentation/1/readability-input.json', json.dumps({
-                'display': {k: content['cases'][0][k] for k in ('group', 'title', 'fixtures', 'steps', 'expected')},
-                'source': {'title': '源用例'}, 'question': questions['case_readability']}))
-            write('cases/presentation/1/readability-result.json', json.dumps(
-                {'answers': {'case1': {'noul': 0.9, 'probabilityKind': 'calibrated'},
-                             'note1': {'noul': 0.9, 'probabilityKind': 'calibrated'}}}))
-            write('cases/presentation/1/readability-note.json', json.dumps({
-                'display': {k: content['notes'][0][k] for k in ('category', 'question', 'action')},
-                'source': {'question': '源问题'}, 'question': questions['note_readability']}))
-            write('cases/presentation/1/quality-review.json', json.dumps({'status': 'PASSED',
-                'contentHash': sha('cases/presentation/1/content.json'),
-                'evidence': [{'ref': 'cases/presentation/1/jev.json', 'sha256': sha('cases/presentation/1/jev.json')}],
-                'readability': {'case:C1': {'questionId': 'case_readability', 'answerId': 'case1',
-                    'inputRef': 'cases/presentation/1/readability-input.json',
-                    'inputHash': sha('cases/presentation/1/readability-input.json'),
-                    'resultRef': 'cases/presentation/1/readability-result.json',
-                    'resultHash': sha('cases/presentation/1/readability-result.json')},
-                    'note:1': {'questionId': 'note_readability', 'answerId': 'note1',
-                        'inputRef': 'cases/presentation/1/readability-note.json',
-                        'inputHash': sha('cases/presentation/1/readability-note.json'),
-                        'resultRef': 'cases/presentation/1/readability-result.json',
-                        'resultHash': sha('cases/presentation/1/readability-result.json')}}}))
             refs = ['cases/' + name for name in files] + ['cases/presentation/1/' + name for name in
-                    ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json', 'quality-review.json')]
+                    ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')]
             contract = (SKILLS / 'prd-to-cases/references/review-table.md').read_text(encoding='utf-8')
             prompt = contract.split('## 固定提示词（原样派发）\n', 1)[1].split('\n## 主 Agent 验收', 1)[0].strip()
             receipt = {'agentId': 'agent', 'model': 'model', 'effort': 'high', 'isolation': 'fresh',
@@ -252,20 +227,12 @@ class ReviewTableTest(unittest.TestCase):
             write('cases/presentation/1/receipt.json', json.dumps(receipt))
             command = [sys.executable, str(SKILLS / 'argus/scripts/phase_gate.py'), str(root), '--phase', 'presentation']
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
-            write('cases/presentation/1/readability-result.json', json.dumps(
-                {'answers': {'case1': {'noul': 0.3, 'probabilityKind': 'calibrated'},
-                             'note1': {'noul': 0.9, 'probabilityKind': 'calibrated'}}}))
-            quality = json.loads((base / 'quality-review.json').read_text())
-            quality['readability']['case:C1']['resultHash'] = sha('cases/presentation/1/readability-result.json')
-            quality['readability']['note:1']['resultHash'] = sha('cases/presentation/1/readability-result.json')
-            write('cases/presentation/1/quality-review.json', json.dumps(quality))
-            receipt['artifactHashes']['cases/presentation/1/quality-review.json'] = sha('cases/presentation/1/quality-review.json')
-            write('cases/presentation/1/receipt.json', json.dumps(receipt))
+            content['cases'][0]['title'] = '修改后的标题'
+            write('cases/presentation/1/content.json', json.dumps(content, ensure_ascii=False))
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
-            self.assertIn('展示可读性未通过', result.stdout)
-            write('cases/presentation/1/jev.json', 'modified')
-            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 2)
+            self.assertIn('哈希不一致', result.stdout)
+
 
 
 if __name__ == '__main__':

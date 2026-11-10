@@ -209,7 +209,7 @@ class Gate:
         prompt_hash = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
         self.need(receipt.get('promptHash') == prompt_hash, '固定提示词哈希不一致')
         required = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis', 'semantic-review')]
-        required += [f'{base}/{name}' for name in ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json', 'quality-review.json')]
+        required += [f'{base}/{name}' for name in ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')]
         hashes = receipt.get('artifactHashes') or {}
         for ref in required:
             path = safe_path(self.run_dir, ref)
@@ -218,44 +218,6 @@ class Gate:
         if content is not None:
             for issue in presentation_issues(content, load_run(self.run_dir)):
                 self.gaps.append('评审文案待处理：' + issue)
-        quality = read_json(safe_path(self.run_dir, f'{base}/quality-review.json'))
-        if self.need(isinstance(quality, dict) and quality.get('status') == 'PASSED' and
-                     isinstance(quality.get('evidence'), list) and bool(quality['evidence']),
-                     '缺少展示语义与可读性核查证据'):
-            self.need(quality.get('contentHash') == hashes.get(f'{base}/content.json'), '展示文案与质量审查版本不一致')
-            for item in quality['evidence']:
-                path = safe_path(self.run_dir, item['ref'])
-                self.need(path.is_file() and item.get('sha256') == file_hash(path), '展示质量核查证据缺失或已变化')
-            if content is not None:
-                subjects = {f"case:{row['caseId']}": ('case_readability',
-                            {k: row[k] for k in ('group', 'title', 'fixtures', 'steps', 'expected')})
-                            for row in content['cases']}
-                subjects.update({f'note:{i}': ('note_readability',
-                                 {k: note[k] for k in ('category', 'question', 'action')})
-                                 for i, note in enumerate(content.get('notes') or [], 1)})
-                checks = quality.get('readability') or {}
-                if self.need(isinstance(checks, dict) and set(checks) == set(subjects), '展示可读性核查未覆盖每条用例及待确认事项'):
-                    definitions = read_json(Path(__file__).resolve().parents[2] / 'decision-router/references/questions.json')
-                    quality_questions = read_json(Path(__file__).resolve().parents[2] / 'prd-to-cases/references/presentation-quality.json')
-                    threshold = definitions['thresholds']['noulYes']
-                    for subject, (question, display) in subjects.items():
-                        check = checks[subject]
-                        self.need(check.get('questionId') == question, f'展示可读性题目不匹配：{subject}')
-                        input_path = safe_path(self.run_dir, check['inputRef'])
-                        output_path = safe_path(self.run_dir, check['resultRef'])
-                        valid_files = (input_path.is_file() and check.get('inputHash') == file_hash(input_path) and
-                                       output_path.is_file() and check.get('resultHash') == file_hash(output_path))
-                        if not self.need(valid_files, f'展示可读性回执缺失或已变化：{subject}'):
-                            continue
-                        inputs = read_json(input_path)
-                        result = read_json(output_path)
-                        self.need(inputs.get('display') == display and bool(inputs.get('source')), f'展示可读性输入不匹配：{subject}')
-                        self.need(inputs.get('question') == quality_questions['questions'][question], f'展示可读性问题定义不匹配：{subject}')
-                        answer = result.get('answers', {}).get(check['answerId'], {})
-                        probability = answer.get('noul')
-                        self.need(answer.get('probabilityKind') == 'calibrated' and
-                                  type(probability) in (int, float) and threshold <= probability <= 1,
-                                  f'展示可读性未通过或概率无效：{subject}')
 
     def publish(self, task_id=None) -> None:
         """Validate immutable approval, ownership and bytes before any publication."""

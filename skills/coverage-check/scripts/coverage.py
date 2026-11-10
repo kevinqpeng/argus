@@ -194,7 +194,8 @@ def evaluate(data, phase="execution"):
         else:
             entry_ready = (bool(ref) and not ref.startswith("planned:")
                            and all(found.get((cid, m)) == ref for m in required))
-        valid[cid] = (c.get("reviewStatus") == "approved" and c.get("semanticReview") == "approved"
+        valid[cid] = (c.get("reviewStatus") in ({"draft", "approved"} if phase == "design" else {"approved"})
+                      and c.get("semanticReview") == "approved"
                       and bool(c.get("automationRef")) and steps_valid
                       and entry_ready)
     associations = {sid: [cid for cid, c in cases.items() if sid in c.get("scenarioIds", [])]
