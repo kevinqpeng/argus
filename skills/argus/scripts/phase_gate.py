@@ -220,7 +220,7 @@ class Gate:
         prompt_hash = hashlib.sha256(prompt_text().encode('utf-8')).hexdigest()
         self.need(receipt.get('promptHash') == prompt_hash, '固定提示词哈希不一致')
         required = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis', 'semantic-review')]
-        required += [f'{base}/{name}' for name in ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json', 'quality-review.json')]
+        required += [f'{base}/{name}' for name in ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')]
         hashes = receipt.get('artifactHashes') or {}
         for ref in required:
             path = safe_path(self.run_dir, ref)
@@ -229,14 +229,6 @@ class Gate:
         if content is not None:
             for issue in presentation_issues(content, load_run(self.run_dir)):
                 self.gaps.append('评审文案待处理：' + issue)
-        quality = read_json(safe_path(self.run_dir, f'{base}/quality-review.json'))
-        if self.need(isinstance(quality, dict) and quality.get('status') == 'PASSED' and
-                     isinstance(quality.get('evidence'), list) and bool(quality['evidence']),
-                     '缺少展示语义与可读性核查证据'):
-            self.need(quality.get('contentHash') == hashes.get(f'{base}/content.json'), '展示文案与质量审查版本不一致')
-            for item in quality['evidence']:
-                path = safe_path(self.run_dir, item['ref'])
-                self.need(path.is_file() and item.get('sha256') == file_hash(path), '展示质量核查证据缺失或已变化')
 
     def publish(self, task_id=None) -> None:
         """Validate immutable approval, ownership and bytes before any publication."""

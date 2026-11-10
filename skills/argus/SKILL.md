@@ -41,7 +41,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 1. 登记输入与运行身份
 
-- 读取完整 PRD，按[影响分析规则](../prd-to-cases/references/impact-analysis.md#冻结生产稳定业务基线)冻结被测项目的 main@SHA，登记来源指纹与缺口。
+- 登记 PRD 来源，按[影响分析规则](../prd-to-cases/references/impact-analysis.md#冻结生产稳定业务基线)冻结被测项目的 main@SHA；完成 run 配置后，在第 3 阶段由独立采集子 Agent 读取 PRD 并登记来源指纹与缺口。
 - 没有源码项目也可测试，记录应用或服务版本、PRD 哈希、目标与预算，不要求用户提供项目路径。
 - 按 [新 run 复用入口](../setup-argus/SKILL.md#新-run-复用入口) 读取已有项目配置，取得唯一 runId 和仓库外 workspacePath，再写 manifest；只有首次或缺项才做相应 setup。
 - 设计阶段不探测测试站或要求账号就绪。
@@ -62,14 +62,14 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 用例与脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取，分两阶段、不混批：本阶段**只生成用例**（按 prd-to-cases 的分组契约分配场景，产出 cases.json + notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 写完分片文件后运行 `generation.py --seal` 生成 result.json。生成完整性未通过时交付缺口，不能用计划覆盖达标代替全部生成任务完成。
 - 调度证据是产物的一部分：影响探索写 `cases/exploration.md`（方式判定、依据、任务与回执），生成写 `cases/generation/plan.json`、`state.json` 和每个任务 `result.json`。主会话直接写出 `cases.json` 而无任何任务回执时，产物无效，按 [门禁二](references/gates.md#门禁二并行调度阶段-3进入阶段-4-前必须-passed) BLOCKED。宿主无子 Agent 能力或冻结角色不可调用时保持 BLOCKED，主会话不能冒充。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。
-- 合并后按 [语义门禁](references/gates.md#门禁三五语义审查阶段-41-人工评审前必须-passed) 汇总来源召回、影响证据、条件触发、结果断言和预期依据的 Jev 回执，写 `cases/semantic-review.json` 并运行 `phase_gate.py --phase semantic`。通过后按 [评审表生成契约](../prd-to-cases/references/review-table.md) 先取分片计划，再按片原样派发固定提示词，生成业务化文案并运行 `phase_gate.py --phase presentation`；主 Agent 核对真实派发与质量证据，门禁通过后才发布。低于阈值时补证据或修改后复核；缺陷探测型用例按 PRD 写断言，不按实测行为写。
+- 合并后按 [语义门禁](references/gates.md#门禁三五语义审查阶段-41-人工评审前必须-passed) 汇总来源召回、影响证据、条件触发、结果断言和预期依据的 Jev 回执，写 `cases/semantic-review.json` 并运行 `phase_gate.py --phase semantic`。通过后按 [评审表生成契约](../prd-to-cases/references/review-table.md) 先取分片计划，再按片原样派发固定提示词，生成业务化文案并运行 `phase_gate.py --phase presentation`；主 Agent 核对真实派发、映射及工作簿基础检查，门禁通过后才发布。语义低置信度时补证据或修改受影响项后复核；缺陷探测型用例按 PRD 写断言，不按实测行为写。
 - 范围内业务义务预期未明确、影响分析缺口或未授权关联范围保留记录并阻断全量执行；可交付 partial 材料，不通过删除义务提高覆盖。
 
 ## 4. 检查计划覆盖门禁
 
 - 先跑 `phase_gate.py --phase dispatch`，再读 [coverage-check](../coverage-check/SKILL.md) 跑 `coverage.py --phase design`：来源/影响/规则门禁通过，全部必需场景及关联用例 100% 有效，P0 100%。95% 仅保留为进度指标，不豁免必需项。
 - 将覆盖输出的 impactAnalysis 状态和缺口写入 manifest.gates.impactAnalysis，evidenceRef 指向 coverage-design.json；缺失或 BLOCKED 不能进入全量执行。脚本发布后再以真实 discovery 跑 plan，更新执行就绪证据。
-- 最多补齐两轮，仍不足交付缺口。
+- 默认只算一次；发现缺口才定向补齐，最多两轮，修改后复查受影响项并重算全量覆盖。独立复杂业务缺口可并行派 Agent；覆盖统计本身使用脚本。
 
 ## 4.1. 等待人工用例评审
 
@@ -119,7 +119,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 报告
 
-交付名称使用 `YYYYMMDD-功能名称-类型`，类型分别为「用例表」「执行结果表」「Bug列表」「测试汇总表」「测试报告」，例如 `20261104-审批意见-测试报告.md`。日期与功能名称按 [用例评审表规则](../prd-to-cases/SKILL.md#7-输出人工评审表) 确定，同一 run 的交付物使用相同日期和功能名称，文件保留各自格式扩展名。内部固定路径和已有累计表保持原样；生成对应交付副本并核对其内容。
+面向人员的用例 Excel 按 [用例评审表规则](../prd-to-cases/SKILL.md#7-输出人工评审表) 命名为 `功能名称用例(V版本号).xlsx`，版本取本轮实际冻结需求文档的最新版本；无法确认版本时使用 `功能名称用例.xlsx`，不因版本不明暂停交付。执行结果表、Bug 列表、测试汇总表和测试报告仍使用 `YYYYMMDD-功能名称-类型`。内部固定路径和已有累计表保持原样；交付人员时只展示命名副本并核对内容。
 
 report.md 从同一 JSON 事实生成，包含：
 
