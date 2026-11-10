@@ -70,6 +70,11 @@ class SemanticBatchTest(unittest.TestCase):
             write('cases/semantic-batch/0001.out.json', result)
             with self.assertRaisesRegex(ValueError, 'does not match'):
                 sb.assemble(root)
+            listed = sb.report(root)
+            self.assertEqual(listed['status'], 'REPORTED')
+            self.assertTrue(any(item['final'] == 0.4 for item in listed['below']))
+            with self.assertRaisesRegex(ValueError, 'already recorded'):
+                sb.prepare(root, root / 'subjects.json')
 
 
     def test_prepare_splits_on_the_full_request_body(self):

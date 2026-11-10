@@ -18,12 +18,24 @@ class CollectTest(unittest.TestCase):
         self.b = {**self.a, "taskId": "B", "attempt": 1}
 
     def test_collects_identical_candidates_with_provenance(self):
-        check = {"checkId": "C", "dimension": "data", "evidenceRef": "file:1", "objectId": "O"}
-        self.a["checks"] = [check]
-        self.b["checks"] = [dict(check)]
+        source = {"sourceId": "PRD", "kind": "prd", "sourceRef": "run://cases/sources/prd.md"}
+        self.a["sources"] = [source]
+        self.b["sources"] = [dict(source)]
+        self.a["checks"] = [{"checkId": "A-C1", "dimension": "data", "evidenceRef": "file:1", "objectId": "O"}]
         result = merge.collect(self.plan, [self.a, self.b])
-        self.assertEqual(result["status"], "READY_FOR_REVIEW")
-        self.assertEqual(result["candidates"]["checks"]["C"][0]["tasks"], ["A", "B"])
+        self.assertEqual(result["status"], "READY_FOR_REVIEW", result["errors"])
+        self.assertEqual(result["candidates"]["sources"]["PRD"][0]["tasks"], ["A", "B"])
+        self.assertEqual(result["candidates"]["checks"]["A-C1"][0]["tasks"], ["A"])
+
+    def test_task_prefixed_ids_and_prd_ref(self):
+        self.a["sourceUnits"] = [{"unitId": "U1", "disposition": "covered"}]
+        result = merge.collect(self.plan, [self.a, self.b])
+        self.assertTrue(any("A-U<n>" in item for item in result["errors"]))
+        self.a["sourceUnits"] = [{"unitId": "A-U1", "disposition": "maybe"}]
+        self.a["sources"] = [{"sourceId": "PRD", "kind": "prd", "sourceRef": "cases/sources/prd.md"}]
+        result = merge.collect(self.plan, [self.a, self.b])
+        self.assertTrue(any("invalid disposition" in item for item in result["errors"]))
+        self.assertTrue(any("run://" in item for item in result["errors"]))
 
     def test_conflicts_and_missing_receipts_do_not_disappear(self):
         self.a["checks"] = [{"checkId": "C", "reason": "one"}]

@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 import tempfile
 import unicodedata
@@ -12,6 +13,14 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus/scripts"))
 from case_contract import validate_steps
+
+CONTRACT = Path(__file__).resolve().parents[1] / "references" / "shared-contract.md"
+CONSTANT_FIXTURE = re.compile(
+    r"^(?:[A-Za-z_][\w.]*|[\u4e00-\u9fffA-Za-z0-9_]{1,16})\s*=\s*"
+    r"(?:[A-Za-z0-9_.\"'-]+|[\u4e00-\u9fffA-Za-z0-9_]{1,16})$")
+DELTA = re.compile(r"增量|比(?:原来|原先|之前|基线)多|(?:条数|数量|次数)(?:增加|变多)")
+BASELINE = re.compile(r"基线|当前条数|现有条数|读取条数|查询条数|记录条数")
+AC_CITE = re.compile(r"(?<![A-Za-z0-9])AC[-_][A-Za-z0-9.]+(?:-[A-Za-z0-9.]+)*")
 
 
 def digest(value):
@@ -68,15 +77,50 @@ def publish_bytes(target, content):
                     "publication conflicts with existing artifact: " + str(target))
 
 
-def validate_case(case, scenario_ids, review_status):
+def frozen_contract(plan, root):
+    names = [name for name in (plan.get("inputArtifacts") or {}) if name.endswith("shared-contract.md")]
+    if not names:
+        return
+    require(len(names) == 1, "multiple shared-contract.md inputs")
+    expected = file_hash(CONTRACT)
+    require(plan["inputArtifacts"][names[0]] == expected
+            and file_hash(safe_path(root, names[0])) == expected,
+            "shared-contract.md drifted from the skill")
+
+
+def contract_traps(case, task):
+    fixtures = case.get("fixtures") or []
+    steps = case["steps"]
+    if (fixtures and all(isinstance(item, str) and CONSTANT_FIXTURE.match(item.strip()) for item in fixtures)
+            and not any(step.get("kind") == "setup" for step in steps)):
+        raise ValueError(case["caseId"] + ": precondition is a constant; add the action that establishes it")
+    positions = {step["id"]: index for index, step in enumerate(steps)}
+    for assertion in case["assertions"]:
+        expected = assertion.get("expected") or ""
+        if "记录保留" in expected:
+            raise ValueError(case["caseId"] + ": unobservable assertion: 记录保留")
+        if DELTA.search(expected):
+            index = positions.get(assertion.get("stepId"), -1)
+            if not any(BASELINE.search(step.get("action") or "") for step in steps[:index + 1]):
+                raise ValueError(case["caseId"] + ": delta assertion has no baseline step")
+    allowed = task.get("acIds")
+    if isinstance(allowed, list):
+        cited = set(AC_CITE.findall(json.dumps(case, ensure_ascii=False)))
+        extra = cited - set(allowed)
+        if extra:
+            raise ValueError(case["caseId"] + ": AC outside this slice: " + ",".join(sorted(extra)))
+
+
+def validate_case(case, task, review_status):
     require(case["schemaVersion"] == 1 and case["reviewStatus"] == review_status,
             "case review status must be " + review_status)
     require(case["suite"] in ("ui", "api", "performance", "security")
             and case["priority"] in ("P0", "P1", "P2", "P3")
             and isinstance(case["fixtures"], list), "invalid case fields")
     assigned = unique(case["scenarioIds"], "case scenarios")
-    require(assigned and assigned <= set(scenario_ids), "case outside task scope")
+    require(assigned and assigned <= set(task["scenarioIds"]), "case outside task scope")
     validate_steps(case["steps"], case["assertions"])
+    contract_traps(case, task)
     return assigned
 
 
@@ -112,6 +156,8 @@ def validate_plan(plan):
         require(tid.isascii() and all(c.isalnum() or c in "_-" for c in tid), "invalid taskId")
         assigned = unique(task["scenarioIds"], "assigned scenarios")
         cases = unique(task["caseIds"], "assigned cases")
+        if "acIds" in task:
+            unique(task["acIds"], "task acIds")
         deps = unique(task["dependsOn"], "dependencies")
         files = unique(task["outputFiles"], "outputFiles")
         path_names([*files, "result.json"])
@@ -154,6 +200,7 @@ def evaluate(plan, state, root):
             "invalid active tasks")
     for name, expected in plan["inputArtifacts"].items():
         require(file_hash(safe_path(root, name)) == expected, "changed frozen input: " + name)
+    frozen_contract(plan, root)
     completed, cases, artifacts = {}, [], {}
     for tid in ordered:
         task = tasks[tid]
@@ -195,7 +242,7 @@ def evaluate(plan, state, root):
                 "case assignment mismatch: " + tid)
         covered = set()
         for case in shard_cases:
-            covered |= validate_case(case, task["scenarioIds"], "draft")
+            covered |= validate_case(case, task, "draft")
             validate_automation_ref(case, task, attempts[tid], receipt["files"], plan.get("phase", "legacy"))
         require(covered == set(task["scenarioIds"]), "unrepresented assigned scenarios: " + tid)
         completed[tid] = receipt["resultHash"]
@@ -212,6 +259,7 @@ def evaluate(plan, state, root):
 def seal(plan, state, root, task_id, gaps):
     """Write result.json from files the worker already put in its attempt directory."""
     tasks, _ = validate_plan(plan)
+    frozen_contract(plan, root)
     require(plan.get("phase") == "cases", "seal supports the cases phase")
     require(task_id in tasks, "unknown task")
     task = tasks[task_id]
@@ -236,7 +284,7 @@ def seal(plan, state, root, task_id, gaps):
             "case assignment mismatch")
     covered = set()
     for case in shard_cases:
-        covered |= validate_case(case, task["scenarioIds"], "draft")
+        covered |= validate_case(case, task, "draft")
         validate_automation_ref(case, task, attempt, files, "cases")
     require(covered == set(task["scenarioIds"]), "unrepresented assigned scenarios")
     dependency_hashes = {}

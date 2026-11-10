@@ -52,7 +52,7 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 ## 3.1 worker 输入包与工具预算
 
-派发前，主 Agent 为每个任务写 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的用例骨架，以及这些 caseId 在影响分析里已经定位的证据窗口（`文件:起始-结束`，每条不超过 3 行）。每个任务包逐项列出关联 AC 的 Given 和 Then，以及分配 caseId；每个 Given 必须落实到 fixtures 或步骤，每个 Then 必须有对应业务断言。场景缺少 AC 关联时，先追溯并补齐；来源没有明确 AC 的，依据原文建立可追溯 AC，规则不明则列待确认，不凭空补预期。任务包附最小有效契约示例：`suite` 只能是 `ui`、`api`、`performance`、`security`；步骤 `kind` 为 `action`、`setup` 或 `cleanup`；仅准备/清理步骤可用非空字符串 `assertionExemption` 说明豁免。按场景和步骤复杂度平衡分组，避免单组明显过重。
+派发前，主 Agent 把 [共享契约](shared-contract.md) 原样复制到 `cases/generation/frozen/shared-contract.md`，哈希写入 inputArtifacts，不改写。每个任务写 `acIds`，只列本片 AC。再为每个任务写 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的用例骨架、冻结的共享契约，以及这些 caseId 在影响分析里已经定位的证据窗口（`文件:起始-结束`，每条不超过 3 行）。每个任务包逐项列出关联 AC 的 Given 和 Then，以及分配 caseId；每个 Given 必须落实到 fixtures 或步骤，每个 Then 必须有对应业务断言。场景缺少 AC 关联时，先追溯并补齐；来源没有明确 AC 的，依据原文建立可追溯 AC，规则不明则列待确认，不凭空补预期。任务包附最小有效契约示例：`suite` 只能是 `ui`、`api`、`performance`、`security`；步骤 `kind` 为 `action`、`setup` 或 `cleanup`；仅准备/清理步骤可用非空字符串 `assertionExemption` 说明豁免。按场景和步骤复杂度平衡分组，避免单组明显过重。
 
 任务输入同时指出必须保留的数量词、其作用对象及已确认的接收集合；worker 不得把「任一人可以完成」改成「仅一人收到」。整份 PRD、影响分析、场景全集、上一轮全量用例和整篇探索回执留在冻结源里，不放进任务书的阅读清单。
 
@@ -72,7 +72,7 @@ worker 写完 outputFiles 后运行 `python3 <本技能>/scripts/generation.py <
 
 脚本检查全部分片、输入/输出哈希、依赖、文件所有权、唯一 ID、场景集合、步骤断言及入口文件。所有任务完整才给生成 status=PASSED。用 `--merge <新的输出路径>` 写合并的 draft 用例数组；输出相同字节时幂等成功，异内容拒绝覆盖；只规范化 JSON 格式与排序，不自动补写或改写 draft、审批状态和关键引用。缺少 phase 的旧计划仍按旧版文件入口契约校验，迁移必须创建新计划。该状态仅代表生成结构完整，不代表覆盖或业务测试通过。
 
-主 Agent 先停止所有 worker 写入，再运行合并，保留合并后的 cases.json。随后按 prd-to-cases 第 5 节对照来源核对遗漏，只为原文已经写明的遗漏 ID 追加生成，再出评审表。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现在脚本发布后执行。人工评审通过即接受执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
+主 Agent 先停止所有 worker 写入，再运行合并，保留合并后的 cases.json。seal 会拒绝常量前置、断言中的「记录保留」、没有基线步骤的增量，以及任务 `acIds` 以外的 AC 编号。随后按 prd-to-cases 第 5 节对照来源核对遗漏，只为原文已经写明的遗漏 ID 追加生成。辅助 Jev 在这次合并后按第 5 节只跑一次。再出评审表。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现在脚本发布后执行。人工评审通过即接受执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
 
 ## 阶段交接准备
 

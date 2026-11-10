@@ -56,7 +56,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 3. 冻结场景并生成用例
 
-- 读 [prd-to-cases](../prd-to-cases/SKILL.md)，先完成多来源与跨模块影响分析、明确测试义务及未知规则，再提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。核对表格、Markdown 与 JSON 一致。
+- 读 [prd-to-cases](../prd-to-cases/SKILL.md)，先完成多来源与跨模块影响分析、明确测试义务及未知规则，再提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。核对表格、Markdown 与 JSON 一致。AC 与影响分析用 prd-to-cases 的 `assemble_baseline.py` 装配，cover 通过后才写 impact-analysis.json。用例按冻结的 shared-contract 生成。合并后的辅助 Jev 只跑一次并只记低分。渲染后先跑 `publish_review.py --precheck`。
 - 影响探索按 prd-to-cases 的复杂度规则采用单 Agent 或 generation 子 Agent 并行，完成跨任务依赖合并与复核后才冻结场景；冲突复核仍用 reasoning。此调度独立于后续用例生成。基线工作树只建一次，探索任务按互斥对象切分，worker 只按任务书中的行号取证。用例生成和评审表分片只读本任务输入包里的 caseId 骨架与证据行号，不读仓库和 PRD 全文。
 - 此阶段只设计和生成用例，不判断或执行 MySQL 核验；在执行每条用例前再判断是否需要数据库配合。页面地图和 runner discovery 在第 4.2 阶段生成；设计覆盖使用 planned 入口，不为评审交付提前构造地图、安装 runner 或执行目标探测。
 - 用例与脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取，分两阶段、不混批：本阶段**只生成用例**（按 prd-to-cases 的分组契约分配场景，产出 cases.json + notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 写完分片文件后运行 `generation.py --seal` 生成 result.json。生成完整性未通过时交付缺口，全部生成任务完成后才能进入评审表。
