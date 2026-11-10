@@ -169,7 +169,7 @@ class ReviewTableTest(unittest.TestCase):
         reviewed[2]['caseId'] = 'C1'
         self.assertTrue(any(r['status'] == 'identity_conflict' for r in module.compare(old, reviewed, mapping)))
 
-    def test_presentation_flags_internal_details_without_blocking_api_cases(self):
+    def test_presentation_hides_protocol_and_sample_ids_from_reviewers(self):
         spec = importlib.util.spec_from_file_location('render', SCRIPT)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -184,18 +184,32 @@ class ReviewTableTest(unittest.TestCase):
         issues = module.presentation_issues(content, source)
         self.assertTrue(any('FA-ADMIN' in s for s in issues))
         self.assertTrue(any('AR-930a49fc' in s for s in issues))
-        self.assertTrue(any('GET /bpm/model/get' in s for s in issues))
+        self.assertTrue(any('C1 ' in s and 'GET /bpm/model/get' in s for s in issues))
+        self.assertTrue(any('C2 ' in s and 'GET /bpm/model/get' in s for s in issues))
         self.assertTrue(any('notes[1]' in s for s in issues))
-        self.assertFalse(any('C2 ' in s for s in issues))
         content['cases'][0].update(fixtures=['管理员已登录'], steps=['进入模型设置，查看开关'])
+        content['cases'][1]['steps'] = ['未登录时查看该模型']
         content['notes'][0]['question'] = '再次提交时使用哪个版本？'
         self.assertEqual(module.presentation_issues(content, source), [])
-        content['cases'][0]['steps'] = ['GET /bpm/model/get']
+        content['cases'][0]['steps'] = ['使用 FA-ADMIN 查看开关']
         content['cases'][0]['technicalExceptions'] = [{'field': 'steps', 'index': 1,
-            'token': 'GET /bpm/model/get', 'reason': '接口为测试对象', 'evidenceRef': 'cases.json:C1'}]
+            'token': 'FA-ADMIN', 'reason': '页面上原样展示该账号', 'evidenceRef': 'cases.json:C1'}]
         self.assertEqual(module.presentation_issues(content, source), [])
         content['cases'][0]['technicalExceptions'][0]['evidenceRef'] = ''
         self.assertTrue(module.presentation_issues(content, source))
+        content['cases'][1]['steps'] = ['GET /bpm/model/get']
+        content['cases'][1]['technicalExceptions'] = [{'field': 'steps', 'index': 1,
+            'token': 'GET /bpm/model/get', 'reason': '接口为测试对象', 'evidenceRef': 'cases.json:C2'}]
+        self.assertTrue(any('C2 ' in s and 'GET /bpm/model/get' in s
+                            for s in module.presentation_issues(content, source)))
+        content['cases'][1]['steps'] = [
+            '提交申请 SUB-07',
+            '调用时传入 {"id":"<taskId>","rejectMethod":"CONTINUE_FROM_CURRENT_NODE"}']
+        leaked = module.presentation_issues(content, source)
+        self.assertTrue(any('SUB-07' in s for s in leaked))
+        self.assertTrue(any('{"id":' in s for s in leaked))
+        self.assertTrue(any('CONTINUE_FROM_CURRENT_NODE' in s for s in leaked))
+        self.assertTrue(any('taskId' in s or 'rejectMethod' in s for s in leaked))
 
     def test_review_density_rejects_walkthrough_but_keeps_any_one_approval_rule(self):
         spec = importlib.util.spec_from_file_location('render', SCRIPT)
@@ -264,7 +278,7 @@ class ReviewTableTest(unittest.TestCase):
         spec.loader.exec_module(module)
         source = {'cases': [{'caseId': 'C1', 'suite': 'api'}]}
         row = {'caseId': 'C1', 'group': '并发', 'title': '并发重试', 'fixtures': [],
-               'steps': ['GET /api/orders；并发时序边界' + '并发时序边界' * 50], 'expected': []}
+               'steps': ['三名审批人按固定时序重试；' + '并发时序边界' * 50], 'expected': []}
         self.assertTrue(module.presentation_issues({'cases': [row]}, source))
         row['densityExceptions'] = {'steps': {'reason': '必要步骤', 'sourceRefs': []}}
         self.assertTrue(module.presentation_issues({'cases': [row]}, source))

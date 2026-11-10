@@ -62,24 +62,32 @@ REVIEW_LINE_BUDGET = {
     'steps': (WIDTH_MAIN[3], 10), 'expected': (WIDTH_MAIN[4], 12),
 }
 
-# 只定位可核对的疑似技术信息；业务必要性仍由评审者判断。
+# 人员评审表里一律不出现的执行细节；technicalExceptions 不能放行。
+ALWAYS_HIDDEN = re.compile(
+    r'\b(?:GET|POST|PUT|PATCH|DELETE)\s+/[\w/{}<>?=&.-]+'
+    r'|(?<![A-Za-z0-9])(?!AR-)[A-Z]{2,}-\d+\b'
+    r'|\{[^{}\n]{0,180}?["\']?[A-Za-z_][A-Za-z0-9_]*["\']?\s*:'
+    r'|\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){2,}\b'
+    r'|\b[a-z]{2,}(?:[A-Z][a-z0-9]+)+\b'
+)
+# 疑似内部记号；页面上必须原样核对时，可用 technicalExceptions 放行。
 TECHNICAL = re.compile(
-    r'\b(?:GET|POST|PUT|PATCH|DELETE)\s+/[\w/{}<>?=.-]+'
-    r'|\b(?:FA-(?:ADMIN|STARTER|APPROVER(?:_[A-Z]+)?|OUTSIDER))\b'
+    r'\b(?:FA-(?:ADMIN|STARTER|APPROVER(?:_[A-Z]+)?|OUTSIDER))\b'
     r'|\bAR-[0-9a-fA-F]{8}(?:-[\w-]+)?\b'
     r'|\b(?:[a-z]+:[a-z]+:[a-z]+|tenant-id|aria-checked)\b'
-    r'|\b(?:[a-z][A-Za-z0-9]*(?:Id|Ids|Info|Status|Version|Ref|Hash)|processDefinition)\b'
     r'|\b(?:cases|semantic-review|impact-analysis)\.(?:json|md)\b'
     r'|\b(?:AC|OB|SC|C)-[A-Z0-9]+(?:-[A-Z0-9]+)+\b'
 )
 
 
 def presentation_issues(content, source):
-    """检查评审密度和疑似技术泄漏；业务必要性由主 Agent 对照来源复核。"""
-    cases = {case['caseId']: case for case in source['cases']}
+    """检查评审密度和疑似技术泄漏；业务必要性由主 Agent 对照来源复核。
+
+    source 保留给调用方传入的冻结用例；主表不因 suite 放行接口细节。
+    """
+    del source
     issues = []
     for row in content['cases']:
-        case = cases.get(row['caseId'], {})
         density = row.get('densityExceptions') or {}
         if not isinstance(density, dict):
             issues.append(f"{row['caseId']}: densityExceptions 必须按字段记录")
@@ -105,11 +113,11 @@ def presentation_issues(content, source):
             values = row.get(field, [])
             values = values if isinstance(values, list) else [values]
             for index, value in enumerate(values, 1):
-                for match in TECHNICAL.finditer(str(value)):
+                text = str(value)
+                for match in ALWAYS_HIDDEN.finditer(text):
+                    issues.append(f"{row['caseId']} {field}[{index}]: {match.group()}")
+                for match in TECHNICAL.finditer(text):
                     token = match.group()
-                    # 纯 API、安全或性能用例的协议与字段可能正是被测对象。
-                    if case.get('suite') in ('api', 'security', 'performance'):
-                        continue
                     allowed = any(e.get('field') == field and e.get('index') == index and
                                   e.get('token') == token and str(e.get('reason', '')).strip() and
                                   str(e.get('evidenceRef', '')).strip()
@@ -118,7 +126,10 @@ def presentation_issues(content, source):
                         issues.append(f"{row['caseId']} {field}[{index}]: {token}")
     for index, note in enumerate(content.get('notes') or [], 1):
         for field in ('category', 'question', 'action'):
-            for match in TECHNICAL.finditer(str(note.get(field, ''))):
+            text = str(note.get(field, ''))
+            for match in ALWAYS_HIDDEN.finditer(text):
+                issues.append(f"notes[{index}] {field}: {match.group()}")
+            for match in TECHNICAL.finditer(text):
                 issues.append(f"notes[{index}] {field}: {match.group()}")
     return issues
 
