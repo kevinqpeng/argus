@@ -8,7 +8,7 @@
 
 sourceUnits 按独立规则和原表行建立，不以“入口/配置/记录”等模块摘要代替。每项保存 `sourceExcerpt` 原文及 `evidenceRef` 的章节/行/单元格；从同一冻结快照读回，核对定位和片段一致。相同规则可共享义务，但保留各来源行；标题、前置条件、预期互相矛盾时保留冲突，不按标题推定已覆盖。
 
-清单先写成 TSV，再运行 `python3 <本技能>/scripts/source_units.py <units.tsv> -o <runDir>/cases/sources/units.json`。表头固定为 `unitId`、`sourceIds`、`sourceExcerpt`、`evidenceRef`、`disposition`、`obligationIds`、`reason`、`reviewRef`；两个 ID 列用 `|` 分隔。不要手写这份 JSON。最终 `impact-analysis.json` 仍按 prd-to-cases 装配顺序，在 cover 通过后由 `assemble_baseline.py impact` 从合并候选写出。
+清单先写成 TSV，再运行 `python3 <本技能>/scripts/source_units.py <units.tsv> -o <runDir>/cases/sources/units.json`。表头见 [脚本速查](script-cheatsheet.md)。不要手写这份 JSON。最终 `impact-analysis.json` 仍按 prd-to-cases 装配顺序，在 cover 通过后由 `assemble_baseline.py impact` 从合并候选写出。
 
 冻结前从原文分段批量调用 `source_inventory`：每段提供完整 `sourceContent`、对应 sourceUnits 和 obligations，不提供仅由用例反推的摘要。检查例外、状态转换和失败分支是否进入义务；在段落边界保留关联规则上下文。回执写入现有探索材料，sourceUnit.reviewRef 指向该回执及宿主核查。no/uncertain 先找缺项并补齐或标 unknown；来源清单全部有处置才完成。原文未读或缺附件时不能因已登记项100%而宣布来源完整。
 
@@ -31,7 +31,7 @@ sourceUnits 按独立规则和原表行建立，不以“入口/配置/记录”
 
 ### 冻结生产稳定业务基线
 
-在被测项目中一次解析代表线上稳定业务的 main 引用，记录仓库、引用名和完整 40 位提交 SHA。然后只运行一次 `python3 <本技能>/scripts/baseline_worktree.py <仓库> <SHA> <runDir>/baseline`。脚本在该提交上添加 detached worktree；同一路径已是该 SHA 时直接复用。之后本轮只读这个目录，用 `rg` 定位、用 `sed -n` 按行号取窗口。禁止对单个文件循环 `git show <SHA>:<path>`。证据仍写 `仓库@SHA:路径` 及行段，来源哈希按该提交的原始文件字节计算。复核和恢复读取同一工作树；main 后续移动不改变本轮基线。缺少可验证的 main 时保留 PRD 可证实的义务，相关依赖标 unknown 并列出缺口。
+在被测项目中一次解析代表线上稳定业务的 main 引用，记录仓库、引用名和完整 40 位提交 SHA。然后只运行一次 `python3 <本技能>/scripts/baseline_worktree.py <仓库> <SHA> <runDir>/baseline`。脚本在该提交上添加 detached worktree；同一路径已是该 SHA 时直接复用。之后本轮只读这个目录取证。符号定位见 [探索调度](impact-exploration.md)。取到行号后用 `sed -n` 摘不超过 3 行的窗口。禁止对单个文件循环 `git show <SHA>:<path>`。证据仍写 `仓库@SHA:路径` 及行段，来源哈希按该提交的原始文件字节计算。复核和恢复读取同一工作树；main 后续移动不改变本轮基线。缺少可验证的 main 时保留 PRD 可证实的义务，相关依赖标 unknown 并列出缺口。
 
 设计只使用 PRD 与该快照，不检索目标 PR、需求提交、共享测试分支或工作区差异。impactHash 绑定上述来源与六维分析结果。实际环境记录留在评审后的探索证据中；只有正式采纳新规则或更换设计基线时才更新设计材料并按原门禁评审。
 

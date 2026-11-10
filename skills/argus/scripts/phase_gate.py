@@ -197,8 +197,8 @@ class Gate:
             self.need(isinstance(receipt.get(key), str) and bool(receipt[key].strip()), f'展示回执缺少 {key}')
         from render_review_table import SLICE_CAP, prompt_text, slice_case_ids
         cases = read_json(self.run_dir / 'cases/cases.json')
-        if isinstance(cases, list) and (len(cases) > SLICE_CAP or 'shards' in receipt):
-            expected = slice_case_ids([item.get('caseId') for item in cases])
+        expected = slice_case_ids(cases) if isinstance(cases, list) and cases else []
+        if len(expected) > 1 or 'shards' in receipt:
             plan = read_json(safe_path(self.run_dir, f'{base}/plan.json')) or {}
             planned = [row.get('caseIds') for row in plan.get('slices') or []]
             self.need(planned == expected, '评审表分片计划与脚本容量不一致，先运行 render_review_table.py --plan-slices')

@@ -57,6 +57,8 @@ THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
 SLICE_CAP = 8
+# 条数硬上限之外的内容预算：八条只有 caseId 的短用例仍是一片；步骤和断言多的用例提前换片。
+SLICE_WEIGHT = 48
 # 评审密度独立于 Excel 的 409 pt 容量；超预算需来源支持的逐字段例外。
 REVIEW_LINE_BUDGET = {
     'title': (WIDTH_MAIN[1], 2), 'fixtures': (WIDTH_MAIN[2], 6),
@@ -154,24 +156,58 @@ def load_run(run_dir):
     return data
 
 
-def slice_case_ids(case_ids, cap=SLICE_CAP):
-    """Keep source order. A short list stays one slice; a longer list is cut at cap."""
-    if (not isinstance(case_ids, list) or not case_ids
-            or any(not isinstance(item, str) or not item for item in case_ids)
-            or len(case_ids) != len(set(case_ids))):
+def case_weight(case):
+    """One unit per step or assertion. Long text adds a unit per extra 80 characters."""
+    if not isinstance(case, dict):
+        return 1
+    weight = 0
+    for key, field in (("steps", "action"), ("assertions", "expected")):
+        rows = case.get(key) or []
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            text = row.get(field) if isinstance(row, dict) else ""
+            weight += max(1, (len(text) + 79) // 80) if isinstance(text, str) and text else 1
+    return max(1, weight)
+
+
+def slice_case_ids(cases, cap=SLICE_CAP, weight_budget=SLICE_WEIGHT):
+    """Source order. cap is the hard count. Weight splits slices that hold long cases."""
+    if not isinstance(cases, list) or not cases:
         raise ValueError('用例 ID 无效')
-    if len(case_ids) <= cap:
-        return [list(case_ids)]
-    return [list(case_ids[i:i + cap]) for i in range(0, len(case_ids), cap)]
+    items = []
+    for item in cases:
+        if isinstance(item, str) and item:
+            items.append((item, 1))
+        elif isinstance(item, dict) and isinstance(item.get("caseId"), str) and item["caseId"]:
+            items.append((item["caseId"], case_weight(item)))
+        else:
+            raise ValueError('用例 ID 无效')
+    if len(items) != len({case_id for case_id, _ in items}):
+        raise ValueError('用例 ID 无效')
+    if len(items) <= cap and sum(weight for _, weight in items) <= weight_budget:
+        return [[case_id for case_id, _ in items]]
+    slices, current, current_weight = [], [], 0
+    for case_id, weight in items:
+        if current and (len(current) >= cap or current_weight + weight > weight_budget):
+            slices.append(current)
+            current, current_weight = [], 0
+        current.append(case_id)
+        current_weight += weight
+    if current:
+        slices.append(current)
+    return slices
 
 
 def write_slice_plan(run_dir, round_id):
     if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
         raise ValueError('展示轮次无效')
     cases = json.loads((run_dir / 'cases/cases.json').read_text(encoding='utf-8'))
-    plan = {'schemaVersion': 1, 'cap': SLICE_CAP, 'slices': [
-        {'name': f'{index:02d}', 'caseIds': chunk}
-        for index, chunk in enumerate(slice_case_ids([case['caseId'] for case in cases]), 1)]}
+    plan = {
+        'schemaVersion': 1, 'cap': SLICE_CAP, 'weightBudget': SLICE_WEIGHT,
+        'lineBudgets': {name: limit for name, (_, limit) in REVIEW_LINE_BUDGET.items()},
+        'slices': [{'name': f'{index:02d}', 'caseIds': chunk}
+                   for index, chunk in enumerate(slice_case_ids(cases), 1)]}
     path = run_dir / 'cases/presentation' / round_id / 'plan.json'
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps(plan, ensure_ascii=False, indent=2) + '\n'
@@ -464,7 +500,7 @@ def main():
     ap.add_argument('--case-ids', nargs='+', help='自检或输入提取：本分片分配的有序 caseId')
     ap.add_argument('--round', default='1')
     ap.add_argument('--out-dir', type=pathlib.Path)
-    ap.add_argument('--plan-slices', action='store_true', help='按源顺序写出展示分片计划')
+    ap.add_argument('--plan-slices', action='store_true', help='按源顺序和内容体量写出展示分片计划')
     ap.add_argument('--fill-receipt', action='store_true', help='写入固定提示词和产物哈希')
     args = ap.parse_args()
     if args.case_ids and not (args.check_only or args.print_input):
