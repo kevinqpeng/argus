@@ -111,6 +111,9 @@ class ReviewTableTest(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             subprocess.run([sys.executable, str(SCRIPT), str(root)], check=True, capture_output=True)
+            # 展示门禁与发布脚本要求本轮目录与 cases/ 的同一份字节，避免二次渲染漂移
+            self.assertEqual((presentation / 'cases.xlsx').read_bytes(), (cases / 'cases.xlsx').read_bytes())
+            self.assertEqual((presentation / 'cases.md').read_bytes(), (cases / 'cases.md').read_bytes())
             workbook = load_workbook(cases / 'cases.xlsx')
             self.assertEqual(workbook.sheetnames, ['用例主表', '待确认事项'])
             self.assertEqual([c.value for c in workbook['待确认事项'][1]], ['类别', '待确认内容', '建议处理'])
@@ -321,6 +324,8 @@ class ReviewTableTest(unittest.TestCase):
                        'promptHash': hashlib.sha256(prompt.encode()).hexdigest(),
                        'artifactHashes': {ref: sha(ref) for ref in refs}}
             write('cases/presentation/1/receipt.json', json.dumps(receipt))
+            write('cases/cases.xlsx', 'workbook')
+            write('deliverables/审批驳回后重新发起用例(V0.3).xlsx', 'workbook')
             filled = subprocess.run([sys.executable, str(SCRIPT), str(root), '--fill-receipt'], capture_output=True, text=True)
             self.assertEqual(filled.returncode, 0, filled.stderr)
             command = [sys.executable, str(SKILLS / 'argus/scripts/phase_gate.py'), str(root), '--phase', 'presentation']
