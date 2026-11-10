@@ -41,7 +41,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 1. 登记输入与运行身份
 
-- 登记 PRD 来源，按[影响分析规则](../prd-to-cases/references/impact-analysis.md#冻结生产稳定业务基线)冻结被测项目的 main@SHA；完成 run 配置后，在第 3 阶段由独立采集子 Agent 读取 PRD 并登记来源指纹与缺口。
+- 登记 PRD 来源，按[影响分析规则](../prd-to-cases/references/impact-analysis.md#冻结生产稳定业务基线)冻结被测项目的 main@SHA；完成 run 配置后，在第 3 阶段按来源采集路由读取 PRD 并登记来源指纹与缺口。
 - 没有源码项目也可测试，记录应用或服务版本、PRD 哈希、目标与预算，不要求用户提供项目路径。
 - 按 [新 run 复用入口](../setup-argus/SKILL.md#新-run-复用入口) 读取已有项目配置，取得唯一 runId 和仓库外 workspacePath，再写 manifest；只有首次或缺项才做相应 setup。
 - 设计阶段不探测测试站或要求账号就绪。
