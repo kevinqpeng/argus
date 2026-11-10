@@ -30,7 +30,8 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 - 按功能、角色、前置条件、业务规则、状态转换、异常及非目标提取 RequirementAC。
 - 每项测试义务映射到 AC；sourceId/sourceHash 绑定其实际来源，sourceRef 定位文件和行/段落。PRD 外业务规则单独标识，源码现状不自动充当预期。
-- 保留原文的量词和数量范围。区分「谁有资格/任一人处理即可」与「任务分配给谁、共几条」：前者规定可执行人或完成条件，不能单独推出只分配一人或恰好一条待办。只有来源明确给出数量、接收人集合或分配策略时，AC 才写相应数量和集合；否则标为待确认，并在确认前不生成更强的预期。
+- 保留原文的量词和数量范围。区分「谁有资格/任一人处理即可」与「任务分配给谁、共几条」：前者规定可执行人或完成条件，不能单独推出只分配一人或恰好一条待办。只有来源明确给出数量、接收人集合或分配策略时，AC 才写相应数量和集合；否则标为待确认，并在确认前不生成更强的预期。来源只给出分配策略而没有具体接收人时，AC 和断言写策略（如「按人员配置分配给其中一名」），不自行补出「双方都可见」这类更强结论；展示用语另按 [语言风格示例](references/review-table.md) 处理。
+- 编号规则、术语定义和数据影响行与表头规则同等对待：每条都要有来源单元、义务和 AC。跨角色或跨路径判定的组合规则（如「转办处理人驳回 + 调整后路径不经过其节点」）单独成项，不靠其他规则的用例顺带覆盖；背景、目标或非目标里重复表述的条款在 `cases/rule-coverage.json` 记 `duplicate` 并写明对应的规则行。
 - 场景冻结前按 [义务与 AC 双向核对](references/impact-analysis.md#义务与-ac-双向核对) 对照来源逐项检查关联及遗漏。
 - 缺 AC 可基于原文起草，业务未知标 needs_clarification。
 
@@ -51,6 +52,7 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 - 一个独立可验证行为一个场景。按适用性覆盖正常、异常、边界、权限、幂等、重试、并发、状态和输入校验。
 - 对每项需求检查是否存在共享资源或状态竞争、重复提交/重复请求、超时重试或重复消息等业务边界。结合 PRD、业务规则和已有证据判断适用性，记录依据；不适用记录原因，规则或预期不明标 needs_clarification，不自行假设业务结果。
 - 适用时在冻结基线前补充对应场景与用例：明确操作主体、共享对象、并发或重复方式、前置数据、预期响应及最终业务状态，分别断言关键副作用的次数和状态。需要同时竞争时在单条用例内安排并发操作；普通分片并行和测试失败重试不能替代业务并发或重复操作验证。
+- 冻结场景前写组合矩阵 `cases/coverage-matrix.json`：声明决定行为的维度及取值（如触发角色、处理方式、路径判定），逐格标 `covered`（附 caseIds）、`not_applicable`、`out_of_scope`、`unknown` 或 `gap` 并写明理由。矩阵取维度取值的完整笛卡尔积，空格不得留白；组合规则的真漏通常就落在格子缺失或整格被跳过。结构为 `{"dimensions":[{"name":"触发角色","values":["原审批人","转办接手人"]}],"coveredBy":[{"caseIds":["CASE-X"],"values":{"触发角色":"原审批人"}}],"cells":[{"values":{...},"status":"not_applicable","reason":"..."}]}`：用例命中哪些取值写在 `coveredBy`，由脚本展开成格子；不适用、未知和缺口用 `cells` 显式声明。矩阵上限 60 格，超出时减少取值或拆矩阵，确有必要才加 `--allow-large-matrix`。
 - P0 按已确认的核心流程、资金/关键数据、严重权限边界定级，保留理由。
 - 冻结前执行 [形式化路由](../decision-router/references/formal-routing.md)，选中时调用 Argus 的形式化子技能并接收反例及边界义务。将其映射到来源 AC 和真实用例，未确认的业务规则保持 needs_clarification。已有同指纹路由和模型证据直接复用，不重复运行。
 
@@ -60,6 +62,7 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 
 - 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。
 - 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（cases.json + notes.md），不写 spec。切分粒度按 AC 域，任务数按工作量、依赖和启动成本确定，允许单组，并按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再核对遗漏。生成分片必须齐全，所有必需场景和用例均须完整。
+- 用例粒度按「可独立判定的断言簇」：同一 AC 内的正向、反向、边界和角色差异分别成条，一条 AC 可对应多条用例；不为了与 AC 一一对应把多个校验点压进一条，每条断言失败都应能直接定位到单一规则。
 - 各用例有 fixtures、步骤、步骤绑定断言和 suite；按[回执和合并](references/parallel-generation.md#4-回执和合并)为每个业务步骤绑定断言、解释准备/清理豁免并回收未覆盖义务。脚本尚未生成时 automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`，文件在脚本阶段按此名落盘，标题逐字一致。
 - 用例先行、脚本后置：脚本按人工评审通过的用例分批生成，避免用例改一轮、脚本白写一轮。
 - 源码标注稳定 caseId。
@@ -71,6 +74,8 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 
 - 先通过 dispatch，来源和影响回执未变则复用。
 - 生成回执里的未覆盖义务，以及没有场景或没有用例的验收标准：原文和预期已经写明的，只为这些 ID 追加生成。预期不明、冲突或 needs_clarification 不编造，写入待确认事项。
+- 出表前运行 `python3 <本目录>/scripts/coverage_check.py <runDir> [--previous <历史评审表.xlsx>]`：核对 AC→场景→用例→断言、编号规则行→来源单元→义务→AC、组合矩阵的缺口与未定论单元、断言里的人员量词（双方、均可、每人…）是否有 AC 的同类口径，并与本项目既有同名评审表做差集。量词口径确实未定且已进待确认事项时，写 `cases/quantifier-exclusions.json`（`caseId`+`token`+`reason`）。BLOCKED 时补用例、补矩阵格，或把没有来源单元链路的编号条款写进 `cases/rule-coverage.json`（`covered_elsewhere`、`duplicate`、`not_applicable`、`out_of_scope`，均需理由）。
+- 差集必须落到 `cases/history-diff.md`，逐条分类缺失、粒度、多余或冲突并说明本轮处置；先对齐行数口径（历史表的「（续）」行不是独立用例）。
 - 对照 AC 的 Given/Then 核对测试数据、步骤和断言；原文明确的遗漏补齐。未知、冲突或影响探索发现但未解决的问题写入待确认事项供人工评审，不编造预期。已有实现与规则冲突写观察，不改成正确预期。
 - 合并通过后，辅助 Jev 最多跑一次全量（`semantic_batch.py` 的 prepare、request、record、assemble）。同一 inputHash 再次 prepare 会失败。接着运行 `semantic_batch.py <runDir> report`。final 低于 0.8 的主体各写一条待确认：问题写业务疑问，分数留在 semantic-review.json。低分不改用例，也不再派生成。缺步骤、缺断言和 [共享契约](references/shared-contract.md) 的三条陷阱由 `generation.py` 在 seal 时失败，只重修该分片。入口用声明式 automationRef。人工评审通过即接受执行。未知检查、待确认事项和独立复核保留，不为了缩短墙钟删掉。
 
@@ -91,6 +96,7 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 
 ## 完成条件
 
-- 完成：每个场景可追到已确认的 PRD、业务规则或影响义务，全部必需用例有声明式 planned 入口和有效断言，范围内义务预期明确且影响门禁通过，JSON 与人工评审表一致；`deliverables/` 中恰有一个命名的「功能名称用例(V版本).xlsx」且与 `cases/cases.xlsx` 同字节。
+- 完成：每个场景可追到已确认的 PRD、业务规则或影响义务，全部必需用例有声明式 planned 入口和有效断言，范围内义务预期明确且影响门禁通过，`coverage_check.py` 无未处置缺口，JSON 与人工评审表一致；`deliverables/` 中恰有一个命名的「功能名称用例(V版本).xlsx」且与 `cases/cases.xlsx` 同字节。
+- 已有缺口（包括历史评审表对比出的缺失）只允许两种处置：本轮补齐，或由调用方决定不补并在 `coverage-matrix.json`、`history-diff.md` 写明结论与下一轮去向；不追写即视为未完成。
 - 源变更后旧映射失效。
 - 调整范围要记录责任人、时间、理由和原基线指标，不能删失败场景提高覆盖。
