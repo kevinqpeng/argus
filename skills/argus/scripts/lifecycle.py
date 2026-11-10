@@ -47,7 +47,7 @@ def approved_cases(run, manifest):
             "pending human response conflicts with approval")
     cases = read(run, "cases/cases.json")
     require(isinstance(cases, list) and cases, "missing approved cases")
-    require(all(c.get("reviewStatus") == "approved" and c.get("semanticReview") == "approved"
+    require(all(c.get("reviewStatus") == "approved"
                 for c in cases), "cases must be approved before publication")
     for case in cases:
         validate_case(case, case["scenarioIds"], "approved")

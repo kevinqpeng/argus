@@ -185,7 +185,7 @@ def fill_receipt(run_dir, round_id):
         if not isinstance(receipt.get(key), str) or not receipt[key].strip():
             raise ValueError('展示回执缺少 ' + key)
     names = ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')
-    refs = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis', 'semantic-review')]
+    refs = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis')]
     refs += [f'cases/presentation/{round_id}/{name}' for name in names]
     hashes = {}
     for ref in refs:
@@ -206,8 +206,6 @@ def presentation_input(source, case_ids):
     if (not case_ids or
             [case['caseId'] for case in cases] != case_ids):
         raise ValueError('分片 caseIds 必须为唯一、存在且保持源顺序的 ID')
-    if source['semantic'] is None:
-        raise ValueError('缺少 semantic-review.json；先完成语义门禁')
     scenario_ids = set(sid for case in cases for sid in case['scenarioIds'])
     scenarios = [source['scenarios'][sid] for sid in sorted(scenario_ids)]
     ac_ids = set(aid for scenario in scenarios for aid in scenario['acIds'])

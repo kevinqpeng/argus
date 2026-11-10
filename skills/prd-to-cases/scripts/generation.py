@@ -69,8 +69,8 @@ def publish_bytes(target, content):
 
 
 def validate_case(case, scenario_ids, review_status):
-    require(case["schemaVersion"] == 1 and case["reviewStatus"] == review_status
-            and case["semanticReview"] == review_status, "case review statuses must be " + review_status)
+    require(case["schemaVersion"] == 1 and case["reviewStatus"] == review_status,
+            "case review status must be " + review_status)
     require(case["suite"] in ("ui", "api", "performance", "security")
             and case["priority"] in ("P0", "P1", "P2", "P3")
             and isinstance(case["fixtures"], list), "invalid case fields")

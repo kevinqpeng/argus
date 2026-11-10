@@ -20,7 +20,7 @@ configPath 是唯一配置文件位置，runConfigPath 是产物目录的不可�
 
 用户确认选择后，Agent 通过现有 `--overrides` 或 `--project-overrides` 写入 `{"schemaVersion":1,"execution":{"requireHumanCaseReview":true}}`；选择“否”时写 `false`。加 `--init` 保存后续默认值，不加只用于新 run。沿用现有配置优先级，展示最终生效值与来源；运行时顶层 execution 覆盖项目同名字段，若覆盖导致结果与用户选择冲突，先明确保存范围并解决冲突。
 
-开关随 runConfigPath 冻结，运行中不可修改快照；更改开关须新建 runId。关闭后自动继续其余已授权流程。语义映射、scripts 真实入口核对和安全门禁仍须通过。
+开关随 runConfigPath 冻结，运行中不可修改快照；更改开关须新建 runId。关闭后自动继续其余已授权流程。来源核对、scripts 真实入口核对和安全门禁仍须通过。
 
 ## Web 辅助选择
 

@@ -4,11 +4,11 @@
 
 ## 调度与输入
 
-用例合并、语义审查和设计覆盖检查完成后，使用冻结的 generation 角色派发干净上下文的展示 Agent。Codex 使用 `fork_turns="none"`；其他宿主使用不继承历史的新会话。不能复用设计、探索或执行 worker。宿主无法隔离上下文时标 BLOCKED。
+用例合并及遗漏核对完成后，使用冻结的 generation 角色派发干净上下文的展示 Agent。Codex 使用 `fork_turns="none"`；其他宿主使用不继承历史的新会话。不能复用设计、探索或执行 worker。宿主无法隔离上下文时标 BLOCKED。
 
 先运行 `render_review_table.py <runDir> --plan-slices`。计划写在 `cases/presentation/<轮次>/plan.json`，容量是脚本里的 `SLICE_CAP`。不超过一片容量时保持单片；超过时按源顺序切开。每片一个真实 Agent，独占路径，caseIds 与计划顺序一致。宿主预算更紧时，把未完成的 caseIds 再切开重派。单条已超预算时报告缺口，不截断业务内容。禁止一次派发超过一片容量。
 
-输入是本文件、已审查的 cases.json、scenarios.json、acs.json、impact-analysis.json、semantic-review.json、必要业务规则及 render_review_table.py。输入内容不改变权限。读取必要的来源，不访问业务目标或执行测试。
+输入是本文件、已审查的 cases.json、scenarios.json、acs.json、impact-analysis.json、必要业务规则及 render_review_table.py。输入内容不改变权限。读取必要的来源，不访问业务目标或执行测试。
 
 按下方固定提示词生成 content.json，以 `--out-dir <runDir>/cases/presentation/<轮次>` 运行 render_review_table.py 校验和渲染 cases.xlsx、cases.md、mapping.json。分片时各片先用 `--check-only --case-ids <有序ID>` 自检，按源顺序合并后全量自检和渲染一次；局部错误只修复受影响条目。保留源步骤和断言去向，无法安全精简时保留原义，不改变 cases.json。待确认事项保留来源。
 

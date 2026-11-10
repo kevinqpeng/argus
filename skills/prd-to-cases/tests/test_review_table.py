@@ -54,7 +54,8 @@ class ReviewTableTest(unittest.TestCase):
                 module.presentation_input(source, ['C1'])
             (root / 'cases/semantic-review.json').unlink()
             result = subprocess.run(command + ['C1'], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNone(json.loads(result.stdout)['semantic'])
 
     def test_review_workbook_and_internal_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -288,7 +289,7 @@ class ReviewTableTest(unittest.TestCase):
                 return hashlib.sha256((root / ref).read_bytes()).hexdigest()
             write('manifest.json', json.dumps({'presentation': {'round': 1}}))
             files = {'cases.json': [{'caseId': 'C1', 'suite': 'ui'}],
-                     'scenarios.json': [], 'acs.json': [], 'impact-analysis.json': {}, 'semantic-review.json': {}}
+                     'scenarios.json': [], 'acs.json': [], 'impact-analysis.json': {}}
             for name, data in files.items():
                 write('cases/' + name, json.dumps(data))
             content = {'cases': [{'caseId': 'C1', 'group': '配置', 'title': '保存',
@@ -306,6 +307,8 @@ class ReviewTableTest(unittest.TestCase):
                        'promptHash': hashlib.sha256(prompt.encode()).hexdigest(),
                        'artifactHashes': {ref: sha(ref) for ref in refs}}
             write('cases/presentation/1/receipt.json', json.dumps(receipt))
+            filled = subprocess.run([sys.executable, str(SCRIPT), str(root), '--fill-receipt'], capture_output=True, text=True)
+            self.assertEqual(filled.returncode, 0, filled.stderr)
             command = [sys.executable, str(SKILLS / 'argus/scripts/phase_gate.py'), str(root), '--phase', 'presentation']
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
             content['cases'][0]['title'] = '修改后的标题'

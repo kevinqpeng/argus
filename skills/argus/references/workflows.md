@@ -8,7 +8,7 @@
 
 | 用户需要 | 入口 | 必需依赖与完成边界 |
 | --- | --- | --- |
-| 需求生成用例 | prd-to-cases | 新 run 复用配置（缺项才补）→ 来源/影响分析 → 用例生成 → 补齐遗漏并语义审查 → Excel/Markdown/JSON；交付后结束 |
+| 需求生成用例 | prd-to-cases | 新 run 复用配置（缺项才补）→ 来源/影响分析 → 用例生成 → 对照来源补齐遗漏 → Excel/Markdown/JSON；交付后结束 |
 | 外部用例整理或导入 | prd-to-cases | 按[外部用例接入](../../prd-to-cases/references/existing-cases.md)规范化，保留原步骤和预期；完成边界同用例设计 |
 | 已有用例执行 Web/H5/API | web-e2e-test | 复用完整基线或接入外部用例 → design → 本轮人工评审 → UI 地图（API 跳过）→ 脚本与 discovery → 执行与 execution → 所选交付 |
 | 已有用例执行移动端 | mobile-e2e-test | 同上，使用本地真机与 Appium 的平台检查和隔离 |
@@ -30,7 +30,7 @@
 
 ## 分阶段门禁和交付
 
-- **design**：用例合并后按 prd-to-cases 第 5 节补上原文已经写明的遗漏，做一轮语义审查，出评审表。生成/导入任务仍先通过 `phase_gate.py --phase dispatch`。
+- **design**：用例合并后按 prd-to-cases 第 5 节补上原文已经写明的遗漏，出评审表。生成/导入任务仍先通过 `phase_gate.py --phase dispatch`。
 - **review / scripts**：人工评审通过即接受执行。沿用发布、地图及脚本门禁；scripts 核对已批准用例都有真实 discovery。
 - **execution**：沿用真实 attempts、矩阵、分片和失败证据。结论来自本次 results.json。只测用户提供用例时，结论限于该基线；不宣称完整 PRD 验收。选中子集仍按现有 partial 规则展示原基线缺口。
 - **delivery**：设计、地图、脚本任务在本阶段产物验证后结束，报告“该阶段完成、业务测试未执行”；缺陷和运行汇总只在执行或用户选中发布时交给 bug-reporter，按 local/online/both 读回。发布失败只恢复发布。

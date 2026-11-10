@@ -15,7 +15,7 @@ description: Orchestrates full PRD acceptance or selected test stages, including
 
 Web 与移动端目标配置按 [私有工作区](../setup-argus/references/storage.md) 在本机文件保存。
 
-过程要求由 [阶段门禁](references/gates.md) 强制执行；每个阶段结束前运行 `python3 <本目录>/scripts/phase_gate.py <runDir> --phase <target|dispatch|semantic|cases|execution|report>`，BLOCKED 时停在该阶段。
+过程要求由 [阶段门禁](references/gates.md) 强制执行；每个阶段结束前运行 `python3 <本目录>/scripts/phase_gate.py <runDir> --phase <target|dispatch|cases|execution|report>`，BLOCKED 时停在该阶段。
 
 移动端先自动探测补齐，只引导用户补充无法确定的必填项。
 
@@ -56,13 +56,13 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 
 ## 3. 冻结场景并生成用例
 
-- 读 [prd-to-cases](../prd-to-cases/SKILL.md)，先完成多来源与跨模块影响分析、明确测试义务及未知规则，再提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。按其指引做语义映射并核对表格、Markdown 与 JSON 一致。
+- 读 [prd-to-cases](../prd-to-cases/SKILL.md)，先完成多来源与跨模块影响分析、明确测试义务及未知规则，再提取 AC、冻结场景、生成用例与矩阵及供人工评审的 `cases/cases.xlsx` 和追踪用的 `cases/cases.md`。核对表格、Markdown 与 JSON 一致。
 - 影响探索按 prd-to-cases 的复杂度规则采用单 Agent 或 reasoning 子 Agent 并行，完成跨任务依赖合并与复核后才冻结场景；此调度独立于后续用例生成。
 - 此阶段只设计和生成用例，不判断或执行 MySQL 核验；在执行每条用例前再判断是否需要数据库配合。页面地图和 runner discovery 在第 4.2 阶段生成；设计覆盖使用 planned 入口，不为评审交付提前构造地图、安装 runner 或执行目标探测。
-- 用例与脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取，分两阶段、不混批：本阶段**只生成用例**（按 prd-to-cases 的分组契约分配场景，产出 cases.json + notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 写完分片文件后运行 `generation.py --seal` 生成 result.json。生成完整性未通过时交付缺口，不能用语义审查通过代替全部生成任务完成。
+- 用例与脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取，分两阶段、不混批：本阶段**只生成用例**（按 prd-to-cases 的分组契约分配场景，产出 cases.json + notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 写完分片文件后运行 `generation.py --seal` 生成 result.json。生成完整性未通过时交付缺口，全部生成任务完成后才能进入评审表。
 - 调度证据是产物的一部分：影响探索写 `cases/exploration.md`（方式判定、依据、任务与回执），生成写 `cases/generation/plan.json`、`state.json` 和每个任务 `result.json`。主会话直接写出 `cases.json` 而无任何任务回执时，产物无效，按 [门禁二](references/gates.md#门禁二并行调度阶段-3进入阶段-4-前必须-passed) BLOCKED。宿主无子 Agent 能力或冻结角色不可调用时保持 BLOCKED，主会话不能冒充。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。
-- 合并后按 prd-to-cases 第 5 节补上原文已经写明的遗漏用例，写 `cases/semantic-review.json`。然后按 [评审表生成契约](../prd-to-cases/references/review-table.md) 出评审表并运行 `phase_gate.py --phase presentation`。缺陷探测型用例按 PRD 写断言，不按实测行为写。
+- 合并后按 prd-to-cases 第 5 节对照原文补上已明确的遗漏用例及断言。然后按 [评审表生成契约](../prd-to-cases/references/review-table.md) 出评审表并运行 `phase_gate.py --phase presentation`。缺陷探测型用例按 PRD 写断言，不按实测行为写。
 - 范围内业务义务预期未明确、影响分析缺口或未授权关联范围写入待确认事项并阻断全量执行；评审表照常交付。不通过删除义务提高覆盖。
 
 ## 4. 交给人工评审

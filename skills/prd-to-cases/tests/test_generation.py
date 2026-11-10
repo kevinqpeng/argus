@@ -176,7 +176,6 @@ class GenerationTests(unittest.TestCase):
 
     def test_draft_and_reference_contracts(self):
         for field, value, error in [("reviewStatus", "approved", "draft"),
-                                    ("semanticReview", "approved", "draft"),
                                     ("automationRef", "", "missing automationRef"),
                                     ("automationRef", "G2/1/test.py:other", "outside owned")]:
             receipt = self.complete(1)
@@ -184,6 +183,12 @@ class GenerationTests(unittest.TestCase):
             self.write_receipt(1, receipt)
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, error):
                 self.evaluate()
+
+    def test_generation_does_not_require_semantic_review_status(self):
+        receipt = self.complete(1)
+        receipt["cases"][0].pop("semanticReview", None)
+        self.write_receipt(1, receipt)
+        self.evaluate()
 
     def test_business_step_without_assertion_cannot_merge(self):
         receipt = self.complete(1)
