@@ -2,11 +2,47 @@
 """Collect current exploration receipts without making business judgments."""
 import argparse
 import json
+import re
 from pathlib import Path
 
 
 GROUPS = {"sources": "sourceId", "sourceUnits": "unitId", "objects": "objectId",
           "checks": "checkId", "obligations": "obligationId", "handoffs": "handoffId"}
+DIMENSIONS = {"data", "inflight", "lifecycle", "permission", "side_effect", "ordering"}
+FORBIDDEN_CHECK_KEYS = {"kind", "result", "testability"}
+CODE_REF = re.compile(r"(.+):(\d+)(?:-(\d+))?$")
+
+
+def evidence_errors(value):
+    if not isinstance(value, str) or not value.strip():
+        return ["empty evidenceRef"]
+    parts = [part.strip() for part in value.split(";")]
+    errors = ["more than 2 evidence refs"] if len(parts) > 2 else []
+    for part in parts:
+        match = CODE_REF.fullmatch(part)
+        if match is None:
+            if len(part) > 120 or "\n" in part:
+                errors.append(f"evidence ref too long: {part[:40]}")
+            continue
+        start, end = int(match.group(2)), int(match.group(3) or match.group(2))
+        if end < start or end - start + 1 > 3:
+            errors.append(f"evidence span > 3 lines: {part}")
+    return errors
+
+
+def owners(tasks):
+    owned = {}
+    listed = [task.get("objectIds") for task in tasks]
+    if all(ids is None for ids in listed):
+        return {}
+    if any(not isinstance(ids, list) or not ids for ids in listed):
+        raise ValueError("every exploration task must list objectIds")
+    for task, ids in zip(tasks, listed):
+        for object_id in ids:
+            if not isinstance(object_id, str) or object_id in owned:
+                raise ValueError(f"object assigned twice or invalid: {object_id}")
+            owned[object_id] = task["taskId"]
+    return owned
 
 
 def collect(plan, receipts):
@@ -21,6 +57,7 @@ def collect(plan, receipts):
         if not isinstance(tid, str) or not tid.strip() or tid in expected or type(attempt) is not int or attempt < 1:
             raise ValueError("invalid or duplicate task")
         expected[tid] = attempt
+    object_owner = owners(tasks)
     entries = {group: {} for group in GROUPS}
     errors = []
     seen = set()
@@ -30,6 +67,11 @@ def collect(plan, receipts):
             errors.append(f"unexpected, duplicate or stale receipt: {tid}")
             continue
         seen.add(tid)
+        status = receipt.get("status", "complete")
+        if status not in {"complete", "partial"}:
+            errors.append(f"{tid}: invalid receipt status")
+        elif status == "partial":
+            errors.append(f"partial receipt: {tid}")
         for group, key in GROUPS.items():
             rows = receipt.get(group)
             if not isinstance(rows, list):
@@ -39,6 +81,17 @@ def collect(plan, receipts):
                 if not isinstance(row, dict) or not isinstance(row.get(key), str) or not row[key].strip():
                     errors.append(f"{tid}: invalid {group} identifier")
                     continue
+                if group == "checks":
+                    if row.get("dimension") not in DIMENSIONS:
+                        errors.append(f"{tid}: check {row[key]}: invalid dimension")
+                    forbidden = FORBIDDEN_CHECK_KEYS & row.keys()
+                    if forbidden:
+                        errors.append(f"{tid}: check {row[key]}: forbidden {','.join(sorted(forbidden))}")
+                    for issue in evidence_errors(row.get("evidenceRef")):
+                        errors.append(f"{tid}: check {row[key]}: {issue}")
+                    owner = object_owner.get(row.get("objectId"))
+                    if object_owner and owner != tid:
+                        errors.append(f"{tid}: check object not assigned: {row.get('objectId')}")
                 variants = entries[group].setdefault(row[key], [])
                 match = next((v for v in variants if v["value"] == row), None)
                 if match is None:

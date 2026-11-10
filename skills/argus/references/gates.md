@@ -21,7 +21,7 @@
 
 影响探索与用例生成由宿主子 Agent 完成，主会话只写计划、调度状态和最终材料。
 
-- 影响探索：按 [调度规则](../../prd-to-cases/references/impact-exploration.md) 判定单 Agent 或并行，判定依据与任务清单写 `cases/exploration.md`。启用并行时每个任务有独占回执 `cases/exploration/<taskId>/<attempt>.md`。
+- 影响探索：按 [调度规则](../../prd-to-cases/references/impact-exploration.md) 判定单 Agent 或并行，判定依据与任务清单写 `cases/exploration.md`。启用并行时每个任务有独占回执 `cases/exploration/<taskId>/<attempt>.json`。
 - 用例生成：按 [并行生成流程](../../prd-to-cases/references/parallel-generation.md) 写 `cases/generation/plan.json`、`state.json`，每个任务完成后写 `<taskId>/<attempt>/result.json`，最终 `cases/cases.json` 只能由合并结果产生。
 - 主会话直接写出 `cases.json` 而没有任何任务回执时，视为未调度，产物无效，不能进入阶段 4。
 - 宿主无子 Agent 能力、冻结角色不可调用或预算不足时 BLOCKED，主会话不能冒充子 Agent，也不能用"单 Agent 也做完了"代替调度证据。

@@ -52,11 +52,11 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 ## 3.1 worker 输入包与工具预算
 
-派发前，主 Agent 为每个任务写 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的既有用例骨架（有上一轮时），以及任务点名的探索小节原文。每个任务包逐项列出关联 AC 的 Given 和 Then，以及分配 caseId；每个 Given 必须落实到 fixtures 或步骤，每个 Then 必须有对应业务断言。场景缺少 AC 关联时，先追溯并补齐；来源没有明确 AC 的，依据原文建立可追溯 AC，规则不明则列待确认，不凭空补预期。任务包附最小有效契约示例：`suite` 只能是 `ui`、`api`、`performance`、`security`；步骤 `kind` 为 `action`、`setup` 或 `cleanup`；仅准备/清理步骤可用非空字符串 `assertionExemption` 说明豁免。按场景和步骤复杂度平衡分组，避免单组明显过重。
+派发前，主 Agent 为每个任务写 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的用例骨架，以及这些 caseId 在影响分析里已经定位的证据窗口（`文件:起始-结束`，每条不超过 3 行）。每个任务包逐项列出关联 AC 的 Given 和 Then，以及分配 caseId；每个 Given 必须落实到 fixtures 或步骤，每个 Then 必须有对应业务断言。场景缺少 AC 关联时，先追溯并补齐；来源没有明确 AC 的，依据原文建立可追溯 AC，规则不明则列待确认，不凭空补预期。任务包附最小有效契约示例：`suite` 只能是 `ui`、`api`、`performance`、`security`；步骤 `kind` 为 `action`、`setup` 或 `cleanup`；仅准备/清理步骤可用非空字符串 `assertionExemption` 说明豁免。按场景和步骤复杂度平衡分组，避免单组明显过重。
 
 任务输入同时指出必须保留的数量词、其作用对象及已确认的接收集合；worker 不得把「任一人可以完成」改成「仅一人收到」。整份 PRD、影响分析、场景全集、上一轮全量用例和整篇探索回执留在冻结源里，不放进任务书的阅读清单。
 
-任务书只给三样路径：这份输入包、独占目录、写完 outputFiles 后要运行的 seal 命令。主 Agent 从已加载的 Skill 位置解析并核实 seal 命令中 `generation.py` 的绝对路径；若任务确需 `case_contract.py` 或 `phase_gate.py`，也直接给出核实后的绝对路径及完整命令，缺失则回报，不搜索全盘。写明不得搜索其他目录，不得递归 `find`/`grep -r`，不读其他 run，不跑 `playwright`/`mvn`/`npm`，不连业务目标。shell 只用于建目录、写 outputFiles 和运行指定校验命令。
+任务书只给三样路径：这份输入包、独占目录、写完 outputFiles 后要运行的 seal 命令。主 Agent 从已加载的 Skill 位置解析并核实 seal 命令中 `generation.py` 的绝对路径；若任务确需 `case_contract.py` 或 `phase_gate.py`，也直接给出核实后的绝对路径及完整命令，缺失则回报，不搜索全盘。写明不得搜索其他目录，不得递归 `find`/`grep -r`，不读其他 run，不读被测仓库、基线工作树、PRD 全文和整份 impact-analysis.json，不跑 `playwright`/`mvn`/`npm`，不连业务目标。证据只用任务包里的行号摘录。shell 只用于建目录、写 outputFiles 和运行指定校验命令。
 
 每个任务墙钟默认 10 分钟；仅当该组用例或步骤明显多于同批其他组时用 15 分钟。bash 最多 6 次。读文件不是加长墙钟或放宽 bash 的理由。超预算中止该任务并按失败重派。预算与已用值记入 `manifest.budgets`，报告用真实耗时判定是否需要再切分。
 
