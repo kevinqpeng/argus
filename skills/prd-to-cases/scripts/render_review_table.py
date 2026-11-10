@@ -54,7 +54,6 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
 SLICE_CAP = 8
 
-
 # 只定位可核对的疑似技术信息；业务必要性仍由评审者判断。
 TECHNICAL = re.compile(
     r'\b(?:GET|POST|PUT|PATCH|DELETE)\s+/[\w/{}<>?=.-]+'
@@ -96,10 +95,13 @@ def presentation_issues(content, source):
     return issues
 
 
-
 def load_run(run_dir):
     cases_dir = run_dir / 'cases'
-    read = lambda n: json.loads((cases_dir / n).read_text(encoding='utf-8'))
+    artifacts = {}
+    def read(name):
+        raw = (cases_dir / name).read_bytes()
+        artifacts['cases/' + name] = hashlib.sha256(raw).hexdigest()
+        return json.loads(raw)
     data = {
         'cases': read('cases.json'),
         'scenarios': {s['scenarioId']: s for s in read('scenarios.json')},
@@ -107,7 +109,8 @@ def load_run(run_dir):
         'impact': read('impact-analysis.json'),
     }
     semantic = cases_dir / 'semantic-review.json'
-    data['semantic'] = json.loads(semantic.read_text(encoding='utf-8')) if semantic.is_file() else None
+    data['semantic'] = read('semantic-review.json') if semantic.is_file() else None
+    data['sourceArtifacts'] = artifacts
     return data
 
 
@@ -153,7 +156,7 @@ def fill_receipt(run_dir, round_id):
     for key in ('agentId', 'model', 'effort', 'isolation'):
         if not isinstance(receipt.get(key), str) or not receipt[key].strip():
             raise ValueError('展示回执缺少 ' + key)
-    names = ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json', 'quality-review.json')
+    names = ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')
     refs = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis', 'semantic-review')]
     refs += [f'cases/presentation/{round_id}/{name}' for name in names]
     hashes = {}
@@ -166,6 +169,29 @@ def fill_receipt(run_dir, round_id):
     receipt['artifactHashes'] = hashes
     path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return {'status': 'FILLED', 'artifacts': len(hashes)}
+
+
+def presentation_input(source, case_ids):
+    """保留分配用例原文及全局影响证据，不用摘要替代业务输入。"""
+    assigned = set(case_ids)
+    cases = [case for case in source['cases'] if case['caseId'] in assigned]
+    if (not case_ids or
+            [case['caseId'] for case in cases] != case_ids):
+        raise ValueError('分片 caseIds 必须为唯一、存在且保持源顺序的 ID')
+    if source['semantic'] is None:
+        raise ValueError('缺少 semantic-review.json；先完成语义门禁')
+    scenario_ids = set(sid for case in cases for sid in case['scenarioIds'])
+    scenarios = [source['scenarios'][sid] for sid in sorted(scenario_ids)]
+    ac_ids = set(aid for scenario in scenarios for aid in scenario['acIds'])
+    return {
+        'schemaVersion': 1, 'caseIds': case_ids,
+        'sourceArtifacts': source['sourceArtifacts'],
+        'caseIndex': [{key: case[key] for key in ('caseId', 'scenarioIds')}
+                      for case in source['cases']],
+        'cases': cases, 'scenarios': scenarios,
+        'acs': [source['acs'][aid] for aid in sorted(ac_ids)],
+        'impact': source['impact'], 'semantic': source['semantic'],
+    }
 
 
 def check_destination(label, source_ids, groups, exemptions):
@@ -395,15 +421,18 @@ def main():
     ap.add_argument('run_dir', type=pathlib.Path)
     ap.add_argument('--content', type=pathlib.Path)
     ap.add_argument('--check-only', action='store_true', help='只校验，不写文件')
-    ap.add_argument('--case-ids', nargs='+', help='仅自检：本分片分配的有序 caseId')
+    ap.add_argument('--print-input', action='store_true', help='输出无损分片输入 JSON，不写文件或批准门禁')
+    ap.add_argument('--case-ids', nargs='+', help='自检或输入提取：本分片分配的有序 caseId')
     ap.add_argument('--round', default='1')
     ap.add_argument('--out-dir', type=pathlib.Path)
     ap.add_argument('--plan-slices', action='store_true', help='按源顺序写出展示分片计划')
     ap.add_argument('--fill-receipt', action='store_true', help='写入固定提示词和产物哈希')
     args = ap.parse_args()
-    if args.case_ids and not args.check_only:
-        ap.error('--case-ids 只能与 --check-only 一起使用')
-    if (args.plan_slices or args.fill_receipt) and (args.check_only or args.content or args.case_ids or args.out_dir):
+    if args.case_ids and not (args.check_only or args.print_input):
+        ap.error('--case-ids 只能与 --check-only 或 --print-input 一起使用')
+    if args.print_input and (not args.case_ids or args.check_only or args.content or args.out_dir or args.plan_slices or args.fill_receipt):
+        ap.error('--print-input 需要 --case-ids，不能与自检、文案或输出目录参数混用')
+    if (args.plan_slices or args.fill_receipt) and (args.check_only or args.print_input or args.content or args.case_ids or args.out_dir):
         ap.error('分片计划和回执哈希与渲染参数分开使用')
     if args.plan_slices and args.fill_receipt:
         ap.error('分片计划和回执哈希分开运行')
@@ -415,6 +444,13 @@ def main():
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             ap.error(str(exc))
         print(json.dumps(result, ensure_ascii=False))
+        return
+    if args.print_input:
+        try:
+            packet = presentation_input(load_run(run_dir), args.case_ids)
+        except (ValueError, KeyError) as exc:
+            ap.error(str(exc))
+        print(json.dumps(packet, ensure_ascii=False, separators=(',', ':')))
         return
     round_dir = run_dir / 'cases/presentation' / args.round
     content_path = args.content or round_dir / 'content.json'
@@ -430,8 +466,6 @@ def main():
             errors.append('分片 caseIds 必须唯一、存在且保持源顺序')
         if len(args.case_ids) > SLICE_CAP:
             errors.append(f'分片最多 {SLICE_CAP} 条用例，请拆分任务')
-        if content_path.stat().st_size > 25 * 1024:
-            errors.append('分片 content.json 超过 25 KiB，请拆分任务')
     units = normalize(content, source, errors)
     if errors:
         for line in errors:

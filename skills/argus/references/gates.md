@@ -43,6 +43,9 @@
 - 回执包含五组键值映射：`sources`（所有 prd/history/contract/business_rule 的 sourceId，source_inventory）、`impacts`（全部 checkId，impact_evidence）、`cases`（全部 caseId，mapping）、`realization`（全部 caseId，scenario_realization）、`ruleSupport`（全部 caseId，rule_support）。各组完整，不以另一组的高分替代。一个来源分段或一用例对应多项 AC 时，在原始回执保留每项判断，汇总 final 取最小概率，逐项解决缺口。
 - 每项为 `{final:实际noul概率, evidenceRef:run内回执路径, evidenceHash:文件SHA256}`；路径指向可核对题目、完整证据、实际模型和概率的 decision-router 回执。低于 questions.json 的 noulYes 时补证据/改用例复查，或记录 `acceptedReason` 及其实际核查依据到回执。缺回执、文件变化、输入/题集版本变化、非法概率、未处理低分均 BLOCKED；不能降低本地 pass 值放行。
 - state 里放完整原始依据、fixtures、步骤和断言，不截断。空内容、部分办结、时间边界等条件要有保证触发的样本；步骤豁免也进入语义核查。
+- 用 `argus/scripts/semantic_batch.py` 构造 Jev 请求和汇总回执，不为每次 run 编写组装脚本。先将实际证据写成 JSON 数组，每项为 `{group,id,subject,evidence}`：group 分别为 sources、impacts、cases、realization、ruleSupport，id 为对应 sourceId、checkId 或 caseId；subject 明确本题主体，evidence 符合 decision-router 的文本输入契约。每个来源段、每个关联 AC 需各自提交记录；程序按同一 group/id 的最低概率汇总，不能只给每个 ID 一条摘要代替逐项判断。来源原文、影响依赖证据和断言依据由宿主核对并完整提供，不从案例生成推测。
+- `python3 <argus>/scripts/semantic_batch.py RUN prepare SUBJECTS.json` 按字节预算生成 `cases/semantic-batch/NNNN.input.json` 和计划。对每批执行 `python3 <argus>/scripts/semantic_batch.py RUN request NNNN`，把返回的 questions 和 state 原样传给 `jev_ask` MCP；将实际返回的 model、answers 和 usage 原样保存为 `cases/semantic-batch/NNNN.raw.json`，运行 `python3 <argus>/scripts/semantic_batch.py RUN record NNNN` 生成规范化回执。宿主须保存真实派发与返回的关联证据，文件哈希不能证明调用发生。最后执行 `python3 <argus>/scripts/semantic_batch.py RUN assemble`。脚本核对输入、题集、原始响应、模型和概率，缺项阻断，不自动接受低分。再按原契约逐项补证据复审或记录有依据的 acceptedReason，运行语义门禁；变更输入时使用新 run 或保存旧批次后重新准备。
+
 - 缺陷探测型用例（预期按 PRD 失败）也要按 PRD 写断言，不能改成「断言实测行为」——那样用例永远不失败，也就抓不到缺陷。
 
 ## 门禁三·六：脚本滞后评审（阶段 4.2 必须 PASSED）
