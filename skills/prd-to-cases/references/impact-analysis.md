@@ -8,6 +8,8 @@
 
 sourceUnits 按独立规则和原表行建立，不以“入口/配置/记录”等模块摘要代替。每项保存 `sourceExcerpt` 原文及 `evidenceRef` 的章节/行/单元格；从同一冻结快照读回，核对定位和片段一致。相同规则可共享义务，但保留各来源行；标题、前置条件、预期互相矛盾时保留冲突，不按标题推定已覆盖。
 
+清单先写成 TSV，再运行 `python3 <本技能>/scripts/source_units.py <units.tsv> -o <runDir>/cases/sources/units.json`。表头固定为 `unitId`、`sourceIds`、`sourceExcerpt`、`evidenceRef`、`disposition`、`obligationIds`、`reason`、`reviewRef`；两个 ID 列用 `|` 分隔。不要手写这份 JSON。
+
 冻结前从原文分段批量调用 `source_inventory`：每段提供完整 `sourceContent`、对应 sourceUnits 和 obligations，不提供仅由用例反推的摘要。检查例外、状态转换和失败分支是否进入义务；在段落边界保留关联规则上下文。回执写入现有探索材料，sourceUnit.reviewRef 指向该回执及宿主核查。no/uncertain 先找缺项并补齐或标 unknown；来源清单全部有处置才完成。原文未读或缺附件时不能因已登记项100%而宣布来源完整。
 
 提取本次新增/修改/删除的对象、字段、操作、状态与权限边界，写 objects。对象 description 明确变更前后语义；区分“某张工单执行人”与“工单所属业务对象归属人”。从这些对象出发，沿既有业务依赖追踪 PRD 未描述的场景。
@@ -23,7 +25,7 @@ sourceUnits 按独立规则和原表行建立，不以“入口/配置/记录”
 
 ### 冻结生产稳定业务基线
 
-在被测项目中一次解析代表线上稳定业务的 main 引用，记录仓库、引用名和完整提交 SHA。整轮从该提交对象读取文件（例如 `git show <SHA>:<path>`），将 `仓库@SHA:路径` 及行段写入 sourceRef/evidenceRef，并按原始文件字节计算来源哈希。复核和恢复也读取同一提交；main 后续移动不改变本轮基线。缺少可验证的 main 时保留 PRD 可证实的义务，相关依赖标 unknown 并列出缺口。
+在被测项目中一次解析代表线上稳定业务的 main 引用，记录仓库、引用名和完整 40 位提交 SHA。然后只运行一次 `python3 <本技能>/scripts/baseline_worktree.py <仓库> <SHA> <runDir>/baseline`。脚本在该提交上添加 detached worktree；同一路径已是该 SHA 时直接复用。之后本轮只读这个目录，用 `rg` 定位、用 `sed -n` 按行号取窗口。禁止对单个文件循环 `git show <SHA>:<path>`。证据仍写 `仓库@SHA:路径` 及行段，来源哈希按该提交的原始文件字节计算。复核和恢复读取同一工作树；main 后续移动不改变本轮基线。缺少可验证的 main 时保留 PRD 可证实的义务，相关依赖标 unknown 并列出缺口。
 
 设计只使用 PRD 与该快照，不检索目标 PR、需求提交、共享测试分支或工作区差异。impactHash 绑定上述来源与六维分析结果。实际环境记录留在评审后的探索证据中；只有正式采纳新规则或更换设计基线时才更新设计材料并按原门禁评审。
 
@@ -31,7 +33,7 @@ kind 为 prd / business_rule / contract / history / code / observation。代码�
 
 ## 2. 按对象追踪影响
 
-先按 [探索调度](impact-exploration.md) 核对复杂度和可拆分范围：简单需求单 Agent，复杂需求按冻结 reasoning 配置调度并行探索；发现新依赖时重新评估。该流程在本节六维追踪之前分工，在确认测试义务之前完成合并与边界复核。
+先按 [探索调度](impact-exploration.md) 核对复杂度和可拆分范围：简单需求单 Agent，复杂需求按冻结 generation 配置调度并行探索；发现新依赖时重新评估。该流程在本节六维追踪之前分工，在确认测试义务之前完成合并与边界复核。
 
 每个对象都检查以下六个 dimension，可有多条 check；每条实际依赖单独记录，不能用一条笼统“已检查”替代依赖清单。
 
@@ -44,7 +46,7 @@ kind 为 prd / business_rule / contract / history / code / observation。代码�
 | side_effect | 待办、通知、统计、搜索、缓存、SLA、任务及外部系统 |
 | ordering | 重复、乱序、并发、超时后成功、部分失败、回滚及补偿 |
 
-有源码时沿调用、读写、消息和契约追踪，包含定时任务与异步消费者。发现下一条依赖继续追踪，直到有证据说明不受影响或到达明确的已分析边界；不固定只看一层或改动文件。evidenceRef 指向代码位置、协议、快照或检索记录，reason 写清依赖路径与停止依据。缺源码时用 PRD 及其附件核对已知规则；仍无法判定的分支保留 unknown，不伪造 not_applicable。
+有源码时沿调用、读写、消息和契约追踪，包含定时任务与异步消费者。发现下一条依赖继续追踪，直到有证据说明不受影响或到达明确的已分析边界；不固定只看一层或改动文件。一条 check 写满两条、每条不超过 3 行的证据后停止翻文件，未闭合的下游写成 handoff 或后续任务，不在同一个 worker 里把调用图读完。evidenceRef 指向代码位置、协议、快照或检索记录，reason 写清依赖路径与停止依据。缺源码时用 PRD 及其附件核对已知规则；仍无法判定的分支保留 unknown，不伪造 not_applicable。
 
 每条 reason 写明本维度的触发操作、相关业务状态、依赖路径及可观察结果。用 `impact_evidence` 对照 change、check、dependencyEvidence 核查；六个维度复制“CRUD已覆盖”不能证明检查完成。相同来源可复用，依赖结论须逐项成立；低概率按 unknown 处理，不以文本相似度自动判业务错误。
 
