@@ -59,4 +59,4 @@ description: Routes semantic test judgments using typed Jev or verified Laya res
 
 ## 完成条件
 
-完成：每个语义判断有证据与概率或明确不确定状态；确定性覆盖由 coverage-check 计算。
+完成：每个语义判断有证据与概率或明确不确定状态。

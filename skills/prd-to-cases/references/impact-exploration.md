@@ -28,7 +28,7 @@ PRD 输入时，主 Agent 先核对独立采集子 Agent 交付的初步来源�
 
 结构化回执顶层包含 `schemaVersion: 1`、`taskId`、正整数 `attempt`、与派发一致的 `inputHash`，以及 `sources`、`sourceUnits`、`objects`、`checks`、`obligations`、`handoffs` 六个数组（无项填空数组）。前五项采用共享 ImpactAnalysis 相应结构及稳定 ID；候选可以有待确认字段，不能标成已批准。每个 handoff 包含唯一 `handoffId`、生产者、接收任务、依赖路径、证据定位和未决问题；无接收任务或未闭环保留未知。证据内容只写一次，其他项引用可定位的来源或回执，不复制长段源码。
 
-主 Agent 写 `cases/exploration/plan.json`，包含 `schemaVersion: 1`、绑定冻结来源与任务输入的 `inputHash` 和 `tasks: [{taskId, attempt}]`，每次重派更新当前 attempt。收到回执立即运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py <plan.json> <当前回执...>`，将输出保存为候选汇总；未收到全部回执时允许 BLOCKED 的部分结果供局部整理。程序检查当前任务、attempt、输入指纹和数组/ID，按同 ID 且内容完全相同合并并保留任务映射；不同内容保留全部版本并阻断，不能按 ID、文本相似度或程序输出判定业务等价。它不验证完整 schema、证据真实性、交接闭环或语义，也不生成最终基线；主 Agent 核验这些事项并使用既有 coverage 门禁。历史 Markdown 回执按原流程恢复，不转换成虚假的新回执。
+主 Agent 写 `cases/exploration/plan.json`，包含 `schemaVersion: 1`、绑定冻结来源与任务输入的 `inputHash` 和 `tasks: [{taskId, attempt}]`，每次重派更新当前 attempt。收到回执立即运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py <plan.json> <当前回执...>`，将输出保存为候选汇总；未收到全部回执时允许 BLOCKED 的部分结果供局部整理。程序检查当前任务、attempt、输入指纹和数组/ID，按同 ID 且内容完全相同合并并保留任务映射；不同内容保留全部版本并阻断，不能按 ID、文本相似度或程序输出判定业务等价。它不验证完整 schema、证据真实性、交接闭环或语义，也不生成最终基线；主 Agent 核验这些事项。不要运行覆盖脚本。历史 Markdown 回执按原流程恢复，不转换成虚假的新回执。
 
 收到一项结果即核对证据并处理新边界，同时整理其 sourceUnits/checks/obligations 候选，关键路径有足够证据时即可派发独立复核；最终冻结仍等待全部回执、交接闭环和跨任务复核。exploration.md 保留调度、证据索引、交接处理和未决项，细节引用独占回执，避免再完整改写全部探索结论。失败重派前停止旧 worker，增加 attempt 并使用新回执路径；迟到旧结果不合并。预算不足时保留未完成任务和缺口，不减少原范围。恢复时先核对真实 Agent 状态、来源指纹和回执，避免重复派发；来源变化按影响分析规则新建 run。
 
@@ -41,6 +41,6 @@ PRD 输入时，主 Agent 先核对独立采集子 Agent 交付的初步来源�
 3. 对跨任务交接逐条核对生产者、消费者、字段或事件语义及完整路径。任何无人接收的交接或缺回执均为未完成，不用其他任务完成率抵消。
 4. 并行探索涉及关键数据、权限或多写入者交错时，由非原作者的 reasoning worker 独立复核该路径与停止依据；主 Agent 汇总差异，缺复核证据保持未知。单 Agent 分支由主 Agent 核对同样边界并如实记录未做独立复核。
 
-在探索记录中保存任务到最终 sourceUnits/checks/obligations 的映射和未完成项。将完成的探索记录及回执以 observation 来源登记到影响分析，记录原始字节哈希并由 evidenceRef/reviewRef 引用；它们仅是探索过程证据，不能代替业务批准。未完成任务、未闭合交接和未解决冲突必须进入 sourceUnits 或 checks，disposition=unknown，使现有覆盖门禁阻断。冻结后不改回执；修改按输入变化处理。
+在探索记录中保存任务到最终 sourceUnits/checks/obligations 的映射和未完成项。将完成的探索记录及回执以 observation 来源登记到影响分析，记录原始字节哈希并由 evidenceRef/reviewRef 引用；它们仅是探索过程证据，不能代替业务批准。未完成任务、未闭合交接和未解决冲突必须进入 sourceUnits 或 checks，disposition=unknown，不能当成已覆盖或完整验收。冻结后不改回执；修改按输入变化处理。
 
-报告实际串行/并行方式、任务完成与缺口、分工/探索/合并/复核的耗时和调用成本。完整墙钟时间包含全部阶段；没有同输入对照实测，不报告提速比例或准确率提升。coverage.py 仍只验证已登记集合，宿主负责核查未登记来源和依赖。
+报告实际串行/并行方式、任务完成与缺口、分工/探索/合并/复核的耗时和调用成本。完整墙钟时间包含全部阶段；没有同输入对照实测，不报告提速比例或准确率提升。宿主负责核查未登记来源和依赖。

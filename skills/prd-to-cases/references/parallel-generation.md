@@ -36,7 +36,7 @@
 
 plan.json 包含 schemaVersion、phase="cases"、runId、inputHash、baselineHash、完整 scenarioIds、inputArtifacts 和 tasks。inputArtifacts 是相对此目录的冻结输入文件路径 → 原始字节 SHA-256，至少包含来源清单、impact-analysis.json、AC/场景、run 配置、共享 harness/fixture 契约、分组决策记录，以及每个任务的输入包。主 Agent 核对副本与本 run 源文件一致、scenarioIds 与冻结基线完全相等。这些冻结源供计划哈希和主 Agent 核对；worker 的阅读范围只在 §3.1 的输入包。inputHash 绑定这些输入、PRD 设计采用的 main@SHA（有源码时）和必需矩阵；生成时还没有最终用例内容，用计划哈希另行绑定分配，不能冒用执行 inputHash。
 
-每项 task 为 `{taskId, scenarioIds, caseIds, dependsOn, outputFiles}`。outputFiles 是 worker 本次目录内的相对文件路径，不能包含 result.json、绝对路径、上级路径或符号链接。公共输入目录与 taskId 目录不重叠。计划哈希是 generation.digest(plan)，算法与 coverage.digest 一致。冻结后不原地改计划；新版本用新 generation 目录并保存旧版。
+每项 task 为 `{taskId, scenarioIds, caseIds, dependsOn, outputFiles}`。outputFiles 是 worker 本次目录内的相对文件路径，不能包含 result.json、绝对路径、上级路径或符号链接。公共输入目录与 taskId 目录不重叠。计划哈希是 generation.digest(plan)。冻结后不原地改计划；新版本用新 generation 目录并保存旧版。
 
 state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID:正整数}, running:[], failed:[]}`。首次 attempt=1；running 是已派发未确认结束的任务，failed 是明确失败且待处理的任务。状态应原子落盘，恢复前核对宿主真实 Agent 状态，不能只因本地状态过旧就重复派发。
 
@@ -70,17 +70,17 @@ worker 写完 outputFiles 后运行 `python3 <本技能>/scripts/generation.py <
 
 脚本检查全部分片、输入/输出哈希、依赖、文件所有权、唯一 ID、场景集合、步骤断言及入口文件。所有任务完整才给生成 status=PASSED。用 `--merge <新的输出路径>` 写合并的 draft 用例数组；输出相同字节时幂等成功，异内容拒绝覆盖；只规范化 JSON 格式与排序，不自动补写或改写 draft、审批状态和关键引用。缺少 phase 的旧计划仍按旧版文件入口契约校验，迁移必须创建新计划。该状态仅代表生成结构完整，不代表覆盖或业务测试通过。
 
-主 Agent 先停止所有 worker 写入，再运行合并；复核产物、批量语义映射（Jev）和 design 覆盖检查，保留合并后的 cases.json，最后按 [评审表生成契约](review-table.md) 派发独立 Agent 生成 cases.md、cases.xlsx，主 Agent 核对后统一发布供人工评审。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现和 plan 门禁在脚本发布后执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
+主 Agent 先停止所有 worker 写入，再运行合并，保留合并后的 cases.json。随后按 prd-to-cases 第 5 节做一轮语义审查，只为原文已经写明的遗漏 ID 追加生成，再出评审表。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现在脚本发布后执行。人工评审通过即接受执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
 
 ## 阶段交接准备
 
 冻结后的 worker 工作期间，主 Agent 依据同一版本预先准备回执校验命令、五组语义题的主体索引、覆盖输入结构和展示固定任务书；用例内容、哈希、概率和状态在真实产物到达后填入。准备过程不写 worker 独占目录，不提前批准或发布。来源与影响阶段已有真实回执直接按输入指纹索引，避免生成完成后再次搜索规则和重建审查材料。
 
-最后一个 worker 结束后立即校验、合并并补齐题目证据；语义门禁通过后再派发展示。每个交接记录上阶段完成、下阶段输入就绪和首次派发时间；区分必要复核、工具等待、人工等待与未知原因，不把所有间隔视作可删除空转。复用的是准备工作，不是缺失的判断或审批。
+最后一个 worker 结束后立即校验、合并，并按 prd-to-cases 第 5 节补齐遗漏后派发展示。每个交接记录上阶段完成、下阶段输入就绪和首次派发时间；区分必要复核、工具等待、人工等待与未知原因，不把所有间隔视作可删除空转。复用的是准备工作，不是缺失的判断或审批。
 
 ## 5. 汇总
 
-manifest.generation 由主 Agent 记录计划路径/哈希、状态路径、任务与重派结果、产物哈希及未完成任务。报告区分生成完整性、计划覆盖和执行门禁，保留现有人工评审规则。分别记录分组/Jev、生成、等待、重试、合并与评审耗时、模型调用和未知成本。生成墙钟从首次派发到合并 PASSED；与之重叠的语义审查和覆盖准备只计入那些阶段。比较提速时用同一冻结输入与质量门禁下的全流程墙钟时间。
+manifest.generation 由主 Agent 记录计划路径/哈希、状态路径、任务与重派结果、产物哈希及未完成任务。报告区分生成完整性和执行结果，保留现有人工评审规则。分别记录分组/Jev、生成、等待、重试、合并与评审耗时、模型调用和未知成本。生成墙钟从首次派发到合并 PASSED；与之重叠的语义审查只计入那个阶段。比较提速时用同一冻结输入与质量门禁下的全流程墙钟时间。
 
 借鉴 Arena 的统一输入、独立目录和最终验证；各 worker 负责互补分片，不重复生成全量候选，也不因一个 worker 失败而静默缩小范围。
 
@@ -88,7 +88,7 @@ manifest.generation 由主 Agent 记录计划路径/哈希、状态路径、任�
 
 ## 6. 调度证据即产物
 
-主会话直接写出 `cases/cases.json`、没有任何 `result.json` 回执时，本次生成视为未调度，用例无效，不能进入计划覆盖门禁。宿主无子 Agent 能力、冻结 generation 角色不可调用或预算不足时保持 BLOCKED，主会话不能冒充 worker，也不能用"单 Agent 也写完了"代替调度证据。
+主会话直接写出 `cases/cases.json`、没有任何 `result.json` 回执时，本次生成视为未调度，用例无效，不能进入语义审查。宿主无子 Agent 能力、冻结 generation 角色不可调用或预算不足时保持 BLOCKED，主会话不能冒充 worker，也不能用"单 Agent 也写完了"代替调度证据。
 
 单组分支同样要有 `plan.json`、`state.json` 和 `result.json`，便于核对是谁写的、写了什么。阶段 3 结束前运行 `python3 <argus>/scripts/phase_gate.py <runDir> --phase dispatch`，BLOCKED 时停在该阶段并把缺口写入 `manifest.generation`。
 

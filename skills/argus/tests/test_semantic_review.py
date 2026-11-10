@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from phase_gate import Gate, file_hash, semantic_input_hash
+from phase_gate import Gate, file_hash, semantic_contract, semantic_input_hash, semantic_subject_hashes
 
 
 class SemanticReviewTests(unittest.TestCase):
@@ -28,11 +28,14 @@ class SemanticReviewTests(unittest.TestCase):
                                  'decision-router/references/questions.json').read_text())
         verdict = {'final': 0.9, 'evidenceRef': 'evidence.json',
                    'evidenceHash': file_hash(self.root / 'evidence.json')}
+        hashes = semantic_subject_hashes(self.root)
         self.review = {'model': 'fixture', 'questionSetVersion': definitions['questionSetVersion'],
                        'inputHash': semantic_input_hash(self.root)}
         for group, ident in [('sources', 'P1'), ('impacts', 'I1'), ('cases', 'C1'),
                              ('realization', 'C1'), ('ruleSupport', 'C1')]:
-            self.review[group] = {ident: copy.deepcopy(verdict)}
+            item = copy.deepcopy(verdict)
+            item['subjectHash'] = hashes[group][ident]
+            self.review[group] = {ident: item}
 
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value))
@@ -70,6 +73,35 @@ class SemanticReviewTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.review['realization']['C1']['final'] = value
                 self.assertTrue(self.gaps())
+
+    def test_unrelated_impact_metadata_does_not_invalidate_review(self):
+        before = semantic_subject_hashes(self.root)
+        impact = json.loads((self.root / 'cases/impact-analysis.json').read_text())
+        impact['notes'] = 'observation summary'
+        impact['sources'].append({'sourceId': 'OBS', 'kind': 'observation', 'summary': 'test env'})
+        self.write('cases/impact-analysis.json', impact)
+        self.assertEqual(semantic_subject_hashes(self.root), before)
+        self.assertEqual(self.gaps(), [])
+
+    def test_one_case_change_leaves_other_subjects(self):
+        before = semantic_subject_hashes(self.root)
+        self.cases.append({'caseId': 'C2', 'fixtures': [], 'steps': self.cases[0]['steps'],
+                           'assertions': self.cases[0]['assertions']})
+        self.write('cases/cases.json', self.cases)
+        after = semantic_subject_hashes(self.root)
+        self.assertEqual(after['cases']['C1'], before['cases']['C1'])
+        self.assertEqual(after['sources'], before['sources'])
+        self.assertNotEqual(semantic_input_hash(self.root), self.review['inputHash'])
+
+    def test_contract_exposes_budget_without_reading_source(self):
+        definitions = json.loads((Path(__file__).resolve().parents[2] /
+                                 'decision-router/references/questions.json').read_text())
+        contract = semantic_contract()
+        self.assertEqual(contract['maxBytes'], definitions['textStateContract']['maxBytes'])
+        self.assertEqual(set(contract['groups']), {'sources', 'impacts', 'cases', 'realization', 'ruleSupport'})
+        self.assertIn('subjectHash', contract['verdict'])
+        self.assertIn('语义审查', contract['order'])
+        self.assertIn('人工评审', contract['order'])
 
     def test_wrong_question_version_and_missing_evidence_block(self):
         self.review['questionSetVersion'] = 'old'

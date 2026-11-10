@@ -33,10 +33,10 @@ sourceUnits 保留该行的 sourceExcerpt 原文和单元格定位。无断言�
 
 协调者合并后在 `cases/import-map.json` 保存 `{schemaVersion:1, sources:[{sourceId, sourceHash}], rows:[{sourceRef, originalCaseId, caseId, disposition, reason}]}`。每条原始用例有且只有一条处置记录，选中行与 caseId 一一对应；排除必须有用户范围依据。核对原行的前置、步骤顺序和预期未丢失，转换后没有未解释的新用例。映射和原始来源纳入生成 inputArtifacts、inputHash 及人工评审 artifactHashes；不覆盖历史文件。
 
-按 decision-router 对原用例预期 → AC/场景 → 规范化步骤断言做语义审查；沿用概率阈值、低置信度处理和真实回执。随后运行 dispatch 与 `coverage.py --phase design`，生成与核对同一组 JSON、Markdown、Excel 评审材料；原 ID 与 caseId 对照保存在内部映射，待确认项以业务白话展示。
+合并后按 prd-to-cases 第 5 节做一轮语义审查。导入的原步骤和预期保持不变；只补原文已经写明、但表里没有的遗漏。生成与核对同一组 JSON、Markdown、Excel 评审材料；原 ID 与 caseId 对照保存在内部映射，待确认项以业务白话展示。
 
 ## 4. 交接
 
 只整理用例时交付后结束。用户请求执行或脚本生成时，将本 run 完整材料交给对应技能，按共享人工门禁审批本轮版本，再探索、生成和执行。审批对象必须绑定实际转换后的材料；“这是已评审用例”只有附带可核验、覆盖本轮哈希与矩阵的审批记录才可复用，否则仍需本轮评审。
 
-完成表示选中用例转换无遗漏、预期来源可追溯、design 与 dispatch 通过且材料一致；不表示全量 PRD 覆盖或真实业务通过。未知规则和缺失证据照常阻断，不能为导入开设门禁豁免。
+完成表示选中用例转换无遗漏、预期来源可追溯、dispatch 通过且材料一致；原文已经写明的遗漏已补。不表示全量 PRD 覆盖或真实业务通过。未知规则和缺失证据照常阻断，不能为导入开设门禁豁免。

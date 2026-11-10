@@ -61,6 +61,6 @@ calibrated 必须来自已验证的 Provider 契约；不能通过手填字段�
 
 页面状态还需 `state.states` 中的 `first`、`second` 两个具体状态说明，同时提交 `visual_state` 与 `visual_state_applicable`；不适用、other 或不确定都需复核。脚本检查静态 PNG/JPEG、每边 280–1568、单图 16 MiB、JSON 请求 32 MiB；macOS 使用 sips 检查格式和尺寸，缺工具即拒绝。服务端处理后及展开后的大小、图像完整性和上下文限制仍由服务端检查。预处理应使用现有可靠图片工具，保留原图并在私有 run 保存派生图；小字和遮挡使用保留上下文的清晰局部截图，清晰度不足升级复核，不能仅缩小长截图。不得上传未授权图片或输出 base64、凭据及敏感页面。
 
-每个视觉判断均返回 `vision-review` 和 `judgment`，无论概率高低都由冻结的 vision 对照原图及业务证据复核；与日志或业务断言冲突时交 bug_analysis。视觉判断本身不产生 passed。`visual_obscured`、`visual_truncated` 的 yes 表示异常；`visual_error_visible` 的 yes 表示目标提示可见。候选不适用或复核角色不可用时保持未解决；调用错误为 BLOCKED/error，不能转成 no。runner 和 coverage 门禁仅在全部业务及视觉必需断言有独立证据时决定结果。精确数值用 DOM、布局或业务断言；不使用 Box 自动点击。
+每个视觉判断均返回 `vision-review` 和 `judgment`，无论概率高低都由冻结的 vision 对照原图及业务证据复核；与日志或业务断言冲突时交 bug_analysis。视觉判断本身不产生 passed。`visual_obscured`、`visual_truncated` 的 yes 表示异常；`visual_error_visible` 的 yes 表示目标提示可见。候选不适用或复核角色不可用时保持未解决；调用错误为 BLOCKED/error，不能转成 no。runner 仅在全部业务及视觉必需断言有独立证据时，把结果写入 results.json。精确数值用 DOM、布局或业务断言；不使用 Box 自动点击。
 
 输出记录请求及实际模型、图片和请求 SHA-256、耗时、usage、原始响应引用；宿主关联 case ID、题目版本、阈值、每题概率、路由、升级原因、每次重试和兜底调用，保留在受保护 run 目录。请求哈希包含随机图片引用，每次调用不同。重试按现有配置和预算执行，累计预处理、请求、重试和复核时间与成本；不得将单次模型耗时当作整体 E2E 加速。

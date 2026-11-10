@@ -1,6 +1,6 @@
 ---
 name: prd-to-cases
-description: Generates reviewable test cases from requirements, or imports existing Excel, CSV, Markdown and JSON cases for standalone design or downstream execution; preserves source expectations and coverage gates.
+description: Generates reviewable test cases from requirements, or imports existing cases for design or downstream execution. After generation, one pass finds missing cases and fills them from the source text, then hands the workbook to a person. Human approval releases execution.
 ---
 
 # PRD 到用例
@@ -47,26 +47,20 @@ description: Generates reviewable test cases from requirements, or imports exist
 用例及脚本任务按 [资源规划契约](../argus/references/scheduling.md#新-run-执行规划必需) 声明 requiresLogin、accountRequirements、业务隔离依据、共享可变资源和 dependsOn；凭据仅用私有文件引用。实际执行并发留给主 Agent 根据真实资源计算，生成并发保持独立。
 
 - 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。
-- 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（cases.json + notes.md），不写 spec。切分粒度按 AC 域，任务数按工作量、依赖和启动成本确定，允许单组，并按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再进入语义审查。生成分片完整性独立于覆盖门禁；所有必需场景和用例均须完整。
+- 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（cases.json + notes.md），不写 spec。切分粒度按 AC 域，任务数按工作量、依赖和启动成本确定，允许单组，并按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再进入语义审查。生成分片必须齐全，所有必需场景和用例均须完整。
 - 各用例有 fixtures、步骤、步骤绑定断言和 suite；按[回执和合并](references/parallel-generation.md#4-回执和合并)为每个业务步骤绑定断言、解释准备/清理豁免并回收未覆盖义务。脚本尚未生成时 automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`，文件在脚本阶段按此名落盘，标题逐字一致。
 - 用例先行、脚本后置：脚本按人工评审通过的用例分批生成，避免用例改一轮、脚本白写一轮。
 - 源码标注稳定 caseId。
 - 参数化数据不会自动扩大场景分母。
 
-## 5. 审查语义映射
+## 5. 一次补齐遗漏并审查
 
-- 读 [decision-router](../decision-router/SKILL.md)，来源阶段完成 source_inventory 与 impact_evidence 后，按 AC/场景逐项批量检查 scenario_realization（数据与顺序确实触发规则）、mapping（断言验证结果）、rule_support（预期来自批准规则）。输入完整前置、步骤、断言和原始依据，分别留回执；高 mapping 分不能替代来源召回。
-- 同一冻结输入上，scenario_realization、mapping、rule_support 是独立题，按主体一次合批，不按题型串行等待。每题仍携带完整证据、独立 answerId 与概率；超过现有字节预算时按完整题拆批，不截断原文。来源阶段已经完成且输入、题集及上下文未变的 source_inventory/impact_evidence 回执直接汇入最终门禁，不重复调用；变化或低置信度项按原规则补证据复核。
-- 预期独立于被测输出：页面等于接口只证明呈现一致；日志成功不等于要求的实际送达；URL格式不等于链接可用。按原始规则验证收件人集合、同一记录的提交到详情、最终主题/正文或实际跳转；已有实现与规则冲突写观察/缺陷候选，不改成正确预期。低概率补证据核查后记录处理依据，不能只以“模型保守”接受。
-- approved 只用于证据完成且已审查的条目。记录 semanticReview 的审批依据。
-- 多 AC 共用用例要分别断言。
-- 按[语义门禁](../argus/references/gates.md#门禁三五语义审查阶段-41-人工评审前必须-passed)汇总五组完整回执并运行 `phase_gate.py RUN --phase semantic`。来源、依赖、条件、断言或预期任一组缺证据，独立生成和完整工作流均停在此处。
+用例合并后做一轮语义审查，并把原文已经写明的遗漏补进表里，然后出评审表。
 
-## 6. 检查用例覆盖
-
-- 用例评审前先通过 dispatch；语义审查和确定性覆盖可基于同一冻结输入并行；语义尚未完成时覆盖结果为临时结果，审查完成或用例变更后重算最终覆盖。运行 `coverage.py --phase design` 并保存 coverage-design.json：来源、影响义务、场景/AC 关联与 P0 必须 100%，入口用声明式 automationRef，discovered=[]；矩阵发现留到脚本阶段。
-- 脚本生成后再用 runner 实际发现结果复核关联与全部矩阵入口（由 [脚本生成子技能](../argus/skills/script-generation/SKILL.md) 负责）；发现集合必须覆盖每条已批准用例。
-- 默认只检查一次；发现缺口才定向补充，最多两轮，修改后复查受影响项并重算全量覆盖。独立复杂业务缺口可派多个 Agent 并行处理；无需为确定性覆盖统计派 Agent。关键规则不明保持阻断。
+- 先通过 dispatch，再按 [语义门禁](../argus/references/gates.md#门禁三五语义审查阶段-41-人工评审前必须-passed) 审查已有主体。来源和影响回执未变则复用。
+- 生成回执里的未覆盖义务，以及没有场景或没有用例的验收标准：原文和预期已经写明的，只为这些 ID 追加生成。预期不明、冲突或 needs_clarification 不编造，写入待确认事项。
+- 语义指出某条用例没有断言到验收标准、且原文写了应断言的结果时，补上该断言，只重判这个主体。低分按原文补一次；仍低分的把已核对原文写入 acceptedReason，并在待确认事项说明。已有实现与规则冲突写观察，不改成正确预期。
+- 然后运行 `phase_gate.py RUN --phase semantic`，直接进入评审表。入口用声明式 automationRef。人工评审通过即接受执行。
 
 ## 7. 输出人工评审表
 

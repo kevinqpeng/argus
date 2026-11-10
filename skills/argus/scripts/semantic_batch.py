@@ -8,10 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'decision-router/scripts'))
 import jev
-from phase_gate import semantic_input_hash
+from phase_gate import (JUDGED_SOURCE_KINDS, SEMANTIC_GROUPS, semantic_document_hash,
+                        semantic_documents, semantic_input_hash, semantic_subject_hashes,
+                        source_content)
 
-GROUPS = {'sources': 'source_inventory', 'impacts': 'impact_evidence',
-          'cases': 'mapping', 'realization': 'scenario_realization', 'ruleSupport': 'rule_support'}
+GROUPS = SEMANTIC_GROUPS
 
 
 def encoded(value):
@@ -26,11 +27,13 @@ def read(path):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-def write(path, value):
+def emit(path, value):
     data = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + '\n'
-    if path.exists() and path.read_text(encoding='utf-8') != data:
-        raise ValueError(f'file exists with different content: {path}')
+    if path.exists() and path.read_text(encoding='utf-8') == data:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(data, encoding='utf-8')
+    return True
 
 
 def expected_subjects(run):
@@ -43,8 +46,19 @@ def expected_subjects(run):
             'cases': ids, 'realization': ids, 'ruleSupport': ids}
 
 
+def batch_current(run, plan, batch):
+    if plan.get('questionSetVersion') != jev.DEFINITIONS['questionSetVersion']:
+        return False
+    mapping = batch.get('mapping') or {}
+    if mapping and all(isinstance(item, dict) and 'subjectHash' in item for item in mapping.values()):
+        hashes = semantic_subject_hashes(run)
+        return all(hashes.get(item['group'], {}).get(item['id']) == item['subjectHash'] for item in mapping.values())
+    return plan.get('inputHash') == semantic_document_hash(run)
+
+
 def prepare(run, subjects_path):
     expected = expected_subjects(run)
+    hashes = semantic_subject_hashes(run)
     subjects = read(subjects_path)
     actual = {key: set() for key in GROUPS}
     batches, questions, state, mapping = [], {}, {}, {}
@@ -56,16 +70,18 @@ def prepare(run, subjects_path):
             batches.append((payload, dict(mapping)))
             questions.clear(); state.clear(); mapping.clear()
 
-    for index, item in enumerate(subjects):
+    for item in subjects:
         group, ident = item['group'], item['id']
         if group not in GROUPS or ident not in expected[group]:
             raise ValueError(f'unknown subject: {group}/{ident}')
+        if ident in actual[group]:
+            raise ValueError(f'duplicate subject: {group}/{ident}')
         actual[group].add(ident)
-        name = f'q{index + 1:06d}'
+        name = f'{group}:{ident}'
         evidence = item['evidence']
         questions[name] = {'questionId': GROUPS[group], 'subject': item['subject']}
         state[name] = {'evidence': evidence, 'evidenceHash': jev.evidence_hash(evidence)}
-        mapping[name] = {'group': group, 'id': ident}
+        mapping[name] = {'group': group, 'id': ident, 'subjectHash': hashes[group][ident]}
         try:
             jev.build_request({'questions': questions, 'state': {'subjects': state}})
         except ValueError as exc:
@@ -79,31 +95,76 @@ def prepare(run, subjects_path):
         raise ValueError('semantic subjects incomplete')
     directory = run / 'cases/semantic-batch'
     directory.mkdir(parents=True, exist_ok=True)
+    previous_path = directory / 'plan.json'
+    previous = read(previous_path) if previous_path.is_file() else {'batches': []}
+    previous_batches = {batch.get('name'): batch for batch in previous.get('batches') or []}
     plan = {'inputHash': semantic_input_hash(run), 'questionSetVersion': jev.DEFINITIONS['questionSetVersion'], 'batches': []}
+    planned = []
     for index, (payload, mappings) in enumerate(batches, 1):
         name = f'{index:04d}'
+        data = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + '\n'
+        prior = previous_batches.get(name)
+        batch_path = directory / f'{name}.input.json'
+        if batch_path.is_file() and batch_path.read_text(encoding='utf-8') == data and prior and not _hashes_equal(prior, mappings):
+            raise ValueError(f'subjects stale for batch {name}; regenerate with semantic_batch.py subjects')
+        planned.append((name, data, mappings))
+    kept = set()
+    rewritten = reused = 0
+    for name, data, mappings in planned:
+        kept.add(name)
         path = directory / f'{name}.input.json'
-        write(path, payload)
+        if path.is_file() and path.read_text(encoding='utf-8') == data:
+            reused += 1
+        else:
+            path.write_text(data, encoding='utf-8')
+            rewritten += 1
+            for suffix in ('raw.json', 'out.json'):
+                stale = directory / f'{name}.{suffix}'
+                if stale.exists():
+                    stale.unlink()
         plan['batches'].append({'name': name, 'inputFileHash': sha(path.read_bytes()), 'mapping': mappings})
-    write(directory / 'plan.json', plan)
-    print(json.dumps({'batches': len(batches), 'questions': len(subjects)}))
+    for path in directory.glob('*.json'):
+        if path.name == 'plan.json':
+            continue
+        if path.name.split('.', 1)[0] not in kept:
+            path.unlink()
+    emit(directory / 'plan.json', plan)
+    print(json.dumps({'batches': len(batches), 'questions': len(subjects), 'reused': reused, 'rewritten': rewritten}))
+
+
+
+def _hashes_equal(prior, mappings):
+    old = prior.get('mapping') or {}
+    if set(old) != set(mappings):
+        return False
+    return all(isinstance(old.get(key), dict) and old[key].get('subjectHash') == item.get('subjectHash')
+               for key, item in mappings.items())
 
 
 def assemble(run):
     directory = run / 'cases/semantic-batch'
     plan = read(directory / 'plan.json')
-    if plan['inputHash'] != semantic_input_hash(run) or plan['questionSetVersion'] != jev.DEFINITIONS['questionSetVersion']:
+    if plan['questionSetVersion'] != jev.DEFINITIONS['questionSetVersion']:
         raise ValueError('semantic inputs or question set changed')
-    review = {'schemaVersion': 1, 'inputHash': plan['inputHash'],
+    hashes = semantic_subject_hashes(run)
+    existing_path = run / 'cases/semantic-review.json'
+    existing = read(existing_path) if existing_path.is_file() else None
+    if not isinstance(existing, dict):
+        existing = {}
+    review = {'schemaVersion': 1, 'inputHash': semantic_input_hash(run),
               'questionSetVersion': plan['questionSetVersion'], 'model': None,
               **{group: {} for group in GROUPS}}
     expected = expected_subjects(run)
     seen_names = set()
+    stale = []
     for batch in plan['batches']:
         name = batch['name']
         if not isinstance(name, str) or not name.isdecimal() or name in seen_names:
             raise ValueError('invalid or duplicate batch name')
         seen_names.add(name)
+        if not batch_current(run, plan, batch):
+            stale.append(name)
+            continue
         inp = directory / f'{name}.input.json'
         if sha(inp.read_bytes()) != batch['inputFileHash']:
             raise ValueError('semantic request changed')
@@ -127,13 +188,18 @@ def assemble(run):
             answer = result['answers'][key]
             jev.route(answer, jev.DEFINITIONS['questions'][bindings[key]])
             verdict = {'final': answer['noul'], 'evidenceRef': str(out_path.relative_to(run)),
-                       'evidenceHash': sha(out_path.read_bytes())}
+                       'evidenceHash': sha(out_path.read_bytes()), 'subjectHash': hashes[group][ident]}
             previous = review[group].get(ident)
+            kept = (existing.get(group) or {}).get(ident)
+            if isinstance(kept, dict) and kept.get('acceptedReason') and all(
+                    kept.get(key) == verdict[key] for key in ('final', 'evidenceRef', 'evidenceHash')):
+                verdict['acceptedReason'] = kept['acceptedReason']
             if previous is None or verdict['final'] < previous['final']:
                 review[group][ident] = verdict
-    if any(set(review[group]) != ids for group, ids in expected.items()):
-        raise ValueError('semantic subjects incomplete')
-    write(run / 'cases/semantic-review.json', review)
+    if stale or any(set(review[group]) != ids for group, ids in expected.items()):
+        missing = [f'{group}/{ident}' for group, ids in expected.items() for ident in sorted(ids - set(review[group]))]
+        raise ValueError('semantic subjects stale or incomplete: ' + ', '.join((stale or missing)[:12]))
+    emit(run / 'cases/semantic-review.json', review)
 
 
 def request(run, name, record=False):
@@ -143,9 +209,7 @@ def request(run, name, record=False):
     plan = read(directory / 'plan.json')
     batch = next(item for item in plan['batches'] if item['name'] == name)
     path = directory / f'{name}.input.json'
-    if (plan['inputHash'] != semantic_input_hash(run) or
-            plan['questionSetVersion'] != jev.DEFINITIONS['questionSetVersion'] or
-            sha(path.read_bytes()) != batch['inputFileHash']):
+    if not batch_current(run, plan, batch) or sha(path.read_bytes()) != batch['inputFileHash']:
         raise ValueError('semantic inputs changed')
     payload = read(path)
     request_data, _ = jev.build_request(payload)
@@ -159,25 +223,146 @@ def request(run, name, record=False):
         jev.route(answer, jev.DEFINITIONS['questions'][result['questionBindings'][key]])
     result['request'] = {'actualModel': raw['model'], 'inputHash': sha(encoded(request_data)),
                          'transport': 'jev_ask'}
-    write(directory / f'{name}.out.json', result)
+    emit(directory / f'{name}.out.json', result)
+
+
+def _validate_subject(item):
+    name = f"{item['group']}:{item['id']}"
+    evidence = item['evidence']
+    jev.build_request({'questions': {name: {'questionId': GROUPS[item['group']], 'subject': item['subject']}},
+                       'state': {'subjects': {name: {'evidence': evidence, 'evidenceHash': jev.evidence_hash(evidence)}}}})
+
+
+def subject_records(run):
+    docs = semantic_documents(run)
+    impact = docs['impact-analysis']
+    units = [row for row in impact.get('sourceUnits') or [] if isinstance(row, dict)]
+    obligations = [row for row in impact.get('obligations') or [] if isinstance(row, dict)]
+    objects = {row.get('objectId'): row for row in impact.get('objects') or [] if isinstance(row, dict)}
+    ac_by_id = {row.get('acId'): row for row in docs['acs'] if isinstance(row, dict)}
+    scenario_by_id = {row.get('scenarioId'): row for row in docs['scenarios'] if isinstance(row, dict)}
+    gaps, records = [], []
+
+    def add(item):
+        try:
+            _validate_subject(item)
+        except ValueError as exc:
+            gaps.append(f"{item['group']}/{item['id']}: {exc}")
+            return
+        records.append(item)
+
+    judged = [row for row in impact['sources'] if isinstance(row, dict) and row.get('kind') in JUDGED_SOURCE_KINDS]
+    for source in sorted(judged, key=lambda row: row['sourceId']):
+        sid = source['sourceId']
+        content = source_content(run, source)
+        related_units = [row for row in units if sid in (row.get('sourceIds') or [])]
+        related = [row for row in obligations if sid in (row.get('sourceIds') or [])]
+        if not content.strip():
+            gaps.append(f'sources/{sid}: 缺少 sourceContent')
+            continue
+        absent = [str(row.get('unitId') or sid) for row in related_units
+                  if not isinstance(row.get('sourceExcerpt'), str) or row['sourceExcerpt'] not in content]
+        if absent:
+            gaps.append(f"sources/{sid}: 摘录不在原文中 {', '.join(absent[:4])}")
+            continue
+        add({'group': 'sources', 'id': sid, 'subject': f"来源 {sid}（{source.get('kind')}）是否保留全部可测规则",
+             'evidence': {'sourceContent': content, 'sourceUnits': related_units, 'obligations': related, 'source': source}})
+    for check in sorted((row for row in impact['checks'] if isinstance(row, dict)), key=lambda row: row['checkId']):
+        cid = check['checkId']
+        change = objects.get(check.get('objectId'))
+        dependency = {'reason': check.get('reason'), 'evidenceRef': check.get('evidenceRef'),
+                      'disposition': check.get('disposition'),
+                      'obligations': [row for row in obligations if row.get('obligationId') in set(check.get('obligationIds') or [])]}
+        if not isinstance(change, dict) or not str(change.get('description') or '').strip() or not (dependency.get('reason') or dependency.get('evidenceRef')):
+            gaps.append(f'impacts/{cid}: 缺少变更对象或依赖证据')
+            continue
+        add({'group': 'impacts', 'id': cid, 'subject': f"影响检查 {cid} / {check.get('dimension')} 的处置是否有证据",
+             'evidence': {'change': change, 'check': check, 'dependencyEvidence': dependency}})
+
+    for case in sorted((row for row in docs['cases'] if isinstance(row, dict)), key=lambda row: row['caseId']):
+        cid = case['caseId']
+        scenarios, acs, ac_ids = [], [], set()
+        for scenario_id in case.get('scenarioIds') or []:
+            scenario = scenario_by_id.get(scenario_id)
+            if not isinstance(scenario, dict):
+                continue
+            scenarios.append(scenario)
+            for ac_id in scenario.get('acIds') or []:
+                ac = ac_by_id.get(ac_id)
+                if isinstance(ac, dict):
+                    acs.append(ac)
+                    ac_ids.add(ac_id)
+        rules = [row for row in obligations if set(row.get('acIds') or []) & ac_ids]
+        bound = {row.get('obligationId') for row in rules}
+        related_units = [row for row in units if set(row.get('obligationIds') or []) & bound]
+        texts = [ac.get('text') for ac in acs if isinstance(ac.get('text'), str) and ac['text'].strip()]
+        acceptance = texts[0] if len(texts) == 1 else ({'acs': [{'acId': ac.get('acId'), 'text': ac.get('text')} for ac in acs]} if texts else None)
+        if not acceptance:
+            gaps.append(f'cases/{cid}: 缺少关联验收条件')
+            continue
+        if not rules:
+            gaps.append(f'ruleSupport/{cid}: 缺少关联义务')
+            continue
+        evidence = {'acceptance': acceptance, 'fixtures': case.get('fixtures') if isinstance(case.get('fixtures'), list) else [],
+                    'steps': case.get('steps') or [], 'assertions': case.get('assertions') or [],
+                    'case': case, 'scenarios': scenarios, 'acs': acs, 'obligations': rules, 'units': related_units}
+        label = acceptance if isinstance(acceptance, str) else cid
+        add({'group': 'cases', 'id': cid, 'subject': f'用例 {cid} 的断言是否验证验收条件：{label}', 'evidence': evidence})
+        add({'group': 'realization', 'id': cid, 'subject': f'用例 {cid} 的步骤是否构成验收条件：{label}', 'evidence': evidence})
+        add({'group': 'ruleSupport', 'id': cid, 'subject': f'用例 {cid} 的预期是否有规则依据：{label}', 'evidence': evidence})
+    return records, gaps
+
+
+def outline(run):
+    records, gaps = subject_records(run)
+    reusable, stale = [], []
+    plan_path = run / 'cases/semantic-batch/plan.json'
+    if plan_path.is_file():
+        plan = read(plan_path)
+        for batch in plan.get('batches') or []:
+            (reusable if batch_current(run, plan, batch) else stale).append(batch.get('name'))
+    print(json.dumps({
+        'questionSetVersion': jev.DEFINITIONS['questionSetVersion'],
+        'maxBytes': jev.DEFINITIONS['textStateContract']['maxBytes'],
+        'questions': len(records),
+        'counts': {group: sum(item['group'] == group for item in records) for group in GROUPS},
+        'missing': gaps,
+        'reusableBatches': reusable,
+        'staleBatches': stale,
+    }, ensure_ascii=False, indent=2))
+
+
+def write_subjects(run, output):
+    records, gaps = subject_records(run)
+    if gaps:
+        raise ValueError('semantic subjects incomplete: ' + '; '.join(gaps[:12]))
+    emit(output, records)
+    print(json.dumps({'subjects': len(records)}))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run', type=Path)
-    parser.add_argument('action', choices=['prepare', 'request', 'record', 'assemble'])
+    parser.add_argument('action', choices=['prepare', 'request', 'record', 'assemble', 'outline', 'subjects'])
     parser.add_argument('argument', nargs='?')
     args = parser.parse_args()
+    run = args.run.resolve()
     if args.action == 'prepare':
         if args.argument is None:
             parser.error('prepare requires subjects')
-        prepare(args.run.resolve(), Path(args.argument))
+        prepare(run, Path(args.argument))
     elif args.action in ('request', 'record'):
         if args.argument is None:
             parser.error('request/record requires batch name')
-        request(args.run.resolve(), args.argument, record=args.action == 'record')
+        request(run, args.argument, record=args.action == 'record')
+    elif args.action == 'outline':
+        outline(run)
+    elif args.action == 'subjects':
+        if args.argument is None:
+            parser.error('subjects requires output path')
+        write_subjects(run, Path(args.argument))
     else:
-        assemble(args.run.resolve())
+        assemble(run)
 
 
 if __name__ == '__main__':
