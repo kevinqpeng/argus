@@ -209,18 +209,72 @@ def evaluate(plan, state, root):
             "artifacts": artifacts, "cases": sorted(cases, key=lambda c: c["caseId"])}
 
 
+def seal(plan, state, root, task_id, gaps):
+    """Write result.json from files the worker already put in its attempt directory."""
+    tasks, _ = validate_plan(plan)
+    require(plan.get("phase") == "cases", "seal supports the cases phase")
+    require(task_id in tasks, "unknown task")
+    task = tasks[task_id]
+    require("cases.json" in task["outputFiles"], "cases phase requires cases.json output")
+    plan_hash = digest(plan)
+    require(state["schemaVersion"] == 1 and state["planHash"] == plan_hash, "stale generation state")
+    attempt = state["attempts"][task_id]
+    require(type(attempt) is int and attempt > 0, "invalid attempt")
+    require(isinstance(gaps, list), "unresolvedObligations must be a list")
+    for item in gaps:
+        require(isinstance(item, dict) and isinstance(item.get("obligationId"), str) and item["obligationId"]
+                and isinstance(item.get("reason"), str) and item["reason"].strip(),
+                "invalid unresolved obligation")
+    directory = safe_path(root, f"{task_id}/{attempt}")
+    files = {}
+    for name in task["outputFiles"]:
+        path = safe_path(directory, name)
+        require(path.is_file(), "missing worker output: " + name)
+        files[name] = file_hash(path)
+    shard_cases = json.loads(safe_path(directory, "cases.json").read_text(encoding="utf-8"))
+    require(unique([case["caseId"] for case in shard_cases], "caseIds") == set(task["caseIds"]),
+            "case assignment mismatch")
+    covered = set()
+    for case in shard_cases:
+        covered |= validate_case(case, task["scenarioIds"], "draft")
+        validate_automation_ref(case, task, attempt, files, "cases")
+    require(covered == set(task["scenarioIds"]), "unrepresented assigned scenarios")
+    dependency_hashes = {}
+    for dep in task["dependsOn"]:
+        dep_attempt = state["attempts"][dep]
+        dep_receipt = json.loads(safe_path(root, f"{dep}/{dep_attempt}/result.json").read_text(encoding="utf-8"))
+        dependency_hashes[dep] = dep_receipt["resultHash"]
+    receipt = {"schemaVersion": 1, "runId": plan["runId"], "planHash": plan_hash, "taskId": task_id,
+               "attempt": attempt, "state": "completed", "dependencyHashes": dependency_hashes,
+               "files": files, "cases": shard_cases, "unresolvedObligations": gaps}
+    receipt["resultHash"] = digest({key: value for key, value in receipt.items() if key != "resultHash"})
+    publish_bytes(directory / "result.json", (json.dumps(receipt, ensure_ascii=False, indent=2) + "\n").encode())
+    return {"taskId": task_id, "attempt": attempt, "resultHash": receipt["resultHash"]}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plan", type=Path)
     parser.add_argument("state", type=Path)
     parser.add_argument("--root", type=Path, required=True, help="Private generation directory")
     parser.add_argument("--merge", type=Path, help="Write draft cases only when all shards are complete")
+    parser.add_argument("--seal", help="Write result.json for this cases-phase task from its output files")
+    parser.add_argument("--gaps", default="[]", help="JSON array of unresolved obligations for --seal")
     parser.add_argument("--metrics", type=Path, help="Run metrics.jsonl")
     args = parser.parse_args()
+    if args.seal and args.merge:
+        parser.error("seal does not merge")
     started = time.monotonic()
     status = "BLOCKED"
     try:
-        result = evaluate(json.loads(args.plan.read_text()), json.loads(args.state.read_text()), args.root)
+        plan = json.loads(args.plan.read_text())
+        state = json.loads(args.state.read_text())
+        if args.seal:
+            result = seal(plan, state, args.root, args.seal, json.loads(args.gaps))
+            status = "PASSED"
+            print(json.dumps(result, ensure_ascii=False))
+            return 0
+        result = evaluate(plan, state, args.root)
         if args.merge:
             require(result["status"] == "PASSED", "cannot merge incomplete generation")
             content = json.dumps(result["cases"], ensure_ascii=False, indent=2) + "\n"

@@ -174,6 +174,10 @@ def build_request(data, visual_model=None):
         payload["state"] = text_state(data.get("state"), bindings)
         for name in questions:
             questions[name]["instructions"] += "\nEvidence: state.subjects[" + json.dumps(name) + "].evidence"
+        # The provider rejects a text body that reaches maxBytes. Evidence alone understates that body.
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+        if len(body) >= DEFINITIONS["textStateContract"]["maxBytes"]:
+            raise ValueError("decision evidence exceeds local byte budget; split independent questions, never truncate")
     return payload, hashes
 
 def main():

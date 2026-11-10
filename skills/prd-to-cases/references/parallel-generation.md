@@ -58,7 +58,7 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 ## 4. 回执和合并
 
-worker 完成后最后写 `任务ID/attempt/result.json`，字段为 schemaVersion、runId、planHash、taskId、attempt、state="completed"、dependencyHashes、files、cases、resultHash。dependencyHashes 精确绑定所有直接上游 taskId → 已接受 resultHash；files 是 outputFiles 路径 → 文件 SHA-256；resultHash 是去除自身字段后整个回执的 generation.digest。每组 cases 必须完整包含分配的 caseIds，场景关联不能越组，reviewStatus 和 semanticReview 均为 draft。
+worker 写完 outputFiles 后运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录> --seal <taskId> --gaps '[]'`。脚本写入 `任务ID/attempt/result.json` 并计算文件哈希和 resultHash。有未覆盖义务时 `--gaps` 传 `[{obligationId, reason}]`。主 Agent 不手写 result.json，也不改 worker 回执。dependencyHashes 绑定直接上游已接受的 resultHash。每组 cases 必须完整包含分配的 caseIds，场景关联不能越组，reviewStatus 和 semanticReview 均为 draft。
 
 回执另必填 `unresolvedObligations`：无缺口填 `[]`；未覆盖或交给其他组的义务填 `{obligationId, reason}`，新增候选也先分配稳定义务ID。notes 同步解释但不替代此字段。非空或缺字段时 generation.py 阻断。主 Agent 对照原始回执逐项落实到接收任务、场景、caseId和断言；缺失场景按新计划版本补生成并重新收回回执，不能只把清单清空、代 worker 改哈希或说“其他组负责”就合并。
 

@@ -32,6 +32,7 @@ content.json 结构：
 }
 """
 import argparse
+import hashlib
 import json
 import pathlib
 import re
@@ -51,6 +52,7 @@ WIDTH_NOTES = [22, 64, 50]
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
+SLICE_CAP = 8
 
 
 # 只定位可核对的疑似技术信息；业务必要性仍由评审者判断。
@@ -107,6 +109,63 @@ def load_run(run_dir):
     semantic = cases_dir / 'semantic-review.json'
     data['semantic'] = json.loads(semantic.read_text(encoding='utf-8')) if semantic.is_file() else None
     return data
+
+
+def slice_case_ids(case_ids, cap=SLICE_CAP):
+    """Keep source order. A short list stays one slice; a longer list is cut at cap."""
+    if (not isinstance(case_ids, list) or not case_ids
+            or any(not isinstance(item, str) or not item for item in case_ids)
+            or len(case_ids) != len(set(case_ids))):
+        raise ValueError('用例 ID 无效')
+    if len(case_ids) <= cap:
+        return [list(case_ids)]
+    return [list(case_ids[i:i + cap]) for i in range(0, len(case_ids), cap)]
+
+
+def write_slice_plan(run_dir, round_id):
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
+        raise ValueError('展示轮次无效')
+    cases = json.loads((run_dir / 'cases/cases.json').read_text(encoding='utf-8'))
+    plan = {'schemaVersion': 1, 'cap': SLICE_CAP, 'slices': [
+        {'name': f'{index:02d}', 'caseIds': chunk}
+        for index, chunk in enumerate(slice_case_ids([case['caseId'] for case in cases]), 1)]}
+    path = run_dir / 'cases/presentation' / round_id / 'plan.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = json.dumps(plan, ensure_ascii=False, indent=2) + '\n'
+    if path.exists() and path.read_text(encoding='utf-8') != data:
+        raise ValueError('分片计划已存在且不一致')
+    path.write_text(data, encoding='utf-8')
+    return plan
+
+
+def prompt_text():
+    contract = (pathlib.Path(__file__).resolve().parents[1] / 'references/review-table.md').read_text(encoding='utf-8')
+    return contract.split('## 固定提示词（原样派发）\n', 1)[1].split('\n## 主 Agent 验收', 1)[0].strip()
+
+
+def fill_receipt(run_dir, round_id):
+    """Fill prompt and artifact hashes. Identity fields stay as the dispatcher wrote them."""
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
+        raise ValueError('展示轮次无效')
+    base = run_dir / 'cases/presentation' / round_id
+    path = base / 'receipt.json'
+    receipt = json.loads(path.read_text(encoding='utf-8'))
+    for key in ('agentId', 'model', 'effort', 'isolation'):
+        if not isinstance(receipt.get(key), str) or not receipt[key].strip():
+            raise ValueError('展示回执缺少 ' + key)
+    names = ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json', 'quality-review.json')
+    refs = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis', 'semantic-review')]
+    refs += [f'cases/presentation/{round_id}/{name}' for name in names]
+    hashes = {}
+    for ref in refs:
+        artifact = run_dir / ref
+        if not artifact.is_file():
+            raise ValueError('缺少 ' + ref)
+        hashes[ref] = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    receipt['promptHash'] = hashlib.sha256(prompt_text().encode('utf-8')).hexdigest()
+    receipt['artifactHashes'] = hashes
+    path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    return {'status': 'FILLED', 'artifacts': len(hashes)}
 
 
 def check_destination(label, source_ids, groups, exemptions):
@@ -339,11 +398,24 @@ def main():
     ap.add_argument('--case-ids', nargs='+', help='仅自检：本分片分配的有序 caseId')
     ap.add_argument('--round', default='1')
     ap.add_argument('--out-dir', type=pathlib.Path)
+    ap.add_argument('--plan-slices', action='store_true', help='按源顺序写出展示分片计划')
+    ap.add_argument('--fill-receipt', action='store_true', help='写入固定提示词和产物哈希')
     args = ap.parse_args()
     if args.case_ids and not args.check_only:
         ap.error('--case-ids 只能与 --check-only 一起使用')
+    if (args.plan_slices or args.fill_receipt) and (args.check_only or args.content or args.case_ids or args.out_dir):
+        ap.error('分片计划和回执哈希与渲染参数分开使用')
+    if args.plan_slices and args.fill_receipt:
+        ap.error('分片计划和回执哈希分开运行')
 
     run_dir = args.run_dir.resolve()
+    if args.plan_slices or args.fill_receipt:
+        try:
+            result = write_slice_plan(run_dir, args.round) if args.plan_slices else fill_receipt(run_dir, args.round)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            ap.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False))
+        return
     round_dir = run_dir / 'cases/presentation' / args.round
     content_path = args.content or round_dir / 'content.json'
     out_dir = (args.out_dir or run_dir / 'cases').resolve()
@@ -356,8 +428,8 @@ def main():
         source['cases'] = [c for c in source['cases'] if c['caseId'] in assigned]
         if [c['caseId'] for c in source['cases']] != args.case_ids:
             errors.append('分片 caseIds 必须唯一、存在且保持源顺序')
-        if len(args.case_ids) > 8:
-            errors.append('分片最多 8 条用例，请拆分任务')
+        if len(args.case_ids) > SLICE_CAP:
+            errors.append(f'分片最多 {SLICE_CAP} 条用例，请拆分任务')
         if content_path.stat().st_size > 25 * 1024:
             errors.append('分片 content.json 超过 25 KiB，请拆分任务')
     units = normalize(content, source, errors)
