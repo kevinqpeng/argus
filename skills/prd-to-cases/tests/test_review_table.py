@@ -260,6 +260,15 @@ class ReviewTableTest(unittest.TestCase):
             self.assertEqual(second.returncode, 2)
             self.assertNotIn('逐片派发', second.stdout)
             self.assertIn('缺失', second.stdout)
+            receipt['shards'] = [{'agentId': f'agent-{i}', 'caseIds': ids, 'status': 'completed'}
+                                 for i, ids in enumerate([slices[0]['caseIds'][:4], slices[0]['caseIds'][4:], slices[1]['caseIds']])]
+            (base / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+            retry = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotIn('逐片派发', retry.stdout)
+            receipt['shards'][1]['caseIds'].pop()
+            (base / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+            incomplete = subprocess.run(command, capture_output=True, text=True)
+            self.assertIn('逐片派发', incomplete.stdout)
 
 
 if __name__ == '__main__':
