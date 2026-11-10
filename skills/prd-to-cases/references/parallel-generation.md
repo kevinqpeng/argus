@@ -13,7 +13,7 @@
 
 ## 1. 准备和判断依赖
 
-主 Agent 先完成来源与影响义务核查、完整 PRD/AC 理解、形式化路由和场景冻结；准备公共 harness、fixture 接口、认证与数据隔离约定。公共文件由主 Agent 唯一维护。worker 读取完整基线索引、相关来源及跨组业务规则，只生成分配范围。
+主 Agent 先完成来源与影响义务核查、完整 PRD/AC 理解、形式化路由和场景冻结；准备公共 harness、fixture 接口、认证与数据隔离约定。公共文件由主 Agent 唯一维护。worker 只读本任务输入包和上游已完成产物，只生成分配范围。
 
 仅设计或外部用例规范化时，共享 harness/fixture 仅为声明式接口与隔离约定，不创建运行环境、获取账号或安装 runner。外部用例输入按 [接入规则](existing-cases.md) 保留来源、步骤和预期，仍使用本流程的真实任务回执与校验。
 
@@ -33,7 +33,7 @@
 
 在私有 run 的 `cases/generation/` 保存 plan.json、state.json、冻结输入副本和各组产物。共享 JSON 定义见 [schemas.json](../../argus/references/schemas.json) 的 GenerationPlan、GenerationState、GenerationResult。
 
-plan.json 包含 schemaVersion、phase="cases"、runId、inputHash、baselineHash、完整 scenarioIds、inputArtifacts 和 tasks。inputArtifacts 是相对此目录的冻结输入文件路径 → 原始字节 SHA-256，至少包含来源清单、impact-analysis.json、AC/场景、run 配置、共享 harness/fixture 契约和分组决策记录。主 Agent 核对副本与本 run 源文件一致、scenarioIds 与冻结基线完全相等。inputHash 绑定这些输入、PRD 设计采用的 main@SHA（有源码时）和必需矩阵；生成时还没有最终用例内容，用计划哈希另行绑定分配，不能冒用执行 inputHash。
+plan.json 包含 schemaVersion、phase="cases"、runId、inputHash、baselineHash、完整 scenarioIds、inputArtifacts 和 tasks。inputArtifacts 是相对此目录的冻结输入文件路径 → 原始字节 SHA-256，至少包含来源清单、impact-analysis.json、AC/场景、run 配置、共享 harness/fixture 契约、分组决策记录，以及每个任务的输入包。主 Agent 核对副本与本 run 源文件一致、scenarioIds 与冻结基线完全相等。这些冻结源供计划哈希和主 Agent 核对；worker 的阅读范围只在 §3.1 的输入包。inputHash 绑定这些输入、PRD 设计采用的 main@SHA（有源码时）和必需矩阵；生成时还没有最终用例内容，用计划哈希另行绑定分配，不能冒用执行 inputHash。
 
 每项 task 为 `{taskId, scenarioIds, caseIds, dependsOn, outputFiles}`。outputFiles 是 worker 本次目录内的相对文件路径，不能包含 result.json、绝对路径、上级路径或符号链接。公共输入目录与 taskId 目录不重叠。计划哈希是 generation.digest(plan)，算法与 coverage.digest 一致。冻结后不原地改计划；新版本用新 generation 目录并保存旧版。
 
@@ -45,20 +45,21 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录>`。退出 0 仅表示检查有效；查看 status，PENDING 不表示生成完成。退出 2 为 BLOCKED。ready 是依赖已完成且不在 running/failed 的任务；按宿主当前可用子 Agent 槽位、冻结预算和限流取一批，一次派发。单个槽位按相同 ready 顺序串行；配置的角色无法调用则 BLOCKED，主会话不能冒充。
 
-每次派发先持久化 running，再把 planHash、任务范围、完整上下文指针、依赖结果哈希、独占目录 `任务ID/attempt/`、验收要求交给 worker。生成期间只操作私有文件；不连接业务目标执行测试。worker 只写该目录，只读共享输入和上游已完成产物，不写 manifest、state.json、最终 cases.json、Excel 或 Markdown。
+每次派发先持久化 running，再把 planHash、任务范围、本任务输入包路径、依赖结果哈希、独占目录 `任务ID/attempt/`、验收要求和 `--seal` 命令交给 worker。生成期间只操作私有文件；不连接业务目标执行测试。worker 只写该目录里的 outputFiles，只读输入包和上游已完成产物，不写 manifest、state.json、最终 cases.json、Excel 或 Markdown。`result.json` 只由 seal 写入同一目录。
 
 主 Agent 等待任一任务结束即收取回执，确认 worker 已停止写入后移出 running，再校验并启动新就绪任务，无需等待整批最慢任务。失败记录原因并加入 failed；预算允许才重派。重派先停止旧 worker，将该任务及已消费旧结果的全部传递下游任务 attempt 加一、清除对应 running/failed 后持久化；下游重新等待。旧目录保留，迟到的旧回执不参与合并。恢复不修改已完成产物。
 
-## 3.1 worker 输入封闭与工具预算
+## 3.1 worker 输入包与工具预算
 
-- 派发必须给**封闭输入清单**：只列本任务要读的绝对路径（PRD、冻结 AC/场景、契约、来自冻结提交的必要源码快照），并明示「不得自行搜索其他目录」。实测过：一个 worker 从 `$HOME` 起递归 `find` 会烧掉 30 分钟并连带整批超时。
-- 明确禁止项写进任务：不递归 `find`/`grep -r` 于仓库根或 home、不读其他 run 目录、不跑 `playwright`/`mvn`/`npm`、不连业务目标。生成阶段的产物只需要读 PRD 与冻结基线。
-- 每个任务给墙钟预算（默认 10 分钟，复杂组 15 分钟）与 bash 调用次数上限（默认 6 次）；超预算即中止该任务并按失败重派，不让最慢任务拖住整批。
-- 预算与已用值记入 `manifest.budgets`，报告用真实耗时判定是否需要再切分。
+派发前，主 Agent 为每个任务写 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的既有用例骨架（有上一轮时），以及任务点名的探索小节原文。整份 PRD、影响分析、场景全集、上一轮全量用例和整篇探索回执留在冻结源里，不放进任务书的阅读清单。
+
+任务书只给三样路径：这份输入包、独占目录、写完 outputFiles 后要运行的 seal 命令。写明不得搜索其他目录，不得递归 `find`/`grep -r`，不读其他 run，不跑 `playwright`/`mvn`/`npm`，不连业务目标。shell 只用于建目录、写 outputFiles 和运行 seal。从一个 `$HOME` 起递归 `find` 曾烧掉 30 分钟并连带整批超时。
+
+每个任务墙钟默认 10 分钟；仅当该组用例或步骤明显多于同批其他组时用 15 分钟。bash 最多 6 次。读文件不是加长墙钟或放宽 bash 的理由。超预算中止该任务并按失败重派。预算与已用值记入 `manifest.budgets`，报告用真实耗时判定是否需要再切分。
 
 ## 4. 回执和合并
 
-worker 写完 outputFiles 后运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录> --seal <taskId> --gaps '[]'`。脚本写入 `任务ID/attempt/result.json` 并计算文件哈希和 resultHash。有未覆盖义务时 `--gaps` 传 `[{obligationId, reason}]`。主 Agent 不手写 result.json，也不改 worker 回执。dependencyHashes 绑定直接上游已接受的 resultHash。每组 cases 必须完整包含分配的 caseIds，场景关联不能越组，reviewStatus 和 semanticReview 均为 draft。
+worker 写完 outputFiles 后运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录> --seal <taskId> --gaps '[]'`。脚本写入 `任务ID/attempt/result.json` 并计算文件哈希和 resultHash。有未覆盖义务时 `--gaps` 传 `[{obligationId, reason}]`。主 Agent 不编写回执字段或哈希，也不改已有回执。多名 worker 已写出 outputFiles 但未 seal 时，主 Agent 运行一次 `--seal-ready --gaps-file <json>`；文件是 taskId → unresolvedObligations，缺省 `[]`。已有回执或输出未齐的任务跳过。dependencyHashes 绑定直接上游已接受的 resultHash。每组 cases 必须完整包含分配的 caseIds，场景关联不能越组，reviewStatus 和 semanticReview 均为 draft。
 
 回执另必填 `unresolvedObligations`：无缺口填 `[]`；未覆盖或交给其他组的义务填 `{obligationId, reason}`，新增候选也先分配稳定义务ID。notes 同步解释但不替代此字段。非空或缺字段时 generation.py 阻断。主 Agent 对照原始回执逐项落实到接收任务、场景、caseId和断言；缺失场景按新计划版本补生成并重新收回回执，不能只把清单清空、代 worker 改哈希或说“其他组负责”就合并。
 
@@ -72,7 +73,7 @@ worker 写完 outputFiles 后运行 `python3 <本技能>/scripts/generation.py <
 
 ## 5. 汇总
 
-manifest.generation 由主 Agent 记录计划路径/哈希、状态路径、任务与重派结果、产物哈希及未完成任务。报告区分生成完整性、计划覆盖和执行门禁，保留现有人工评审规则。分别记录分组/Jev、生成、等待、重试、合并与评审耗时、模型调用和未知成本；比较提速时用同一冻结输入与质量门禁下的全流程墙钟时间。
+manifest.generation 由主 Agent 记录计划路径/哈希、状态路径、任务与重派结果、产物哈希及未完成任务。报告区分生成完整性、计划覆盖和执行门禁，保留现有人工评审规则。分别记录分组/Jev、生成、等待、重试、合并与评审耗时、模型调用和未知成本。生成墙钟从首次派发到合并 PASSED；与之重叠的语义审查和覆盖准备只计入那些阶段。比较提速时用同一冻结输入与质量门禁下的全流程墙钟时间。
 
 借鉴 Arena 的统一输入、独立目录和最终验证；各 worker 负责互补分片，不重复生成全量候选，也不因一个 worker 失败而静默缩小范围。
 
