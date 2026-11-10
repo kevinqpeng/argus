@@ -206,13 +206,22 @@ class Gate:
             self.need(isinstance(receipt.get(key), str) and bool(receipt[key].strip()), f'展示回执缺少 {key}')
         from render_review_table import SLICE_CAP, prompt_text, slice_case_ids
         cases = read_json(self.run_dir / 'cases/cases.json')
-        if isinstance(cases, list) and len(cases) > SLICE_CAP:
+        if isinstance(cases, list) and (len(cases) > SLICE_CAP or 'shards' in receipt):
             expected = slice_case_ids([item.get('caseId') for item in cases])
             plan = read_json(safe_path(self.run_dir, f'{base}/plan.json')) or {}
             planned = [row.get('caseIds') for row in plan.get('slices') or []]
             self.need(planned == expected, '评审表分片计划与脚本容量不一致，先运行 render_review_table.py --plan-slices')
             shards = receipt.get('shards')
-            if self.need(isinstance(shards, list) and [row.get('caseIds') for row in shards] == expected,
+            groups = [row.get('caseIds') for row in shards] if isinstance(shards, list) and all(isinstance(row, dict) for row in shards) else []
+            valid = all(isinstance(group, list) and group and len(group) <= SLICE_CAP for group in groups)
+            if valid:
+                for group in groups:
+                    original = next((chunk for chunk in expected if group[0] in chunk), [])
+                    if not original or group != original[original.index(group[0]):original.index(group[0]) + len(group)]:
+                        valid = False
+                        break
+                valid = valid and [item for group in groups for item in group] == [item for chunk in expected for item in chunk]
+            if self.need(valid,
                          '评审表应按计划逐片派发，单次产出超过一片容量'):
                 for row in shards:
                     self.need(row.get('status') == 'completed' and isinstance(row.get('agentId'), str) and bool(row['agentId'].strip()),

@@ -30,6 +30,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 - 按功能、角色、前置条件、业务规则、状态转换、异常及非目标提取 RequirementAC。
 - 每项测试义务映射到 AC；sourceId/sourceHash 绑定其实际来源，sourceRef 定位文件和行/段落。PRD 外业务规则单独标识，源码现状不自动充当预期。
+- 场景冻结前按 [义务与 AC 双向核对](references/impact-analysis.md#义务与-ac-双向核对) 对照来源逐项检查关联及遗漏。
 - 缺 AC 可基于原文起草，业务未知标 needs_clarification。
 
 ## 3. 定义可验证场景
