@@ -18,6 +18,8 @@
 - 每片使用上述干净上下文和冻结 generation 角色，独占 `<轮次>/<taskId>/`，保存分片 content.json、receipt.json 和自检输出。输入仍保留只读完整来源和无损输入包，caseIds 明确限定写入范围；按宿主槽位和冻结预算动态补位，单槽位顺序执行小片，不合成大任务。只在汇总后渲染一次完整工作簿，分片不生成 Excel、Markdown 或映射文件。
 - 首轮任务书必须包含下方固定提示词、分片 caseIds 和可直接执行的自检命令（替换为绝对路径）：`python3 <skill>/scripts/render_review_table.py <runDir> --content <分片>/content.json --check-only --case-ids <分配的ID列表>`。预检复用渲染器的列宽、编号、换行估算与映射规则，退出 0 才交回；不是语义或视觉验收。
 - 主 Agent 按冻结 caseIds 顺序确定性拼接各片 cases，检查漏项、重复、越界和标题一致，合并指定归属的 notes；保留分片回执及哈希，写本轮 content.json。运行同一命令去掉 `--case-ids` 做全量 `--check-only`，通过后由独立展示 Agent 执行原渲染和视觉核验，保存汇总 receipt。主 Agent 仅做拼接，不改业务文案。
+分片合并使用 `python3 <本技能>/scripts/merge_presentation.py <runDir>/cases/cases.json <轮次目录>/content.json <分片content.json>...`，再运行全量自检。脚本按冻结用例顺序合并并拒绝缺失、重复、越界或标题不一致；notes 按传入分片顺序保留。输出已有不同内容时使用新轮次，避免覆盖。
+
 - 失败只回派具体 caseId/字段和校验错误；通过的分片复用。输出截断或长度上限失败时先缩小任务，并复用已完整落盘且校验通过的条目，不原样重试整个大批次。记录真实派发、完成、自检、返工、合并和渲染耗时；不预先承诺提速倍数。
 
 ## 无损输入与准备复用

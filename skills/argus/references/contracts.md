@@ -10,6 +10,8 @@
 
 子 Skill 只读本 run 快照；后续模型调用同时应用[配置变更路由](../../decision-router/references/config-changes.md)验证过的追加调整，业务门禁仍以原快照为准；不再区分人员。配置按 Agent 分离，环境/表格设置按项目分离，证据、认证与 fixtures 按 run/目标隔离。Argus 的 Playwright 目标和账号由用户自行填写在 [仓库外私有文件](../../setup-argus/references/storage.md)，聊天只告知路径与缺失字段名，不索取或回显账号、密码及其他敏感值；项目 Playwright 配置、环境文件、账号、认证状态和浏览器 profile 仅可只读了解业务，不能作为执行配置或默认值。缺少目标或所需账号时标 blocked，等用户自行补齐，不从项目补齐。同 ID 异内容不可覆盖，同 run 由唯一协调者合并分片。模型、会话或 Agent 切换不改变任务身份；接任协调者按[恢复契约](resume.md)沿用原 runId、快照和检查点，并先完成资源交接。online/local/both 均须 Bug 和运行汇总读回；回退选择及独立状态写 manifest，不改快照或冒充远端成功。累计表更新使用锁。
 
+流程工具跨 run 复用：先查对应 Skill 的 scripts 和引用契约。用例分片校验合并使用 prd-to-cases/scripts/generation.py；语义请求及回执使用 argus/scripts/semantic_batch.py；评审表渲染、分片合并和交付分别使用 render_review_table.py、merge_presentation.py、publish_review.py；覆盖输入组装与计算使用 coverage-check/scripts/prepare_input.py 和 coverage.py；门禁使用 argus/scripts/phase_gate.py。输入格式与命令见对应阶段契约。新 run 只提供输入和路径，不为已有能力重写脚本。业务用例、项目专用测试代码、语义证据和实际模型回执仍按本次事实生成；工具不代替人工判断、审批或真实执行。缺少可复用工具时明确记录缺口，不将历史 run 中硬编码项目的脚本当通用工具。
+
 持久化对象使用 `schemaVersion: 1`。对象定义见 [JSON Schema](schemas.json)；数组文件由相应对象组成，外层聚合对象也带版本。ID 在项目内稳定唯一；内容变更升级版本/哈希。关联 ID 必须存在。JSON 为事实来源，不从自然语言报告反推状态。
 
 优先级 P0/P1/P2/P3；审查状态 draft/approved/needs_clarification；suite 为 ui/api/performance/security。执行状态 passed/failed/error/blocked/skipped/flaky/cancelled。基础设施失败 error，前置缺失 blocked，首次失败重试成功 flaky。未断言/未实现/只有截图不能 passed。未校准的 Jev 视觉判断仅作并行比对，不能单独决定 passed；复核角色不可用或视觉与业务证据冲突时保持未解决。工具状态 READY/BLOCKED/UNSUPPORTED/SKIPPED，门禁 PASSED/BLOCKED/N/A；别把不同状态空间混用。
