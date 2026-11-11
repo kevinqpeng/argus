@@ -10,7 +10,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'argus' / 'scripts'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from case_contract import validate_steps
+import decision_table
 
 NUMBERED = re.compile(r'^\s*(\d+(?:\.(\d+))*)[.、]\s+(\S.*)$')
 REF = re.compile(r'^(.{1,300}?):(\d+)(?:-(\d+))?$')
@@ -229,6 +231,10 @@ def check(run, previous=None, matrix=True, lenient_rules=False, quantifier=True,
                             f'拆分矩阵，或显式允许后说明依据')
             expanded, problems = ([], []) if large else expand_cells(data, names)
             gaps.extend(problems)
+            # 决策表登记过的 unknown 有 risk 和合并口径，由表负责，不再算矩阵未定论。
+            decided_unknown = decision_table.unknown_combos(
+                json.loads((cases_dir / 'decision-table.json').read_text(encoding='utf-8')), names) \
+                if (cases_dir / 'decision-table.json').is_file() else set()
             seen = set()
             for cell in expanded:
                 values = cell.get('values') or {}
@@ -250,6 +256,8 @@ def check(run, previous=None, matrix=True, lenient_rules=False, quantifier=True,
                     for case_id in owners:
                         if case_id not in case_ids:
                             gaps.append(f'组合矩阵引用未知用例 {case_id}')
+                elif status == 'unknown' and combo in decided_unknown:
+                    continue
                 elif status in ('unknown', 'gap'):
                     gaps.append(f'组合矩阵单元{"未定论" if status == "unknown" else "缺口"}：'
                                 f'{dict(zip(names, combo))} {(cell.get("reason") or "缺理由").strip()}')
@@ -258,6 +266,7 @@ def check(run, previous=None, matrix=True, lenient_rules=False, quantifier=True,
             if not large:
                 for combo in sorted(expected - seen):
                     gaps.append(f'组合矩阵缺单元：{dict(zip(names, combo))}')
+            gaps.extend(decision_gaps(cases_dir, run, data, names, expanded, warnings))
 
     diff_note = None
     if previous:
@@ -279,6 +288,29 @@ def check(run, previous=None, matrix=True, lenient_rules=False, quantifier=True,
         'sourceUnits': len(units), 'obligations': len(obligations),
         'gaps': gaps, 'warnings': warnings, 'historyDiff': diff_note,
     }
+
+
+def decision_gaps(cases_dir, run, data, names, expanded, warnings=None):
+    """决策表存在时，矩阵必须就是它的展开：防止两张表变成两份事实源。"""
+    path = cases_dir / 'decision-table.json'
+    if not path.is_file():
+        if warnings is not None and expanded:
+            warnings.append('未写决策表 cases/decision-table.json：组合口径要等用例出来才补，'
+                            '未规定的组合容易顺手写成 out_of_scope')
+        return []
+    table = json.loads(path.read_text(encoding='utf-8'))
+    gaps = [f'决策表：{error}' for error in decision_table.blocking(table, run)]
+    axes = decision_table.axes_of(table)
+    if [axis.get('values') for axis in axes] != [d.get('values') for d in data.get('dimensions') or []]:
+        gaps.append('决策表与组合矩阵的维度或取值不一致：矩阵必须是决策表的展开，不能两份各写一套')
+    table_names = [axis['name'] for axis in axes]
+    declared = {(cell['status'], tuple(cell['values'].get(n) for n in table_names))
+                for cell in decision_table.cells_of(table)[0]}
+    for cell in expanded:
+        combo = tuple((cell.get('values') or {}).get(n) for n in table_names)
+        if (cell.get('status'), combo) not in declared:
+            gaps.append(f'决策表没有登记该格：{dict(zip(table_names, combo))} status={cell.get("status")}')
+    return gaps
 
 
 def _product(values):

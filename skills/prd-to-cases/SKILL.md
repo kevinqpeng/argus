@@ -23,7 +23,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 ## 1.1. 分析变更影响
 
-- 执行 [变更影响与测试义务](references/impact-analysis.md)，先登记来源单元和变更对象，按其探索调度规则选择单 Agent 或多 Agent 并行追踪六类影响，合并并复核跨任务依赖后形成义务和待确认规则。无源码或证据缺失明确保留未知。基线工作树只建一次。探索任务包用 `generation.py packet` 生成，内含已核对窗口的原文；worker 按包内 checkCommand 自检。checks 使用六类 dimension，可测性写入 handoff。
+- 执行 [变更影响与测试义务](references/impact-analysis.md)，先登记来源单元、变更对象和决策表取值轴，按 [影响探索](references/impact-exploration.md#1-先写决策表) 把每格结论写进 `cases/decision-table.json` 并跑 `decision_table.py check`，再按其探索调度规则选择单 Agent 或多 Agent 并行追踪六类影响，合并并复核跨任务依赖后形成义务和待确认规则。无源码或证据缺失明确保留未知。基线工作树只建一次。探索任务包用 `generation.py packet` 生成，内含已核对窗口的原文；worker 按包内 checkCommand 自检。checks 使用六类 dimension，可测性写入 handoff。
 - 完成条件：每个来源单元和发现的依赖均有处置；每项范围内义务有已确认预期。未决项可先交付评审材料，但阻断冻结完成与执行。
 
 ## 2. 提取验收条件
@@ -53,7 +53,7 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 - 一个独立可验证行为一个场景。按适用性覆盖正常、异常、边界、权限、幂等、重试、并发、状态和输入校验。
 - 对每项需求检查是否存在共享资源或状态竞争、重复提交/重复请求、超时重试或重复消息等业务边界。结合 PRD、业务规则和已有证据判断适用性，记录依据；不适用记录原因，规则或预期不明标 needs_clarification，不自行假设业务结果。
 - 适用时在冻结基线前补充对应场景与用例：明确操作主体、共享对象、并发或重复方式、前置数据、预期响应及最终业务状态，分别断言关键副作用的次数和状态。需要同时竞争时在单条用例内安排并发操作；普通分片并行和测试失败重试不能替代业务并发或重复操作验证。
-- 冻结场景前写组合矩阵 `cases/coverage-matrix.json`：声明决定行为的维度及取值（如触发角色、处理方式、路径判定），逐格标 `covered`（附 caseIds）、`not_applicable`、`out_of_scope`、`unknown` 或 `gap` 并写明理由。矩阵取维度取值的完整笛卡尔积，空格不得留白；组合规则的真漏通常就落在格子缺失或整格被跳过。结构为 `{"dimensions":[{"name":"触发角色","values":["原审批人","转办接手人"]}],"coveredBy":[{"caseIds":["CASE-X"],"values":{"触发角色":"原审批人"}}],"cells":[{"values":{...},"status":"not_applicable","reason":"..."}]}`：用例命中哪些取值写在 `coveredBy`，由脚本展开成格子；不适用、未知和缺口用 `cells` 显式声明。矩阵上限 60 格，超出时减少取值或拆矩阵，确有必要才加 `--allow-large-matrix`。
+- 组合口径以决策表 `cases/decision-table.json` 为准：维度及取值的完整笛卡尔积就是分母，逐格在场景冻结前裁定 `covered`（附场景与预期）、`not_applicable`、`out_of_scope` 或 `unknown`，理由 20 字以上。只登记来源真正裁定过的组合，`values` 少写轴就是管这一片（更具体的优先），其余由 `defaults` 继承，仍继承不到的阻断。`unknown` 标 `risk`：`high` 进待确认事项；`medium`/`low` 写 `assumption`，由 `expand` 落进 `cases/assumptions.md` 作为可反驳的合并口径。用例合并后运行 `decision_table.py expand` 展开出组合矩阵 `cases/coverage-matrix.json`，矩阵是决策表的投影，不手改；`coverage_check.py` 核对两者一致。结构见 [影响探索](references/impact-exploration.md#1-先写决策表)。矩阵上限 60 格，超出时减少取值或拆矩阵，确有必要才加 `--allow-large-matrix`。
 - P0 按已确认的核心流程、资金/关键数据、严重权限边界定级，保留理由。
 - 冻结前执行 [形式化路由](../decision-router/references/formal-routing.md)，选中时调用 Argus 的形式化子技能并接收反例及边界义务。将其映射到来源 AC 和真实用例，未确认的业务规则保持 needs_clarification。已有同指纹路由和模型证据直接复用，不重复运行。
 

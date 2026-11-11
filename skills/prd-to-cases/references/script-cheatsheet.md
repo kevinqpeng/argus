@@ -13,6 +13,8 @@
 | 绑定 AC | `python3 <本技能>/scripts/assemble_baseline.py ac --run <runDir> --prd <相对路径> --source-id <ID> --bindings <tsv>` |
 | 覆盖 | `python3 <本技能>/scripts/assemble_baseline.py cover --run <runDir> --prd <相对路径> --acs cases/acs.json` |
 | 影响分析 | `python3 <本技能>/scripts/assemble_baseline.py impact --run <runDir> --prd <相对路径> --source-id <ID> --candidates <merged.json>` |
+| 决策表（分母门禁） | `python3 <本技能>/scripts/decision_table.py check <runDir>`，不通过不派发探索 |
+| 决策表展开组合矩阵 | `python3 <本技能>/scripts/decision_table.py expand <runDir>`，用例合并后跑，写出 `coverage-matrix.json` 和 `assumptions.md` |
 | 探索任务包 | `python3 <本技能>/scripts/generation.py packet --task <taskId> --plan <plan.json> --baseline <基线工作树> --run <runDir> --prd <相对路径> --source-id <ID> --out cases/exploration/packets/<taskId>.json` |
 | 探索回执自检 | 任务包里的 `checkCommand`（`merge_impact_candidates.py --task <taskId> --check <回执> --packet <任务包>`） |
 | 探索回执是否落盘 | `python3 <本技能>/scripts/merge_impact_candidates.py --stat --plan <plan.json> --run <runDir>` |
@@ -59,6 +61,14 @@ AC 绑定 TSV，制表符分隔：
 | `六维结论不成立 … 理由不足` | `not_applicable`/`out_of_scope` 的理由不能只写“不适用/无”；写清该维度为何不被本次变更触及 |
 | `impact-gaps.json 与实际六维空格不一致` | 手改过 `impact-analysis.json`。重跑 `assemble_baseline.py impact` 重新生成登记表 |
 | `六维未核查项必须写进待确认事项：GAP-…` | 在 `content.json` 的 notes 里补一条，`sourceRefs` 写 `impact-gaps.json:<gapId>` |
+| `决策表组合未裁定` | 这一格没有任何行或 `defaults` 命中。补一行，或用少写轴的一行把它和同片的格子一起管住 |
+| `决策表组合有多个同级口径` | 两条限定的轴一样多、又同时命中这一格。把其中一条写得更具体，或合并成一条 |
+| `决策表行重复` | 两行的 `values` 完全一样，包括只写了部分轴的写法 |
+| `决策表标 covered 的场景没有用例` | `covered` 行的 `scenarios` 必须是用例真正引用的 `scenarioId`，不能直接写 caseId |
+| `决策表 … 必须写 risk` / `必须写 assumption` | `unknown` 判它是否改变本轮验收结论：会改变标 `risk: high` 进待确认；不会改变写 `assumption`，`expand` 会把它连同原因写进 `cases/assumptions.md` |
+| `决策表与组合矩阵的维度或取值不一致` | 矩阵必须是决策表的展开。改决策表后重跑 `expand`，不要手改矩阵 |
+| `决策表没有登记该格` | 矩阵里这一格的结论表里没有。补一行，或删掉手写的格子 |
+| `组合矩阵单元未定论` | 该格 `unknown` 但决策表没登记。要么补这一行（`unknown` + `risk`），要么写清本轮真实处置 |
 | `data 不能和别的维度合并` / `一次最多 3 个` || 扩展维度不能重复或覆盖基线六维 | `extraDimensions[].key` 不能叫 `data` 等基线名，也不能重复 || `扩展维度 … 要写清它回答什么问题` | `question` 至少 10 字，写清这个维度要验证什么 || `维度不能少于或替换基线六维` | `impact-analysis.json` 或 plan 的分母被删减/改名；只能往后追加 | `dimensions: [...]` 批量豁免不允许包含 `data`、`permission`，且每对象最多 3 维 |
 | `缺少 windows` / `应有 4 到 6 个窗口` | `plan.json` 每个 task 按 objectId 写 `windows: [{objectId, refs}]`，每对象 4 到 6 个 `文件:起始-结束` |
 | `窗口跨度超过 3 行` | 窗口最多 3 行；跨多段就拆成多个窗口 |
