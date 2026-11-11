@@ -39,7 +39,7 @@ TABLE = "cases/decision-table.json"
 MATRIX = "cases/coverage-matrix.json"
 ASSUMPTIONS = "cases/assumptions.md"
 STATUSES = ("covered", "not_applicable", "out_of_scope", "unknown")
-MAX_CELLS = 60
+MAX_CELLS = 400
 RISKS = ("high", "medium", "low")
 # 组合级字段：covered 行必须能独立判定，负面含义的字段允许留空。
 JUDGEMENT = ("sideEffects", "notExpectedToChange", "illegalTransitions")
@@ -95,7 +95,7 @@ def axis_errors(table):
     for axis in dimensions:
         cells *= max(1, len(axis.get("values") or []))
     if cells > MAX_CELLS:
-        errors.append(f"决策表组合数 {cells} 超过上限 {MAX_CELLS}：减少取值或拆表")
+        errors.append(f"决策表组合数 {cells} 超过硬上限 {MAX_CELLS}：先用等价类收敛取值，或拆表")
     return errors
 
 
@@ -283,10 +283,17 @@ def matrix(table, mapping):
                                   for case_id in (mapping or {}).get(scenario_id, [])})
     fingerprint = hashlib.sha256(json.dumps(table, sort_keys=True, ensure_ascii=False,
                                             separators=(",", ":")).encode("utf-8")).hexdigest()
+    # 形态族声明随投影走：矩阵是决策表的影子，family/axes 只能从表上读。
+    dimensions = []
+    for axis in table.get(DIMENSIONS) or []:
+        item = {"name": axis["name"], "values": axis["values"]}
+        if axis.get("family"):
+            item["family"] = axis["family"]
+        dimensions.append(item)
     return {
         "schemaVersion": 1,
-        "dimensions": [{"name": axis["name"], "values": axis["values"]}
-                       for axis in table.get(DIMENSIONS) or []],
+        "dimensions": dimensions,
+        "axes": table.get("axes") or {},
         "note": f"由 {TABLE} 展开，sha256={fingerprint[:16]}；不要手改，改决策表后重新 expand",
         "cells": cells,
     }, uncovered

@@ -143,6 +143,39 @@ class Gate:
         if any(item.get("suite") == "ui" for item in cases):
             self.need_file("evidence/page-map.json", "UI 用例缺少本 run 页面地图")
         self.need_file("cases/discovered.txt", "缺少 runner discovery 结果")
+        self._coverage_closed()
+
+    def _coverage_closed(self) -> None:
+        """覆盖闭合：形态轴、组合定论、越界签署、覆盖率阈值统一交给 coverage_check。"""
+        from coverage_check import check
+
+        cases_dir = self.run_dir / "cases"
+
+        def optional(name):
+            try:
+                return read_json(cases_dir / name)
+            except ValueError:
+                return None
+
+        acs = optional("acs.json")
+        scenarios = optional("scenarios.json")
+        generated = isinstance(acs, list) and bool(acs) and isinstance(scenarios, list) and bool(scenarios)
+        if not (cases_dir / "coverage-matrix.json").is_file() and not generated:
+            return  # 没做需求到用例生成的空壳运行不涉及覆盖闭合
+        required = [f"cases/{name}.json" for name in
+                    ("acs", "scenarios", "cases", "impact-analysis", "coverage-matrix")]
+        missing = [ref for ref in required if not (self.run_dir / ref).is_file()]
+        if missing:
+            self.gaps.append("覆盖率自检缺少输入：" + ", ".join(missing))
+            return
+        baseline = None
+        entry = (self.manifest or {}).get("cases")
+        if isinstance(entry, dict) and entry.get("historyBaseline"):
+            baseline = safe_path(self.run_dir, str(entry["historyBaseline"]))
+        result = check(self.run_dir, baseline, True, False, True, False)
+        for gap in result["gaps"]:
+            self.gaps.append("用例覆盖未闭合：" + gap)
+
 
     def _exploration_windows(self) -> None:
         """派发前每个对象必须有 4-6 个可解析的行号窗口，否则六维只能靠常识填。"""
@@ -245,6 +278,7 @@ class Gate:
         if not self.need(isinstance(self.manifest, dict), '缺少 manifest.json'):
             return
         self._impact_completeness()
+        self._coverage_closed()
         round_id = str((self.manifest.get('presentation') or {}).get('round', '1'))
         if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
             raise ValueError('展示轮次无效')

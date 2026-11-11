@@ -4,8 +4,10 @@
 
 本文件把主流程中易被跳过的要求变成可执行检查。门禁只核对过程证据是否存在且自洽，不判断业务结论。
 
-命令：`python3 <本目录>/../scripts/phase_gate.py <runDir> --phase <target|dispatch|semantic|cases|execution|report>`
+命令：`python3 <本目录>/../scripts/phase_gate.py <runDir> --phase <target|dispatch|semantic|cases|presentation|execution|report>`
 退出 0 = PASSED，退出 2 = BLOCKED，输出缺口清单。任一阶段 BLOCKED 时停在该阶段，不进入下一阶段，不能用内容完整代替过程完整。
+
+`cases` 与 `presentation` 阶段包含覆盖闭合检查：直接调用 `prd-to-cases/scripts/coverage_check.py` 的判定（八族形态轴、二维组合定论、越界签署、量词双向、覆盖率阈值），不把覆盖自检留成可跳过的手工步骤。历史基线写在 `manifest.cases.historyBaseline` 时一并做差集，否则只算内部分母。
 
 ## 门禁一：目标冻结（评审门禁放行后，首次 Web 探索或业务执行前必须 PASSED）
 

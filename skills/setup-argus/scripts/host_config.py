@@ -374,7 +374,8 @@ def initial_config():
               "defaultEffort": "session",
               "roles": {r: {"mode": "delegate", "model": "inherit-parent"} for r in ["reasoning", "generation", "bug_analysis", "vision"]},
               "decision": {"activeProvider": "jev", "transport": "api", "verification": "required", "visualModel": "jev-1.14.0", "maxCallsPerRun": 100, "maxRetries": 2, "timeoutMs": 10000},
-              "coverage": {"scenarioThreshold": 0.95, "p0Threshold": 1, "failOnFlaky": True},
+              "coverage": {"ruleCoverage": 0.9, "matrixCoverage": 0.9, "baselineCoverage": 0.9,
+                           "score": 0.9, "scenarioThreshold": 0.95, "p0Threshold": 1, "failOnFlaky": True},
               "execution": {"retries": 1, "requireHumanCaseReview": True},
               "delivery": {"mode": "online", "requiresReadback": True},
               "bugPublisher": {"provider": "none", "enabled": False}}
