@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generation import file_hash, publish_bytes, safe_path
 from merge_impact_candidates import (BASE_DIMENSIONS, EMPTY_FIELD_NAMES, IMPACT_REQUIRED, bundle_errors,
-                                     matrix_errors, matrix_gaps, matrix_summary, merged_hints)
+                                     evidence_errors, matrix_errors, matrix_gaps, matrix_summary, merged_hints)
 
 PRIORITIES = {"P0", "P1", "P2", "P3"}
 DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
@@ -247,6 +247,7 @@ def command_impact(run, prd, source_id, candidates_path):
     objects = one(candidates, "objects")
     checks = one(candidates, "checks")
     obligations = one(candidates, "obligations")
+    handoffs = one(candidates, "handoffs")
     digest = file_hash(path)
     seen = False
     for source in sources:
@@ -294,6 +295,12 @@ def command_impact(run, prd, source_id, candidates_path):
         duty.setdefault("reviewStatus", "needs_clarification")
         duty.setdefault("approvalRef", "")
         require_fields(duty, IMPACT_REQUIRED["obligations"], duty.get("obligationId", "obligation"))
+    for item in handoffs:
+        item.setdefault("schemaVersion", 1)
+        item.setdefault("receiver", "")
+        require_fields(item, IMPACT_REQUIRED["handoffs"], f"交接项 {item.get('handoffId', 'handoff')}")
+        for issue in evidence_errors(item.get("evidenceRef")):
+            raise ValueError(f"交接项 {item.get('handoffId')}: {issue}")
     if not HASH.fullmatch(digest):
         raise ValueError("快照哈希无效")
     object_ids = [item["objectId"] for item in objects]
@@ -301,7 +308,8 @@ def command_impact(run, prd, source_id, candidates_path):
     if errors:
         raise ValueError("六维矩阵不可用：" + "；".join(errors[:6]))
     document = {"schemaVersion": 1, "dimensions": list(dimensions), "sources": sources,
-                "sourceUnits": units, "objects": objects, "checks": checks, "obligations": obligations}
+                "sourceUnits": units, "objects": objects, "checks": checks, "obligations": obligations,
+                "handoffs": handoffs}
     target = safe_path(run, "cases/impact-analysis.json")
     write_json(target, document)
     gaps = matrix_gaps(object_ids, checks, dimensions)
@@ -310,7 +318,8 @@ def command_impact(run, prd, source_id, candidates_path):
     write_json(safe_path(run, "cases/exploration/impact-gaps.json"),
                {"schemaVersion": 1, "gaps": gaps})
     print(json.dumps({"path": "cases/impact-analysis.json", "sourceUnits": len(units),
-                      "obligations": len(obligations), "cells": len(object_ids) * len(dimensions),
+                      "obligations": len(obligations), "handoffs": len(handoffs),
+                      "cells": len(object_ids) * len(dimensions),
                       "gaps": len(gaps), "hints": merged_hints(object_ids, checks, dimensions)},
                      ensure_ascii=False))
 

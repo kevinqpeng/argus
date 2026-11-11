@@ -430,7 +430,11 @@ def minimal_sample(task, plan, source, windows):
             "text": "替换成候选义务。", "expected": "", "acIds": [],
             "reviewStatus": "needs_clarification", "approvalRef": "",
         }],
-        "handoffs": [],
+        "handoffs": [{
+            "schemaVersion": 1, "handoffId": f"{task_id}-H1", "producer": task_id,
+            "receiver": "", "path": "替换成跨任务的调用链", "evidenceRef": ref,
+            "question": "样例：跨任务未决问题。没有接收任务时 receiver 留空。",
+        }],
     }
 
 
