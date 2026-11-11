@@ -18,8 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generation import file_hash, publish_bytes, safe_path
-from merge_impact_candidates import (BASE_DIMENSIONS, bundle_errors, matrix_errors, matrix_gaps,
-                                     matrix_summary, merged_hints)
+from merge_impact_candidates import (BASE_DIMENSIONS, EMPTY_FIELD_NAMES, IMPACT_REQUIRED, bundle_errors,
+                                     matrix_errors, matrix_gaps, matrix_summary, merged_hints)
 
 PRIORITIES = {"P0", "P1", "P2", "P3"}
 DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
@@ -227,9 +227,8 @@ def one(candidates, group):
 
 
 def require_fields(row, fields, label):
-    optional_empty = {"obligationIds", "acIds", "expected", "approvalRef", "reviewRef"}
     missing = [field for field in fields
-               if field not in optional_empty and (field not in row or row[field] in ("", None, []))]
+               if field not in EMPTY_FIELD_NAMES and (field not in row or row[field] in ("", None, []))]
     if missing:
         raise ValueError(f"{label} 缺少 {', '.join(missing)}")
 
@@ -252,7 +251,7 @@ def command_impact(run, prd, source_id, candidates_path):
     seen = False
     for source in sources:
         source.setdefault("schemaVersion", 1)
-        require_fields(source, ("sourceId", "kind", "sourceRef", "sourceHash"), source.get("sourceId", "source"))
+        require_fields(source, IMPACT_REQUIRED["sources"], source.get("sourceId", "source"))
         if source["kind"] not in KINDS:
             raise ValueError(f"来源类型无效: {source['sourceId']}")
         if source["kind"] == "prd" and source.get("sourceId") == source_id:
@@ -266,18 +265,18 @@ def command_impact(run, prd, source_id, candidates_path):
     for unit in units:
         unit.setdefault("schemaVersion", 1)
         unit.setdefault("reviewRef", "")
-        require_fields(unit, ("unitId", "sourceIds", "sourceExcerpt", "evidenceRef", "disposition", "reason"), unit.get("unitId", "unit"))
+        require_fields(unit, IMPACT_REQUIRED["sourceUnits"], unit.get("unitId", "unit"))
         if unit.get("disposition") not in DISPOSITIONS:
             raise ValueError(f"disposition 无效: {unit.get('unitId')}")
         unit.setdefault("obligationIds", [])
     for item in objects:
         item.setdefault("schemaVersion", 1)
-        require_fields(item, ("objectId", "description"), item.get("objectId", "object"))
+        require_fields(item, IMPACT_REQUIRED["objects"], item.get("objectId", "object"))
     for check in checks:
         check.setdefault("schemaVersion", 1)
         check.setdefault("reviewRef", "")
         check.setdefault("obligationIds", [])
-        require_fields(check, ("checkId", "objectId", "sourceIds", "evidenceRef", "disposition", "reason"), check.get("checkId", "check"))
+        require_fields(check, IMPACT_REQUIRED["checks"], check.get("checkId", "check"))
         listed = check.get("dimensions")
         if listed is None:
             if check.get("dimension") not in set(dimensions):
@@ -294,7 +293,7 @@ def command_impact(run, prd, source_id, candidates_path):
         duty.setdefault("acIds", [])
         duty.setdefault("reviewStatus", "needs_clarification")
         duty.setdefault("approvalRef", "")
-        require_fields(duty, ("obligationId", "sourceIds", "text"), duty.get("obligationId", "obligation"))
+        require_fields(duty, IMPACT_REQUIRED["obligations"], duty.get("obligationId", "obligation"))
     if not HASH.fullmatch(digest):
         raise ValueError("快照哈希无效")
     object_ids = [item["objectId"] for item in objects]

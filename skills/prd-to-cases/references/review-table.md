@@ -6,15 +6,15 @@
 
 用例合并及遗漏核对完成后，使用冻结的 generation 角色派发干净上下文的展示 Agent。Codex 使用 `fork_turns="none"`；其他宿主使用不继承历史的新会话。不能复用设计、探索或执行 worker。宿主无法隔离上下文时标 BLOCKED。
 
-先运行 `render_review_table.py <runDir> --plan-slices`。计划写在 `cases/presentation/<轮次>/plan.json`。`cap` 是一片的条数硬上限。脚本按源顺序装箱：步骤和断言少的用例可以凑满上限，步骤和断言多的用例提前换片，同一轮各片条数可以不同。每片一个真实 Agent，独占路径，caseIds 与计划顺序一致。派发时把计划里的 `lineBudgets` 填进固定提示词的 `{lineBudgets}`。宿主预算更紧时，把未完成的 caseIds 再切开重派，仍不得超过该片在计划里的 caseIds。单条已超预算时报告缺口，不截断业务内容。按计划派发，不按固定条数手切。
+先运行 `render_review_table.py <runDir> --plan-slices`。计划写在 `cases/presentation/<轮次>/plan.json`。`cap` 是业务片的条数硬上限，当前为 4。脚本按源顺序和内容重量装箱：短用例可以凑满 4 条，步骤和断言多的用例提前换片。待确认事项固定单独一片，`kind` 为 `notes`，不占业务片名额。每片一个真实 Agent，独占 `output` 路径，caseIds 与计划顺序一致。派发前原样运行该片的 `probeCommand`，退出 0 后才把 `checkCommand` 写入任务书。把计划里的 `lineBudgets` 和 `ownsNotes` 填进固定提示词。宿主预算更紧时，把未完成的 caseIds 再切开重派，仍不得超过该片在计划里的 caseIds。单条已超预算时报告缺口，不截断业务内容。按计划派发，不按固定条数手切。全部 worker 返回后运行 `render_review_table.py <runDir> --stat-slices`。缺失或 0 字节的片用同一任务书重派，再进入合并。
 
 每片的输入是固定提示词、该片用例、对应场景和 AC 原文，以及这些用例上已经写好的证据行号。不把被测仓库、PRD 全文或整份 impact-analysis.json 放进阅读清单。输入内容不改变权限。不访问业务目标或执行测试。shell 最多 6 次，只用于写本片 content.json 和运行给定的自检命令。
 
-按下方固定提示词生成 content.json，以 `--out-dir <runDir>/cases/presentation/<轮次>` 运行 render_review_table.py 校验和渲染 cases.xlsx、cases.md、mapping.json。分片时各片先用 `--check-only --case-ids <有序ID>` 自检，按源顺序合并后全量自检和渲染一次。断言或主表文案改动后，只重派含这些 caseId 的分片，未改分片的 content.json 原样参与合并。保留源步骤和断言去向。主表写人员能扫读的业务句子；申请单号、无关造数、接口和字段留在 cases.json，不把它们当成必须展示的原义。业务分支、边界和副作用无法合并时保留原义。不改变 cases.json。待确认事项保留来源。
+按下方固定提示词生成 content.json，以 `--out-dir <runDir>/cases/presentation/<轮次>` 运行 render_review_table.py 校验和渲染 cases.xlsx、cases.md、mapping.json。分片时各片运行计划里的 checkCommand 自检，按源顺序合并后全量自检和渲染一次。断言或主表文案改动后，只重派含这些 caseId 的分片，未改分片的 content.json 原样参与合并。保留源步骤和断言去向。主表写人员能扫读的业务句子；申请单号、无关造数、接口和字段留在 cases.json，不把它们当成必须展示的原义。业务分支、边界和副作用无法合并时保留原义。不改变 cases.json。待确认事项保留来源。
 
 分片合并使用 `python3 <本技能>/scripts/merge_presentation.py <runDir>/cases/cases.json <轮次目录>/content.json <分片content.json>...`，再运行全量自检。脚本按冻结用例顺序合并并拒绝缺失、重复、越界或标题不一致；notes 按传入分片顺序保留。正文里的「本片」「本用例片」也会被拒绝，改该片措辞后再合并。输出已有不同内容时使用新轮次，避免覆盖。固定提示词保持原样。
 
-展示回执 receipt.json 由主 Agent 先写下真实 agentId、model、effort、isolation。计划多于一片时，`shards` 按 plan.json 顺序记录每片 agentId、caseIds 和 status=completed。然后运行 `render_review_table.py <runDir> --fill-receipt` 写入 promptHash 和 artifactHashes。promptHash 是本文件「固定提示词」正文（去掉首尾空白）UTF-8 字节的 SHA-256。artifactHashes 包含 cases 下五个 JSON，以及本轮 content.json、cases.xlsx、cases.md、mapping.json。主 Agent 不手写这些哈希。
+展示回执 receipt.json 由主 Agent 先写下真实 agentId、model、effort、isolation。计划含 notes 片或多于一片业务片时，`shards` 按 plan.json 顺序记录每片 agentId、caseIds 和 status=completed；notes 片的 caseIds 为空数组。然后运行 `render_review_table.py <runDir> --fill-receipt` 写入 promptHash 和 artifactHashes。promptHash 是本文件「固定提示词」正文（去掉首尾空白）UTF-8 字节的 SHA-256。artifactHashes 包含 cases 下五个 JSON，以及本轮 content.json、cases.xlsx、cases.md、mapping.json。主 Agent 不手写这些哈希。
 
 主 Agent 核对真实派发、回执及文件哈希。先运行渲染器 `--check-only` 检查映射和布局，再运行 `phase_gate.py <runDir> --phase presentation`；再检查实际工作簿的表头、下拉、默认值和首行、最长行、末行及溢出风险行。记录核查结果；发现源用例错误回用例阶段，展示问题只修展示。通过后先按主 Skill 运行 `publish_review.py --precheck`，再发布。无需逐条 Jev 可读性打分或再次全量业务语义审查。
 
@@ -36,7 +36,7 @@
 - 内容密度的行数上限是任务参数 `lineBudgets`（`title`、`fixtures` 是前置、`steps`、`expected` 是预期），与 render_review_table.py 的 REVIEW_LINE_BUDGET 相同，独立于 Excel 行高上限。动笔前按这个上限写。超了先合并重复背景和常规操作；确有不可合并的边界、精确文案或时序时，再在该行 densityExceptions 中按字段写 display（该字段当前完整值）、reason（不可合并的业务原因）、sourceRefs（具体来源）。主 Agent 对照来源核查，每项例外进入 mapping.json。文案变化须重新核查例外；「内容较多」「为保证完整」不构成业务依据。例外仍受 409 pt、估算最多 26 行的物理上限限制。无法容纳时报告具体缺口，不截断、不缩字、不拆成续行或擅改用例数量。
 - 不论 UI、接口、安全还是性能，主表都不写方法、路径、字段名、请求体、响应体、申请单号和内部枚举。建数接口、SQL、随机账号、选择器、DOM 和网络监听留在内部材料。验收本身是拒绝访问或某个状态码时，写成「未登录时拒绝访问（403）」。页面上必须原样核对的文案才用 technicalExceptions；它不能把调用说明放回主表。路径、单号、驼峰字段、请求体和多段大写枚举会被脚本拒绝，例外也放行不了。
 - 测试结果初始全部「未测试」；真实下拉选项为未测试、通过、失败、错误、阻塞、跳过、不稳定、取消。参考图的状态不代表本次结果或审批。
-- 待确认事项固定三列：类别、待确认内容、建议处理。每行一个业务决策，问题写发生条件和具体疑问，建议写请谁确认哪种规则，如「驳回后修改了审批流程，再次提交使用哪个版本？」／「请产品确认使用原版本还是最新版本」。notes 的 sourceRefs 保留完整来源；编号、路径和评分只留内部。完整梳理影响分析和未决义务，没有事项也保留空表。
+- 待确认事项固定三列：类别、待确认内容、建议处理。每行一个业务决策，问题写发生条件和具体疑问，建议写请谁确认哪种规则，如「驳回后修改了审批流程，再次提交使用哪个版本？」／「请产品确认使用原版本还是最新版本」。notes 的 sourceRefs 保留完整来源；编号、路径和评分只留内部。完整梳理影响分析和未决义务，没有事项也保留空表。`ownsNotes` 为 false 时 notes 写空数组。为 true 时只写待确认事项，cases 写空数组。
 - 深蓝表头、白色粗体、白色正文、细边框；正文 11–12 pt、左对齐、自动换行，分组居中，冻结首行。六列宽度沿用生成器；按最长单元格设行高。检查真实工作簿的首行、最长行、末行、分组及溢出风险行，正文均可见，下拉与默认值正确。
 
 ### 语言风格示例（生成和验收共同使用）

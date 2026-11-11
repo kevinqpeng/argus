@@ -1,6 +1,11 @@
 import importlib.util
-from pathlib import Path
+import json
+import shlex
+import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 
 spec = importlib.util.spec_from_file_location(
@@ -168,6 +173,66 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(merge.matrix_errors(objects, checks), [])
         checks[0]["disposition"] = "unknown"
         self.assertEqual(merge.matrix_errors(objects, checks), [])
+
+    def test_packet_renders_contract_window_text_and_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            baseline = root / "baseline"
+            run = root / "run"
+            baseline.mkdir()
+            (run / "cases/sources").mkdir(parents=True)
+            (baseline / "A.java").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+            (run / "cases/sources/prd.md").write_text("规则原文\n", encoding="utf-8")
+            plan = {"schemaVersion": 1, "inputHash": "snapshot", "tasks": [{
+                "taskId": "A", "attempt": 1, "objectIds": ["O1"],
+                "windows": [{"objectId": "O1", "refs": [f"A.java:{index}-{index}" for index in (1, 2, 3, 4)]}]}]}
+            plan_path = root / "plan.json"
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            packet_path = run / "cases/exploration/packets/A.json"
+            command = [sys.executable, str(Path(merge.__file__).with_name("generation.py")), "packet",
+                       "--task", "A", "--plan", str(plan_path), "--baseline", str(baseline),
+                       "--run", str(run), "--prd", "cases/sources/prd.md", "--source-id", "PRD",
+                       "--out", str(packet_path)]
+            created = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(created.returncode, 0, created.stderr)
+            packet = json.loads(packet_path.read_text(encoding="utf-8"))
+            self.assertIn("schemaVersion", packet["requiredFields"]["sourceUnits"])
+            self.assertIn("sourceIds", packet["requiredFields"]["sourceUnits"])
+            self.assertIn("reason", packet["requiredFields"]["checks"])
+            self.assertEqual(packet["windows"][0]["text"], "one")
+            self.assertEqual(packet["windows"][0]["evidenceRef"], "A.java:1-1")
+            self.assertIn(";", packet["evidenceRef"])
+            self.assertIn("JSON 数组", packet["evidenceRef"])
+            fields = {row["field"] for row in packet["emptyFields"]}
+            self.assertIn("reviewRef", fields)
+            self.assertIn("approvalRef", fields)
+            self.assertEqual(merge.check_receipt(packet, packet["sample"]), [])
+            receipt_path = Path(packet["output"])
+            receipt_path.parent.mkdir(parents=True, exist_ok=True)
+            sample = json.loads(json.dumps(packet["sample"]))
+            sample["checks"][0]["evidenceRef"] = ["A.java:1-1"]
+            receipt_path.write_text(json.dumps(sample), encoding="utf-8")
+            blocked = subprocess.run([sys.executable, str(Path(merge.__file__)), "--task", "A",
+                                      "--check", str(receipt_path), "--packet", str(packet_path)],
+                                     capture_output=True, text=True)
+            self.assertEqual(blocked.returncode, 2)
+            self.assertIn("JSON 数组", blocked.stdout)
+            sample["checks"][0]["evidenceRef"] = "A.java:1-1"
+            del sample["checks"][0]["reason"]
+            receipt_path.write_text(json.dumps(sample), encoding="utf-8")
+            missing = subprocess.run([sys.executable, str(Path(merge.__file__)), "--task", "A",
+                                      "--check", str(receipt_path), "--packet", str(packet_path)],
+                                     capture_output=True, text=True)
+            self.assertIn("reason", missing.stdout)
+            receipt_path.write_text(json.dumps(packet["sample"]), encoding="utf-8")
+            passed = subprocess.run(shlex.split(packet["checkCommand"]), capture_output=True, text=True)
+            self.assertEqual(passed.returncode, 0, passed.stdout)
+            receipt_path.write_bytes(b"")
+            empty = subprocess.run([sys.executable, str(Path(merge.__file__)), "--stat",
+                                    "--plan", str(plan_path), "--run", str(run)],
+                                   capture_output=True, text=True)
+            self.assertEqual(empty.returncode, 2)
+            self.assertEqual(json.loads(empty.stdout)["empty"], ["cases/exploration/A/1.json"])
 
     def test_plan_needs_resolvable_windows_before_dispatch(self):
         plan = {"schemaVersion": 1, "inputHash": "h", "tasks": [{"taskId": "A", "attempt": 1,

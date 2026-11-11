@@ -39,6 +39,7 @@ import hashlib
 import json
 import pathlib
 import re
+import shlex
 import shutil
 import sys
 import unicodedata
@@ -56,9 +57,9 @@ WIDTH_NOTES = [22, 64, 50]
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
-SLICE_CAP = 8
-# 条数硬上限之外的内容预算：八条只有 caseId 的短用例仍是一片；步骤和断言多的用例提前换片。
-SLICE_WEIGHT = 48
+SLICE_CAP = 4
+# 条数硬上限之外的内容预算：四条短用例仍是一片；步骤和断言多的用例提前换片。
+SLICE_WEIGHT = 24
 # 评审密度独立于 Excel 的 409 pt 容量；超预算需来源支持的逐字段例外。
 REVIEW_LINE_BUDGET = {
     'title': (WIDTH_MAIN[1], 2), 'fixtures': (WIDTH_MAIN[2], 6),
@@ -199,15 +200,36 @@ def slice_case_ids(cases, cap=SLICE_CAP, weight_budget=SLICE_WEIGHT):
     return slices
 
 
+def slice_commands(run_dir, round_id, output_rel, case_ids, kind):
+    content = str((run_dir / output_rel).resolve())
+    argv = [sys.executable, str(pathlib.Path(__file__).resolve()), str(run_dir.resolve()),
+            '--round', round_id, '--content', content, '--check-only']
+    if kind == 'notes':
+        argv.append('--notes-only')
+    else:
+        argv.extend(['--cases-only', '--case-ids', *case_ids])
+    return shlex.join(argv), shlex.join(argv + ['--parse-only'])
+
+
 def write_slice_plan(run_dir, round_id):
     if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
         raise ValueError('展示轮次无效')
     cases = json.loads((run_dir / 'cases/cases.json').read_text(encoding='utf-8'))
+    slices = []
+    for index, chunk in enumerate(slice_case_ids(cases), 1):
+        name = f'{index:02d}'
+        output = f'cases/presentation/{round_id}/slices/{name}/content.json'
+        check, probe = slice_commands(run_dir, round_id, output, chunk, 'cases')
+        slices.append({'name': name, 'kind': 'cases', 'caseIds': chunk, 'ownsNotes': False,
+                       'output': output, 'checkCommand': check, 'probeCommand': probe})
+    notes_output = f'cases/presentation/{round_id}/slices/notes/content.json'
+    check, probe = slice_commands(run_dir, round_id, notes_output, [], 'notes')
+    slices.append({'name': 'notes', 'kind': 'notes', 'caseIds': [], 'ownsNotes': True,
+                   'output': notes_output, 'checkCommand': check, 'probeCommand': probe})
     plan = {
         'schemaVersion': 1, 'cap': SLICE_CAP, 'weightBudget': SLICE_WEIGHT,
         'lineBudgets': {name: limit for name, (_, limit) in REVIEW_LINE_BUDGET.items()},
-        'slices': [{'name': f'{index:02d}', 'caseIds': chunk}
-                   for index, chunk in enumerate(slice_case_ids(cases), 1)]}
+        'slices': slices}
     path = run_dir / 'cases/presentation' / round_id / 'plan.json'
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps(plan, ensure_ascii=False, indent=2) + '\n'
@@ -220,6 +242,24 @@ def write_slice_plan(run_dir, round_id):
 def prompt_text():
     contract = (pathlib.Path(__file__).resolve().parents[1] / 'references/review-table.md').read_text(encoding='utf-8')
     return contract.split('## 固定提示词（原样派发）\n', 1)[1].split('\n## 主 Agent 验收', 1)[0].strip()
+
+
+def stat_slices(run_dir, round_id):
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
+        raise ValueError('展示轮次无效')
+    plan = json.loads((run_dir / 'cases/presentation' / round_id / 'plan.json').read_text(encoding='utf-8'))
+    missing, empty, ok = [], [], []
+    for row in plan.get('slices') or []:
+        rel = row.get('output')
+        path = run_dir / rel if isinstance(rel, str) else None
+        if path is None or not path.is_file():
+            missing.append(rel)
+        elif path.stat().st_size == 0:
+            empty.append(rel)
+        else:
+            ok.append(rel)
+    return {'status': 'READY' if not missing and not empty else 'REDISPATCH',
+            'missing': missing, 'empty': empty, 'ok': ok}
 
 
 def fill_receipt(run_dir, round_id):
@@ -496,6 +536,10 @@ def main():
     ap.add_argument('run_dir', type=pathlib.Path)
     ap.add_argument('--content', type=pathlib.Path)
     ap.add_argument('--check-only', action='store_true', help='只校验，不写文件')
+    ap.add_argument('--parse-only', action='store_true', help='只解析参数，不读产物')
+    ap.add_argument('--notes-only', action='store_true', help='待确认片：只校验 notes，cases 必须为空')
+    ap.add_argument('--cases-only', action='store_true', help='业务片：notes 必须为空数组')
+    ap.add_argument('--stat-slices', action='store_true', help='核对分片产物存在且非空')
     ap.add_argument('--print-input', action='store_true', help='输出无损分片输入 JSON，不写文件或批准门禁')
     ap.add_argument('--case-ids', nargs='+', help='自检或输入提取：本分片分配的有序 caseId')
     ap.add_argument('--round', default='1')
@@ -503,16 +547,30 @@ def main():
     ap.add_argument('--plan-slices', action='store_true', help='按源顺序和内容体量写出展示分片计划')
     ap.add_argument('--fill-receipt', action='store_true', help='写入固定提示词和产物哈希')
     args = ap.parse_args()
+    if args.parse_only:
+        print(json.dumps({'status': 'PARSED'}, ensure_ascii=False))
+        return
+    if args.notes_only and (args.case_ids or args.cases_only):
+        ap.error('--notes-only 不能和用例分片参数一起使用')
     if args.case_ids and not (args.check_only or args.print_input):
         ap.error('--case-ids 只能与 --check-only 或 --print-input 一起使用')
     if args.print_input and (not args.case_ids or args.check_only or args.content or args.out_dir or args.plan_slices or args.fill_receipt):
         ap.error('--print-input 需要 --case-ids，不能与自检、文案或输出目录参数混用')
-    if (args.plan_slices or args.fill_receipt) and (args.check_only or args.print_input or args.content or args.case_ids or args.out_dir):
+    if (args.plan_slices or args.fill_receipt or args.stat_slices) and (args.check_only or args.print_input or args.content or args.case_ids or args.out_dir or args.notes_only or args.cases_only):
         ap.error('分片计划和回执哈希与渲染参数分开使用')
-    if args.plan_slices and args.fill_receipt:
-        ap.error('分片计划和回执哈希分开运行')
+    if sum(bool(flag) for flag in (args.plan_slices, args.fill_receipt, args.stat_slices)) > 1:
+        ap.error('分片计划、回执哈希和产物检查分开运行')
 
     run_dir = args.run_dir.resolve()
+    if args.stat_slices:
+        try:
+            result = stat_slices(run_dir, args.round)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            ap.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False))
+        if result['status'] != 'READY':
+            sys.exit(2)
+        return
     if args.plan_slices or args.fill_receipt:
         try:
             result = write_slice_plan(run_dir, args.round) if args.plan_slices else fill_receipt(run_dir, args.round)
@@ -532,8 +590,13 @@ def main():
     out_dir = (args.out_dir or run_dir / 'cases').resolve()
 
     content = json.loads(content_path.read_text(encoding='utf-8'))
-    source = load_run(run_dir)
+    if args.notes_only:
+        if content.get('cases'):
+            print('ERROR 待确认片的 cases 必须是空数组', file=sys.stderr)
+            sys.exit(2)
+        content['cases'] = []
     errors = []
+    source = {'cases': []} if args.notes_only else load_run(run_dir)
     if args.case_ids:
         assigned = set(args.case_ids)
         source['cases'] = [c for c in source['cases'] if c['caseId'] in assigned]
@@ -556,6 +619,20 @@ def main():
                 any(not isinstance(ref, str) or not ref.strip() for ref in note['sourceRefs'])):
             print(f'ERROR notes[{i}]: 需提供 category、question、action 和非空 sourceRefs', file=sys.stderr)
             sys.exit(2)
+    if args.cases_only and notes:
+        print('ERROR 业务片的 notes 必须是空数组，待确认事项由 notes 片写入', file=sys.stderr)
+        sys.exit(2)
+    if args.notes_only:
+        issues = presentation_issues({'cases': [], 'notes': notes}, None)
+        if issues:
+            for issue in issues:
+                print(f'ERROR 评审文案待处理：{issue}', file=sys.stderr)
+            sys.exit(2)
+        if args.check_only:
+            print(f'PASSED notes={len(notes)}')
+            return
+        print('ERROR 待确认片只支持 --check-only', file=sys.stderr)
+        sys.exit(2)
     issues = presentation_issues(content, source)
     if issues:
         for issue in issues:

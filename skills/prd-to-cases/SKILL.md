@@ -23,7 +23,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 ## 1.1. 分析变更影响
 
-- 执行 [变更影响与测试义务](references/impact-analysis.md)，先登记来源单元和变更对象，按其探索调度规则选择单 Agent 或多 Agent 并行追踪六类影响，合并并复核跨任务依赖后形成义务和待确认规则。无源码或证据缺失明确保留未知。基线工作树只建一次；探索任务书带已核对的行号，worker 按行取证。checks 使用六类 dimension，可测性写入 handoff。
+- 执行 [变更影响与测试义务](references/impact-analysis.md)，先登记来源单元和变更对象，按其探索调度规则选择单 Agent 或多 Agent 并行追踪六类影响，合并并复核跨任务依赖后形成义务和待确认规则。无源码或证据缺失明确保留未知。基线工作树只建一次。探索任务包用 `generation.py packet` 生成，内含已核对窗口的原文；worker 按包内 checkCommand 自检。checks 使用六类 dimension，可测性写入 handoff。
 - 完成条件：每个来源单元和发现的依赖均有处置；每项范围内义务有已确认预期。未决项可先交付评审材料，但阻断冻结完成与执行。
 
 ## 2. 提取验收条件
@@ -85,7 +85,7 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 - 从本 run 的 cases.json、scenarios.json 和 acs.json 生成内部 `cases/cases.xlsx` 与 `cases/cases.md`。面向人员的 Excel 名称为「功能名称用例(V版本号).xlsx」，例如「审批驳回后重新发起用例(V0.3).xlsx」。功能名称取当前评审范围，版本取本轮冻结 PRD 版本历史中的最新版本；不加日期或「用例表」后缀。读取文档并核对来源哈希，不从截图、旧 run、文件名或模型版本猜测。版本缺失、来源不唯一、格式无法识别或记录与文档不一致时，不展示版本号，文件名改为「功能名称用例.xlsx」，无需因此暂停交付。
 - 渲染后、发布前运行 `python3 <本目录>/scripts/publish_review.py <runDir> --feature <功能名称> [--source-id <PRD来源ID>] --precheck`。它核对内部 `cases/cases.xlsx` 与展示副本哈希、prd 的 sourceRef 是否为 `run://`、版本历史能否解析（含空格对齐表）以及交付文件名。BLOCKED 时先改快照或副本，再发布。
 - 通过展示门禁并将本轮表发布到内部固定路径后，运行同一命令并去掉 `--precheck`。脚本从冻结快照的版本历史生成命名 Excel，管道表和 pdftotext 空格对齐表都可以；版本无法确认时省略版本号。脚本仍核验冻结快照哈希、展示门禁与内部文件一致性；文件冲突时停止。只将 `deliverables/` 中的命名文件展示或交付给人员；内部 cases.xlsx、JSON、Markdown 和映射用于追踪，不展示为评审附件。发布成功后把返回路径写入 `manifest.presentation.deliverables`，`deliverables/` 只保留该命名文件；`--phase presentation` 会校验它与 `cases/cases.xlsx` 同字节，没跑发布脚本无法通过门禁。
-- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发。先运行 `render_review_table.py <runDir> --plan-slices`，按计划中的每片 caseIds 各派一个干净上下文的 generation Agent，并把计划里的 `lineBudgets` 填进提示词。合并后运行 `--fill-receipt` 写入 promptHash 和产物哈希。主 Agent 核对真实派发后发布。断言或主表文案改动后，只重派含这些 caseId 的分片。此任务在用例合并和遗漏核对之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
+- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发。先运行 `render_review_table.py <runDir> --plan-slices`。业务片按计划中的 caseIds 各派一个干净上下文的 generation Agent，待确认事项按 notes 片另派一片。派发前实跑 `probeCommand`，把 `lineBudgets`、`ownsNotes` 和原样 `checkCommand` 填进提示词。全部返回后先跑 `--stat-slices`，缺失或 0 字节重派同一片。合并后运行 `--fill-receipt` 写入 promptHash 和产物哈希。主 Agent 核对真实派发后发布。断言或主表文案改动后，只重派含这些 caseId 的分片。此任务在用例合并和遗漏核对之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
 - 每行「测试结果」使用真实的 Excel 数据验证下拉列表，选项为「未测试、通过、失败、错误、阻塞、跳过、不稳定、取消」，初始为「未测试」。分别对应未执行、passed、failed、error、blocked、skipped、flaky、cancelled；测试结果与人工评审批准是不同状态，下拉选择不能解除评审门禁。
 - 按 [评审表生成契约](references/review-table.md) 输出「用例主表」和「待确认事项」两张工作表。待确认事项用业务白话呈现，完整影响分析、来源与技术追踪保存在内部 JSON、Markdown 和映射中。
 - 交付前按评审表契约运行 `phase_gate.py <runDir> --phase presentation`，并核对 Excel 的内容、布局、下拉选项和默认值，以 mapping.json 对照 JSON 检查每项条件、步骤和断言及待确认事项，确认内部追踪可定位；缺失或不一致时修复后再交付。

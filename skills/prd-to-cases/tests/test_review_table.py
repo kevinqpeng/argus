@@ -1,6 +1,7 @@
 import json
 import importlib.util
 import hashlib
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -358,9 +359,23 @@ class ReviewTableTest(unittest.TestCase):
             self.assertEqual(plan.returncode, 0, plan.stderr)
             body = json.loads((base / 'plan.json').read_text(encoding='utf-8'))
             slices = body['slices']
-            self.assertEqual([len(row['caseIds']) for row in slices], [8, 1])
+            case_rows = [row for row in slices if row['kind'] == 'cases']
+            self.assertEqual([len(row['caseIds']) for row in case_rows], [4, 4, 1])
+            self.assertEqual(slices[-1]['kind'], 'notes')
+            self.assertEqual(slices[-1]['caseIds'], [])
+            self.assertTrue(slices[-1]['ownsNotes'])
+            self.assertFalse(case_rows[0]['ownsNotes'])
+            self.assertIn('--cases-only', case_rows[0]['checkCommand'])
+            self.assertIn('--notes-only', slices[-1]['checkCommand'])
+            self.assertIn('--parse-only', case_rows[0]['probeCommand'])
             self.assertEqual(body['lineBudgets']['fixtures'], 6)
-            self.assertEqual(body['cap'], 8)
+            self.assertEqual(body['cap'], 4)
+            probed = subprocess.run(shlex.split(case_rows[0]['probeCommand']), capture_output=True, text=True)
+            self.assertEqual(probed.returncode, 0, probed.stderr)
+            rejected = subprocess.run(shlex.split(case_rows[0]['probeCommand']) + ['/tmp/content.json'],
+                                      capture_output=True, text=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn('unrecognized arguments', rejected.stderr)
             receipt['shards'] = [{'agentId': 'agent', 'caseIds': row['caseIds'], 'status': 'completed'}
                                  for row in slices]
             (base / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
@@ -368,8 +383,11 @@ class ReviewTableTest(unittest.TestCase):
             self.assertEqual(second.returncode, 2)
             self.assertNotIn('逐片派发', second.stdout)
             self.assertIn('缺失', second.stdout)
+            split = [case_rows[0]['caseIds'][:2], case_rows[0]['caseIds'][2:],
+                     case_rows[1]['caseIds'], case_rows[2]['caseIds']]
             receipt['shards'] = [{'agentId': f'agent-{i}', 'caseIds': ids, 'status': 'completed'}
-                                 for i, ids in enumerate([slices[0]['caseIds'][:4], slices[0]['caseIds'][4:], slices[1]['caseIds']])]
+                                 for i, ids in enumerate(split)]
+            receipt['shards'].append({'agentId': 'notes', 'caseIds': [], 'status': 'completed'})
             (base / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
             retry = subprocess.run(command, capture_output=True, text=True)
             self.assertNotIn('逐片派发', retry.stdout)
@@ -386,10 +404,61 @@ class ReviewTableTest(unittest.TestCase):
                  'assertions': [{'stepId': str(i), 'expected': '结果'} for i in range(6)]}
         cases = [{'caseId': f'C{i}', **heavy} for i in range(9)]
         slices = module.slice_case_ids(cases)
-        self.assertEqual([len(group) for group in slices], [4, 4, 1])
+        self.assertEqual([len(group) for group in slices], [2, 2, 2, 2, 1])
         self.assertEqual([item for group in slices for item in group], [f'C{i}' for i in range(9)])
         light = [{'caseId': f'C{i}'} for i in range(9)]
-        self.assertEqual([len(group) for group in module.slice_case_ids(light)], [8, 1])
+        self.assertEqual([len(group) for group in module.slice_case_ids(light)], [4, 4, 1])
+
+    def test_notes_slice_is_separate_and_empty_outputs_redispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'cases').mkdir()
+            (root / 'cases/cases.json').write_text(json.dumps([{'caseId': 'C1'}]), encoding='utf-8')
+            plan = subprocess.run([sys.executable, str(SCRIPT), str(root), '--plan-slices'],
+                                  capture_output=True, text=True)
+            self.assertEqual(plan.returncode, 0, plan.stderr)
+            body = json.loads((root / 'cases/presentation/1/plan.json').read_text(encoding='utf-8'))
+            self.assertEqual([row['kind'] for row in body['slices']], ['cases', 'notes'])
+            missing = subprocess.run([sys.executable, str(SCRIPT), str(root), '--stat-slices'],
+                                     capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 2)
+            self.assertEqual(json.loads(missing.stdout)['status'], 'REDISPATCH')
+            notes = root / body['slices'][1]['output']
+            notes.parent.mkdir(parents=True)
+            notes.write_bytes(b'')
+            case_out = root / body['slices'][0]['output']
+            case_out.parent.mkdir(parents=True)
+            case_out.write_text('{"title":"评审","cases":[],"notes":[]}\n', encoding='utf-8')
+            empty = subprocess.run([sys.executable, str(SCRIPT), str(root), '--stat-slices'],
+                                   capture_output=True, text=True)
+            self.assertEqual(json.loads(empty.stdout)['empty'], [body['slices'][1]['output']])
+            notes.write_text(json.dumps({'title': '评审', 'cases': [], 'notes': [
+                {'category': '规则', 'question': '留空是否合法？', 'action': '按任务包，留空合法',
+                 'sourceRefs': ['impact-gaps.json:GAP-1']}]}), encoding='utf-8')
+            ready = subprocess.run([sys.executable, str(SCRIPT), str(root), '--stat-slices'],
+                                   capture_output=True, text=True)
+            self.assertEqual(ready.returncode, 0, ready.stderr)
+            checked = subprocess.run(shlex.split(body['slices'][1]['checkCommand']),
+                                     capture_output=True, text=True)
+            self.assertEqual(checked.returncode, 0, checked.stderr)
+            (root / 'cases/cases.json').write_text(json.dumps([{
+                'caseId': 'C1', 'scenarioIds': ['S'], 'steps': [{'id': 'S1', 'action': '打开'}],
+                'assertions': [{'stepId': 'S1', 'expected': '成功'}]}]), encoding='utf-8')
+            (root / 'cases/scenarios.json').write_text(
+                json.dumps([{'scenarioId': 'S', 'acIds': ['A']}]), encoding='utf-8')
+            (root / 'cases/acs.json').write_text(json.dumps([{'acId': 'A'}]), encoding='utf-8')
+            (root / 'cases/impact-analysis.json').write_text(
+                json.dumps({'obligations': []}), encoding='utf-8')
+            case_out.write_text(json.dumps({
+                'title': '评审',
+                'cases': [{'caseId': 'C1', 'group': '审批', 'title': '提交', 'fixtures': ['已登录'],
+                           'steps': ['打开'], 'expected': ['成功']}],
+                'notes': json.loads(notes.read_text(encoding='utf-8'))['notes']}, ensure_ascii=False),
+                encoding='utf-8')
+            rejected = subprocess.run(shlex.split(body['slices'][0]['checkCommand']),
+                                      capture_output=True, text=True)
+            self.assertEqual(rejected.returncode, 2, rejected.stderr)
+            self.assertIn('notes 必须是空数组', rejected.stderr)
 
 
 if __name__ == '__main__':

@@ -28,7 +28,15 @@ PRD 快照冻结后，来源清单和代码索引并行。采集只做快照和 
 
 探索任务按互斥的 objectId 切分，每任务 4 到 5 个对象。同一对象和同一调用链只进一个任务；跨任务的边写成 handoff，不在两个任务里各查一遍。`plan.json` 的每个 task 写 `objectIds`。任务书只传本任务的窗口、对象和来源定位，不继承完整探索历史。
 
-worker 只读任务书给出的基线工作树。一次 shell 用 `sed -n` 输出多个已点名窗口。shell 不超过 25 次。每条 check 最多 2 条证据，每条不超过 3 行；这两条已经说明受影响或不受影响后停止，不再逐个调用者翻文件。点名窗口里没有该符号时，允许一次限定目录的检索（`rg --version` 含 ripgrep 才用 `rg`，否则 `grep -n`）；仍没有则写入 handoff。不从 `/` 或 `$HOME` 递归搜索，禁止 `git show <SHA>:<path>`。路径不存在时回报具体缺口，由主 Agent 核对后补发，不能猜测路径或忽略依赖。
+计划写好后，按任务生成任务包，不手写契约字段：
+
+```text
+python3 <prd-to-cases>/scripts/generation.py packet --task <taskId> --plan <plan.json> --baseline <基线工作树> --run <runDir> --prd <相对 PRD> --source-id <ID> --out cases/exploration/packets/<taskId>.json
+```
+
+packet 从 `assemble_baseline.py` 与 `merge_impact_candidates.py` 的同一份常量写出必填字段、ID 规则、`evidenceRef` 的分号字符串形状、`emptyFields`（含 reviewRef、approvalRef 留空的理由）、`copyVerbatim.sources`、窗口原文和一份最小回执。worker 把回执写到 `packet.output`，然后原样运行 `packet.checkCommand`。失败只改这份回执。`emptyFields` 已冻结，留空合法，不再询问主 Agent。`windows[].text` 是不超过 3 行的原文，`evidenceRef` 使用其中的字面量。全部 worker 返回后运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py --stat --plan <plan.json> --run <runDir>`。缺失或 0 字节用同一 packet 重派，再运行合并命令。
+
+worker 只读这份任务包。已经附上原文的窗口不再执行 `sed`。shell 不超过 25 次。每条 check 最多 2 条证据，每条不超过 3 行；这两条已经说明受影响或不受影响后停止，不再逐个调用者翻文件。点名窗口里没有该符号时，允许一次限定目录的检索（`rg --version` 含 ripgrep 才用 `rg`，否则 `grep -n`）；仍没有则写入 handoff。不从 `/` 或 `$HOME` 递归搜索，禁止 `git show <SHA>:<path>`。路径不存在时回报具体缺口，由主 Agent 核对后补发，不能猜测路径或忽略依赖。`sources` 原样复制 `copyVerbatim.sources`。
 
 墙钟 6 分钟。到点把已完成的对象写入回执，`status` 为 `partial`，并列出未完成的 objectId 与 dimension。主 Agent 只补这些缺口。partial 不能当作探索完成。
 
