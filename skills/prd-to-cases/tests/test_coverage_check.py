@@ -382,14 +382,27 @@ class CoverageCheckTest(unittest.TestCase):
                           "reason": "PRD 没有规定外部审计员驳回后任务归谁，需产品确认"})
             build(tmp, matrix_data=matrix(
                 [{"name": "角色", "values": roles}], cells, families={"subject": "角色"}))
-            rows = [{"values": {"角色": role}, "status": "covered", "scenarios": ["SCN-01"],
-                     "expected": "驳回后出现两种处理方式"} for role in roles[:-1]]
+            rows = [{"values": {"角色": role}, "status": "covered", "scenarios": [f"SCN-R{index}"],
+                     "expected": "驳回后出现两种处理方式"} for index, role in enumerate(roles[:-1])]
+            original = json.loads((Path(tmp) / "cases/cases.json").read_text(encoding="utf-8"))
+            original.extend(
+                {"caseId": f"CASE-R{index}", "scenarioId": f"SCN-R{index}",
+                 "steps": [{"id": "s1", "action": "驳回"}],
+                 "assertions": [{"stepId": "s1", "expected": "出现两种方式"}]}
+                for index in range(len(roles) - 1))
+            write(tmp, "cases.json", original)
             rows.append({"values": {"角色": roles[-1]}, "status": "unknown", "risk": "high",
                          "reason": "PRD 没有规定外部审计员驳回后任务归谁，需产品确认"})
             write(tmp, "decision-table.json", {
                 "schemaVersion": 1,
                 "dimensions": [{"name": "角色", "values": roles}],
                 "rows": rows,
+                "expansions": [
+                    {"kind": "surface", "waiver": "本表没有来源点名的界面文案、随选项变化的说明、可选字段或字数上限"},
+                    {"kind": "subtype", "waiver": "本表角色已是最细取值，检索后没有再拆开的子类型"},
+                    {"kind": "both-arms", "waiver": "本表没有第二条会改变结果的原因，选择轴本身已经完整"},
+                    {"kind": "identity", "waiver": "本表的规则不按标识回找变更前的原对象，没有改名或替换后的查找"},
+                ],
             })
             done = run(tmp)
             self.assertEqual(done.returncode, 0, done.stdout)
