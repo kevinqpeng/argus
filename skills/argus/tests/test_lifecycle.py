@@ -346,6 +346,19 @@ class LifecycleTests(unittest.TestCase):
         gate.cases()
         self.assertFalse([gap for gap in gate.gaps if "六维缺格" in gap or "证据" in gap], gate.gaps)
 
+    def test_presentation_gate_carries_matrix_and_evidence_gaps(self):
+        self.write("cases/impact-analysis.json", {"schemaVersion": 1,
+                                                  "objects": [{"objectId": "OBJ-01"}], "checks": []})
+        gate = Gate(self.run)
+        gate.presentation()
+        self.assertTrue(any("六维缺格 OBJ-01 × data" in gap for gap in gate.gaps), gate.gaps)
+        self.assertTrue(any("evidence-check.json" in gap for gap in gate.gaps), gate.gaps)
+        self.write("cases/impact-analysis.json", {"schemaVersion": 1, "objects": [], "checks": []})
+        self.write("cases/exploration/evidence-check.json", {"status": "PASSED", "failed": 0, "failures": []})
+        gate = Gate(self.run)
+        gate.presentation()
+        self.assertFalse([gap for gap in gate.gaps if "六维缺格" in gap or "evidence-check" in gap], gate.gaps)
+
     def test_review_enabled_cannot_use_disabled_receipt(self):
         self.write("argus-model.json", {"config": {"execution": {"requireHumanCaseReview": True}}})
         gate = Gate(self.run)

@@ -26,9 +26,12 @@ def build_run(root):
     """写一个能通过展示门禁的运行目录，返回本轮目录与命名交付物路径。"""
     round_dir = root / 'cases/presentation/1'
     round_dir.mkdir(parents=True)
-    written = {f'cases/{name}': [] for name in ARTIFACTS}
+    written = {f'cases/{name}': ({} if name == 'impact-analysis.json' else []) for name in ARTIFACTS}
     for ref, value in written.items():
         (root / ref).write_text(json.dumps(value), encoding='utf-8')
+    (root / 'cases/exploration').mkdir(parents=True, exist_ok=True)
+    (root / 'cases/exploration/evidence-check.json').write_text(
+        json.dumps({'status': 'PASSED', 'failed': 0, 'failures': []}), encoding='utf-8')
     (root / 'cases/cases.xlsx').write_bytes(b'workbook')
     round_files = {'content.json': json.dumps({'cases': []}), 'cases.xlsx': b'workbook',
                    'cases.md': '正文', 'mapping.json': '{}'}

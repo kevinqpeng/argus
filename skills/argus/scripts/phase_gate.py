@@ -221,6 +221,7 @@ class Gate:
 
         if not self.need(isinstance(self.manifest, dict), '缺少 manifest.json'):
             return
+        self._impact_completeness()
         round_id = str((self.manifest.get('presentation') or {}).get('round', '1'))
         if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
             raise ValueError('展示轮次无效')

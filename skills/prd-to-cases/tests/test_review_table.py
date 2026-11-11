@@ -309,6 +309,8 @@ class ReviewTableTest(unittest.TestCase):
                      'scenarios.json': [], 'acs.json': [], 'impact-analysis.json': {}}
             for name, data in files.items():
                 write('cases/' + name, json.dumps(data))
+            write('cases/exploration/evidence-check.json',
+                  json.dumps({'status': 'PASSED', 'failed': 0, 'failures': []}))
             content = {'cases': [{'caseId': 'C1', 'group': '配置', 'title': '保存',
                                   'fixtures': [], 'steps': ['打开页面'], 'expected': ['保存成功']}],
                        'notes': [{'category': '审批规则', 'question': '再次提交使用哪个版本？',
