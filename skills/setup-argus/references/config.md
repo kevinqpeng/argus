@@ -59,7 +59,7 @@ python3 <skill>/scripts/host_config.py --host claude --project <仓库> --projec
 | decision.visualModel | 新 run 默认 jev-1.14.0；仅用于图片判断并冻结到快照，旧配置保持兼容 |
 | decision | activeProvider=jev、transport=api 默认且内置；旧配置的 Jev MCP 映射在新 run 改用内置 API；verification 不等于 READY；maxCallsPerRun 正整数，timeoutMs 正整数，maxRetries 0..2 |
 | decision.providers | 自定义时使用；activeProvider 要指向已验证条目，protocol/adapterVersion/model/targetFingerprint/概率类型变化后重验 |
-| coverage | 旧配置字段，保留兼容，不再作为门禁。人工评审通过即接受执行 |
+| coverage | 覆盖阈值 ruleCoverage / matrixCoverage / baselineCoverage / score，默认均 0.9，由 `prd-to-cases/scripts/coverage_check.py` 与 `phase_gate.py` 的 cases、presentation 阶段读取，低于阈值即 BLOCKED；scenarioThreshold、p0Threshold、failOnFlaky 为历史字段，保留兼容 |
 | execution | workers 正整数，retries 0..1，资源与数据隔离实测；requireHumanCaseReview 为布尔值，默认 true |
 | execution.exploration | 可选；预算/缓存字段及默认值由 [探索工具](../../argus/scripts/exploration.py) 的 limits 校验，流程见 [探索契约](../../argus/references/page-diagnostics.md)；缺省兼容旧配置，随 run 冻结，不改变 runner retries |
 | bugPublisher | provider 与 method 分开；provider 可为企微、飞书、其他实际平台或 local，method=auto/mcp/api/cli/browser/webhook/local，tableAction=create/existing/import；默认未启用，所选方式需能力验证 |
