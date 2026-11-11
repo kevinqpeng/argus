@@ -276,6 +276,14 @@ def stat_slices(run_dir, round_id):
             'missing': missing, 'empty': empty, 'ok': ok}
 
 
+def artifact_refs(round_id):
+    """Files whose bytes the presentation receipt binds. verify_all uses the same list."""
+    names = ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')
+    refs = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis')]
+    refs += [f'cases/presentation/{round_id}/{name}' for name in names]
+    return refs
+
+
 def fill_receipt(run_dir, round_id):
     """Fill prompt and artifact hashes. Identity fields stay as the dispatcher wrote them."""
     if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
@@ -286,9 +294,7 @@ def fill_receipt(run_dir, round_id):
     for key in ('agentId', 'model', 'effort', 'isolation'):
         if not isinstance(receipt.get(key), str) or not receipt[key].strip():
             raise ValueError('展示回执缺少 ' + key)
-    names = ('content.json', 'cases.xlsx', 'cases.md', 'mapping.json')
-    refs = [f'cases/{name}.json' for name in ('cases', 'scenarios', 'acs', 'impact-analysis')]
-    refs += [f'cases/presentation/{round_id}/{name}' for name in names]
+    refs = artifact_refs(round_id)
     hashes = {}
     for ref in refs:
         artifact = run_dir / ref

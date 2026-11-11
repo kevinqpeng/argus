@@ -450,32 +450,80 @@ def build_packet(plan, task_id, *, baseline, run, prd_rel, source_id, packet_pat
     dimensions, dimension_errors = plan_dimensions(plan)
     if dimension_errors:
         raise ValueError("；".join(dimension_errors))
+    catalog = ac_catalog(run)
     output = (run.resolve() / receipt_rel(task)).resolve()
     command = shlex.join([sys.executable, str(Path(__file__).resolve()), "--task", task_id,
                            "--check", str(output), "--packet", str(Path(packet_path).resolve())])
+    sample = minimal_sample(task, plan, source, windows)
+    empty_fields = [dict(row) for row in EMPTY_FIELDS]
+    rules = [
+        "回执只写 output 指向的文件。写完立刻运行 checkCommand，失败只改这份回执。",
+        "sources 原样复制 copyVerbatim.sources，不要另写一份。",
+        "evidenceRef 使用 windows[].evidenceRef 的字面量，类型是字符串。sourceUnits 同样最多 2 段、每段最多 3 行；更长就拆成两条单元。",
+        "windows[].text 已是不超过 3 行的原文。这些窗口不要再打开仓库检索。",
+    ]
+    if catalog:
+        sample["obligations"][0]["acIds"] = [catalog[0]["acId"]]
+        sample["obligations"][0]["reviewStatus"] = "draft"
+        for row in empty_fields:
+            if row["field"] == "acIds":
+                row["reason"] = "从 acCatalog 选择并写入。只有预期未明且 reviewStatus 为 needs_clarification 时才用空数组。"
+        rules.append("预期已经明确的义务，acIds 从 acCatalog 里选，写在本回执里。不要留空留给主 Agent 回填。")
+        rules.append("emptyFields 里除 acIds 以外的留空是合法的，不要询问主 Agent。")
+    else:
+        rules.append("emptyFields 中的留空是合法的，不要询问主 Agent。")
     return {
         "schemaVersion": 1, "taskId": task_id, "attempt": task["attempt"],
         "inputHash": plan["inputHash"], "objectIds": list(task["objectIds"]),
         "requiredFields": {group: ["schemaVersion", *fields] for group, fields in IMPACT_REQUIRED.items()},
         "idRules": {group: f"{task_id}{suffix}<n>" for group, suffix in ID_RULES.items()},
         "evidenceRef": EVIDENCE_RULE,
+        "acCatalog": catalog,
         "dimensionRules": {"allowed": list(dimensions), "noBundle": sorted(NO_BUNDLE),
                            "bundleMax": BUNDLE_MAX,
                            "note": "data 和 permission 必须单独给结论。dimensions 一次最多 3 个。"},
-        "emptyFields": [dict(row) for row in EMPTY_FIELDS],
+        "emptyFields": empty_fields,
         "copyVerbatim": {"sources": [source]},
         "windows": windows,
-        "sample": minimal_sample(task, plan, source, windows),
+        "sample": sample,
         "output": str(output),
         "checkCommand": command,
-        "workerRules": [
-            "回执只写 output 指向的文件。写完立刻运行 checkCommand，失败只改这份回执。",
-            "sources 原样复制 copyVerbatim.sources，不要另写一份。",
-            "evidenceRef 使用 windows[].evidenceRef 的字面量，类型是字符串。",
-            "emptyFields 中的留空是合法的，不要询问主 Agent。",
-            "windows[].text 已是不超过 3 行的原文。这些窗口不要再打开仓库检索。",
-        ],
+        "workerRules": rules,
     }
+
+
+def ac_catalog(run):
+    """AC already extracted for this run. Empty when exploration starts before that file exists."""
+    path = Path(run) / "cases" / "acs.json"
+    if not path.is_file():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("acs.json 必须是数组")
+    catalog = []
+    for row in data:
+        if not isinstance(row, dict) or not str(row.get("acId") or "").strip():
+            raise ValueError("acs.json 每项需要 acId")
+        catalog.append({"acId": row["acId"], "text": row.get("text") or "",
+                        "sourceRef": row.get("sourceRef") or ""})
+    return catalog
+
+
+def obligation_ac_errors(packet, row, label):
+    """When the packet carries the AC list, an obligation names its ACs in the same write."""
+    catalog = [item.get("acId") for item in packet.get("acCatalog") or [] if isinstance(item, dict)]
+    if not catalog:
+        return []
+    ac_ids = row.get("acIds")
+    if not isinstance(ac_ids, list) or any(not isinstance(item, str) for item in ac_ids):
+        return [f"{label}: acIds 必须是字符串数组"]
+    unknown = [item for item in ac_ids if item not in catalog]
+    if unknown:
+        return [f"{label}: acIds 不在 acCatalog 中：{unknown}"]
+    clarifying = row.get("reviewStatus") == "needs_clarification" and not str(row.get("expected") or "").strip()
+    if not clarifying and not ac_ids:
+        return [f"{label}: 义务要当场写 acIds，从 acCatalog 选择"]
+    return []
 
 
 def filled(row, field):
@@ -527,6 +575,8 @@ def check_receipt(packet, receipt):
                 errors.append(f"{label}: invalid disposition")
             if group == "objects" and row.get("objectId") not in assigned:
                 errors.append(f"object not assigned: {row.get('objectId')}")
+            if group == "obligations":
+                errors.extend(obligation_ac_errors(packet, row, str(label)))
             if group == "checks":
                 if not isinstance(row.get("dimensions"), list) and row.get("dimension") not in allowed:
                     errors.append(f"{label}: invalid dimension")

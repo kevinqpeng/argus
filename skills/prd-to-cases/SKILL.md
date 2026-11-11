@@ -7,11 +7,26 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 ## 输入与必读规则
 
-先读 [共享契约](../argus/references/contracts.md)。调用本技能的脚本前读 [脚本速查](references/script-cheatsheet.md)，按其中的用法和修法执行。写断言前读 [断言质量](references/assertion-quality.md)；整理待确认事项前读 [待确认事项](references/pending-items.md)，能在代码里查到答案的不作为疑问上报。
+先读 [共享契约](../argus/references/contracts.md)。调用本技能的脚本前读 [脚本速查](references/script-cheatsheet.md)，按其中的用法和修法执行。写断言前读 [断言质量](references/assertion-quality.md)；整理待确认事项前读 [待确认事项](references/pending-items.md)，能在代码里查到答案的不作为疑问上报。同一份规则本轮只读一次。脚本用法以脚本速查和 `--help` 为准，不打开脚本源码。日常设计再读 [影响探索](references/impact-exploration.md) 和 [评审表](references/review-table.md)。
 
 输入：完整 PRD/AC 或已有用例、目标范围、现有测试结构及私有 workspacePath。产物写本次的 run/cases：impact-analysis.json、requirements.json、acs.json、scenarios.json、cases.json、cases.md、cases.xlsx、baselineHash 和来源 sourceHash。现有用例库只读，生成测试代码写外部 harness，不写项目仓库。
 
 独立调用按 [工作流组合](../argus/references/workflows.md) 只准备设计阶段依赖；缺少 run/workspace 时调用 setup 的按需配置，不要求测试目标可达或账号就绪。输入为已有用例时先走 [外部用例接入](references/existing-cases.md)，按原步骤和预期规范化后复用本技能的生成校验与评审交付，不重新设计已有业务内容。
+
+## 分片并发
+
+同一时刻在途的探索任务最多 2 个、生成任务最多 3 个、评审分片最多 6 个。生成任务的 caseIds 不超过 7 个，超出先拆开再冻结计划。评审分片仍按脚本的条数和体量上限切，不把多片合成一片。片数再多也不会缩短墙钟，最慢的一片决定这一批。
+
+## 一次写对
+
+这些字段在第一次落盘时就定稿。冻结生成计划前运行 `python3 <本目录>/scripts/verify_all.py <runDir> --draft`，不过就改原文。不要改完再整批重冻、重算 planHash。
+
+- 来源单元的 evidenceRef 在 `source_units.py` 写入时就是最多 2 段、每段最多 3 行。
+- `cases/acs.json` 先于探索任务包。包里的 `acCatalog` 是义务 acIds 的唯一清单；预期已明的义务当场填写，只有 needs_clarification 且 expected 为空才留空。
+- 编号规则抽出时就写 `cases/rule-coverage.json`。
+- 决策表 `covered` 行直接写 `scenarios`（场景 ID）。没有 `coveredBy`。
+- 路径类义务在探索回执里写 `anchors.start`，或写满 waiver。生成输入包会带上这个标识，断言第一笔就写它。
+- 生成计划只冻结一次。worker 的 seal 在 `emit_cases.py --check` 通过后跑一次。
 
 ## 1. 采集并分析完整来源
 
@@ -66,7 +81,7 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 
 用例及脚本任务按 [资源规划契约](../argus/references/scheduling.md#新-run-执行规划必需) 声明 requiresLogin、accountRequirements、业务隔离依据、共享可变资源和 dependsOn；凭据仅用私有文件引用。实际执行并发留给主 Agent 根据真实资源计算，生成并发保持独立。
 
-- 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。
+- 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。冻结前先过「一次写对」的 `--draft`。派发前运行 `python3 <本目录>/scripts/slice_inputs.py <runDir> --plan cases/generation/plan.json`，worker 只读它写出的 `inputs/<taskId>.md`。
 - 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（步骤 TSV 经 `scripts/emit_cases.py` 写出 cases.json，另写 notes.md），不写 spec。切分粒度按 AC 域，任务数按工作量、依赖和启动成本确定，允许单组；预分配用例超过 40 条时按该流程至少拆成两个可同时领取的任务。按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再核对遗漏。生成分片必须齐全，所有必需场景和用例均须完整。
 - 用例粒度按「一个标题只回答一个结果」：同一 AC 内的正向、反向、边界和角色差异分别成条。开关的展示、默认、保存后仍开启、发布后新单能选方式、关闭时不出现方式，各占一条。路径按「谁驳回 × 哪种方式」各占一条，步骤只留驳回和再次提交。一条用例里塞进互不依赖的结论，评审表无法扫读，按未完成拆开。
 - 各用例有 fixtures、步骤、步骤绑定断言和 suite；按[回执和合并](references/parallel-generation.md#4-回执和合并)为每个业务步骤绑定断言、解释准备/清理豁免并回收未覆盖义务。断言按 [断言质量](references/assertion-quality.md) 的四类模板写：路径类给节点清单并说明不含谁，记录类写条数、顺序、旧行与当前节点四件套，结构类先断字段与按钮集合，配置类必须界面状态与服务端取值对照。生成任务包必须附这份模板和禁用措辞表，不使用模板即视为未完成。脚本尚未生成时 automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`，文件在脚本阶段按此名落盘，标题逐字一致。
@@ -80,21 +95,21 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 
 - 先通过 dispatch，来源和影响回执未变则复用。
 - 生成回执里的未覆盖义务，以及没有场景或没有用例的验收标准：原文和预期已经写明的，只为这些 ID 追加生成。预期不明、冲突或 needs_clarification 不编造，写入待确认事项。
-- 出表前运行 `python3 <本目录>/scripts/coverage_check.py <runDir> [--previous <历史评审表.xlsx>]`：核对 AC→场景→用例→断言、编号规则行→来源单元→义务→AC（任一义务的 AC 没有落到带断言的用例即 BLOCKED）、组合矩阵的八族形态轴声明、缺口、未定论单元、二维组合定论、取值代表与 `out_of_scope` 签署、决策表与矩阵是否同源，以及断言人员量词的双向口径（比来源强写「双方/均可」，或比来源弱写「其中一个/任意一人」，两个方向都拦），并与本项目既有同名评审表做差集。脚本同时算覆盖率：规则-义务 0.5、组合矩阵 0.3、基线差集 0.2 加权，三项与综合默认 0.9，阈值在 `argus-model.json` 的 `coverage` 里配置；低于阈值即 BLOCKED。矩阵分母只扣 `not_applicable`，`out_of_scope` 与 `unknown` 都算未覆盖，避免把格子推给越界或待确认来抬高覆盖率。量词口径确实未定且已进待确认事项时，写 `cases/quantifier-exclusions.json`（`caseId`+`token`+`reason`；或然量词还须 `pendingRef`）。BLOCKED 时补用例、补矩阵格，或把没有来源单元链路的编号条款写进 `cases/rule-coverage.json`（`covered_elsewhere`、`duplicate`、`not_applicable`、`out_of_scope`，均需理由）。
+- 出表前运行一次 `python3 <本目录>/scripts/verify_all.py <runDir> --cases [--previous <历史评审表.xlsx>]`。它调用 `coverage_check.py`，核对 AC→场景→用例→断言、编号规则行→来源单元→义务→AC（任一义务的 AC 没有落到带断言的用例即 BLOCKED）、组合矩阵的八族形态轴声明、缺口、未定论单元、二维组合定论、取值代表与 `out_of_scope` 签署、决策表与矩阵是否同源，以及断言人员量词的双向口径（比来源强写「双方/均可」，或比来源弱写「其中一个/任意一人」，两个方向都拦），并与本项目既有同名评审表做差集。本项目已有同名功能的历史评审表时必须带 `--previous`。覆盖率按规则-义务 0.5、组合矩阵 0.3、基线差集 0.2 加权，三项与综合默认 0.9，阈值在 `argus-model.json` 的 `coverage` 里配置；低于阈值即 BLOCKED。矩阵分母只扣 `not_applicable`，`out_of_scope` 与 `unknown` 都算未覆盖，避免把格子推给越界或待确认来抬高覆盖率。量词口径确实未定且已进待确认事项时，写 `cases/quantifier-exclusions.json`（`caseId`+`token`+`reason`；或然量词还须 `pendingRef`）。BLOCKED 时补用例、补矩阵格，或把没有来源单元链路的编号条款写进 `cases/rule-coverage.json`（`covered_elsewhere`、`duplicate`、`not_applicable`、`out_of_scope`，均需理由）。
 - 差集必须落到 `cases/history-diff.md`，逐条分类缺失、粒度、多余或冲突并说明本轮处置；先对齐行数口径（历史表的「（续）」行不是独立用例）。本项目已有同名功能的历史评审表时必须用 `--previous` 传入，它同时是本轮基线覆盖率的分母来源，也是唯一不受生成者自评影响的外部锤点；并把它写进 `manifest.cases.historyBaseline`，`--phase cases` / `presentation` 会按同一路径复核。
 - 对照 AC 的 Given/Then 核对测试数据、步骤和断言；原文明确的遗漏补齐。未知、冲突或影响探索发现但未解决的问题写入待确认事项供人工评审，不编造预期。已有实现与规则冲突写观察，不改成正确预期。
-- 出表前再跑两个门禁，都在**合并后跑一次**，不逐片跑也不要求 worker 自己跑：`python3 <本目录>/scripts/assertion_check.py <runDir>` 拦截弱措辞、或然结论、配置类缺失的接口对照，以及路径断言只写代词、`anchors.start` 没落进断言、记录追加缺条数；`python3 <本目录>/scripts/notes_check.py <runDir> [--baseline <基线工作树>]` 按 [待确认事项](references/pending-items.md) 核对三分法——`resolved_by_code` 的结论必须已经落进断言，`assumption` 落 `cases/assumptions.md`，只有 `decision` 进评审表；每条都要 `searchedRefs`。BLOCKED 时只重派含问题 caseId 的那个分片（attempt 加一，其他分片不动），不整批重跑；也不把问题改写成更笼统的表述绕过。三类计数写入 `manifest.gates.pendingItems`，评审表只展示 `decision` 与假设汇总行。
+- 同一次 `verify_all.py --cases` 还调用断言和待确认门禁，都在**合并后跑一次**，不逐片跑也不要求 worker 自己跑。断言门禁拦截弱措辞、或然结论、配置类缺失的接口对照，以及路径断言只写代词、`anchors.start` 没落进断言、记录追加缺条数。待确认门禁按 [待确认事项](references/pending-items.md) 核对三分法——`resolved_by_code` 的结论必须已经落进断言，`assumption` 落 `cases/assumptions.md`，只有 `decision` 进评审表；每条都要 `searchedRefs`。需要基线工作树时给 `--baseline`。BLOCKED 时只重派含问题 caseId 的那个分片（attempt 加一，其他分片不动），不整批重跑；也不把问题改写成更笼统的表述绕过。三类计数写入 `manifest.gates.pendingItems`，评审表只展示 `decision` 与假设汇总行。
 - 合并通过后，辅助 Jev 最多跑一次全量（`semantic_batch.py` 的 prepare、request、record、assemble）。同一 inputHash 再次 prepare 会失败。接着运行 `semantic_batch.py <runDir> report`。final 低于 0.8 的主体各写一条待确认：问题写业务疑问，分数留在 semantic-review.json。低分不改用例，也不再派生成。缺步骤、缺断言和 [共享契约](references/shared-contract.md) 的三条陷阱由 `generation.py` 在 seal 时失败，只重修该分片。入口用声明式 automationRef。人工评审通过即接受执行。未知检查、待确认事项和独立复核保留，不为了缩短墙钟删掉。
 
 ## 7. 输出人工评审表
 
 - 从本 run 的 cases.json、scenarios.json 和 acs.json 生成内部 `cases/cases.xlsx` 与 `cases/cases.md`。面向人员的 Excel 名称为「功能名称用例(V版本号).xlsx」，例如「审批驳回后重新发起用例(V0.3).xlsx」。功能名称取当前评审范围，版本取本轮冻结 PRD 版本历史中的最新版本；不加日期或「用例表」后缀。读取文档并核对来源哈希，不从截图、旧 run、文件名或模型版本猜测。版本缺失、来源不唯一、格式无法识别或记录与文档不一致时，不展示版本号，文件名改为「功能名称用例.xlsx」，无需因此暂停交付。
-- 渲染后、发布前运行 `python3 <本目录>/scripts/publish_review.py <runDir> --feature <功能名称> [--source-id <PRD来源ID>] --precheck`。它核对内部 `cases/cases.xlsx` 与展示副本哈希、prd 的 sourceRef 是否为 `run://`、版本历史能否解析（含空格对齐表）以及交付文件名。BLOCKED 时先改快照或副本，再发布。
+- 渲染并填好回执后、发布前运行一次 `python3 <本目录>/scripts/verify_all.py <runDir> --feature <功能名称> [--source-id <PRD来源ID>]`。它同时核对三道门禁、工作簿表头、合并、行高、下拉和默认值、mapping，以及与回执相同的产物哈希，并做 `publish_review.py --precheck`（副本、`run://`、版本历史、交付文件名），不发布文件。版本在 `--draft` 时已经看过。BLOCKED 时先改快照或副本，再发布，不要反复试发布命令。
 - 通过展示门禁并将本轮表发布到内部固定路径后，运行同一命令并去掉 `--precheck`。脚本从冻结快照的版本历史生成命名 Excel，管道表和 pdftotext 空格对齐表都可以；版本无法确认时省略版本号。脚本仍核验冻结快照哈希、展示门禁与内部文件一致性；文件冲突时停止。只将 `deliverables/` 中的命名文件展示或交付给人员；内部 cases.xlsx、JSON、Markdown 和映射用于追踪，不展示为评审附件。发布成功后把返回路径写入 `manifest.presentation.deliverables`，`deliverables/` 只保留该命名文件；`--phase presentation` 会校验它与 `cases/cases.xlsx` 同字节，没跑发布脚本无法通过门禁。
-- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发。先运行 `render_review_table.py <runDir> --plan-slices`。业务片按计划中的 caseIds 各派一个干净上下文的 generation Agent，待确认事项按 notes 片另派一片。派发前实跑 `probeCommand`，把 `lineBudgets`、`ownsNotes` 和原样 `checkCommand` 填进提示词。全部返回后先跑 `--stat-slices`，缺失或 0 字节重派同一片。合并后运行 `--fill-receipt` 写入 promptHash 和产物哈希。主 Agent 核对真实派发后发布。断言或主表文案改动后，只重派含这些 caseId 的分片。此任务在用例合并和遗漏核对之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
+- 必须按 [评审表生成契约与固定提示词](references/review-table.md) 派发。先运行 `render_review_table.py <runDir> --plan-slices`，再运行 `slice_inputs.py <runDir> --plan cases/presentation/<轮次>/plan.json`。业务片按计划中的 caseIds 各派一个干净上下文的 generation Agent，待确认事项按 notes 片另派一片。worker 只读该片 `input.md`。派发前实跑 `probeCommand`，把 `lineBudgets`、`ownsNotes` 和原样 `checkCommand` 填进提示词。全部返回后先跑 `--stat-slices`，缺失或 0 字节重派同一片。合并后运行 `--fill-receipt` 写入 promptHash 和产物哈希。主 Agent 核对真实派发后发布。断言或主表文案改动后，只重派含这些 caseId 的分片。此任务在用例合并和遗漏核对之后执行，与用例分片任务分开，不改变 cases.json 或生成回执。
 - 每行「测试结果」使用真实的 Excel 数据验证下拉列表，选项为「未测试、通过、失败、错误、阻塞、跳过、不稳定、取消」，初始为「未测试」。分别对应未执行、passed、failed、error、blocked、skipped、flaky、cancelled；测试结果与人工评审批准是不同状态，下拉选择不能解除评审门禁。
 - 按 [评审表生成契约](references/review-table.md) 输出「用例主表」和「待确认事项」两张工作表。待确认事项用业务白话呈现，完整影响分析、来源与技术追踪保存在内部 JSON、Markdown 和映射中。
-- 交付前按评审表契约运行 `phase_gate.py <runDir> --phase presentation`，并核对 Excel 的内容、布局、下拉选项和默认值，以 mapping.json 对照 JSON 检查每项条件、步骤和断言及待确认事项，确认内部追踪可定位；缺失或不一致时修复后再交付。
+- 交付前按评审表契约运行 `phase_gate.py <runDir> --phase presentation`。表头、下拉、默认值、行高、mapping 和产物哈希以同一次 `verify_all.py --feature` 为准，不再逐项手查。缺失或不一致时修复后再交付。
 - 交付评审表只表示生成完成。用户只请求用例时在此结束；调用方还需脚本或验证时，按 [人工用例评审门禁](../argus/references/contracts.md#人工用例评审门禁) 等待人员批准后才能继续。
 
 ## 7.5 交接脚本阶段

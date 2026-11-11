@@ -4,7 +4,11 @@ import argparse
 import csv
 import io
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from merge_impact_candidates import evidence_errors  # noqa: E402
 
 HEADERS = ("unitId", "sourceIds", "sourceExcerpt", "evidenceRef",
            "disposition", "obligationIds", "reason", "reviewRef")
@@ -33,12 +37,16 @@ def convert(text):
         source_ids = split_ids(row.get("sourceIds") or "")
         if not source_ids or not (row.get("reason") or "").strip():
             raise ValueError(f"invalid unit: {unit_id}")
+        ref = row["evidenceRef"].strip()
+        issues = evidence_errors(ref)
+        if issues:
+            raise ValueError(f"{unit_id}: {issues[0]}")
         units.append({
             "schemaVersion": 1,
             "unitId": unit_id,
             "sourceIds": source_ids,
             "sourceExcerpt": excerpt,
-            "evidenceRef": row["evidenceRef"].strip(),
+            "evidenceRef": ref,
             "disposition": disposition,
             "obligationIds": split_ids(row.get("obligationIds") or ""),
             "reason": row["reason"].strip(),

@@ -90,10 +90,10 @@ DO     该模型的配置详情接口返回允许驳回后继续审批为 true�
 
 ## 5. 自检
 
-生成分片 seal 通过、合并之后跑一次即可，不逐片跑（省掉重复检查与逐片重派）：
+生成分片 seal 通过、合并之后由 `verify_all.py --cases` 跑一次，不逐片跑，也不必再单独调用：
 
 ```
-python3 <本技能>/scripts/assertion_check.py <runDir>
+python3 <本技能>/scripts/verify_all.py <runDir> --cases
 ```
 
 退出 2 时按报错改断言；提示项（warning）在报告里说明取舍，不改用例也能过门禁。阻断项有四类：弱措辞与或然结论、路径断言只有代词、来源 `anchors.start` 没落进断言、记录追加类不给条数；路径类义务既没 `anchors.start` 也没 `waiver` 同样阻断。检查只证明没有弱表述，不证明业务结论正确——结论对错仍需来源核对与人评审。

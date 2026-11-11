@@ -44,7 +44,7 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 按 [共享调度](../../argus/references/scheduling.md) 使用持久队列领取任务；下述 generation.py 保留产物校验职责。任务粒度及数量根据场景复杂度、依赖与启动成本确定。
 
-运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录>`。退出 0 仅表示检查有效；查看 status，PENDING 不表示生成完成。退出 2 为 BLOCKED。ready 是依赖已完成且不在 running/failed 的任务；按宿主当前可用子 Agent 槽位、冻结预算和限流取一批，一次派发。单个槽位按相同 ready 顺序串行；配置的角色无法调用则 BLOCKED，主会话不能冒充。
+运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录>`。退出 0 仅表示检查有效；查看 status，PENDING 不表示生成完成。退出 2 为 BLOCKED。ready 是依赖已完成且不在 running/failed 的任务；按宿主当前可用子 Agent 槽位、冻结预算和限流取一批，一次派发。在途生成任务不超过主技能「分片并发」。单个槽位按相同 ready 顺序串行；配置的角色无法调用则 BLOCKED，主会话不能冒充。
 
 每次派发先持久化 running，再把 planHash、任务范围、本任务输入包路径、依赖结果哈希、独占目录 `任务ID/attempt/`、验收要求和 `--seal` 命令交给 worker。生成期间只操作私有文件；不连接业务目标执行测试。worker 写 generation 根目录的 `<taskId>.rows.tsv`，并写独占目录里的 outputFiles；只读输入包和上游已完成产物，不写 manifest、state.json、最终 cases.json、Excel 或 Markdown。`result.json` 只由 seal 写入同一目录。
 
@@ -52,7 +52,7 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 ## 3.1 worker 输入包与工具预算
 
-派发前，主 Agent 把 [共享契约](shared-contract.md) 原样复制到 `cases/generation/frozen/shared-contract.md`，哈希写入 inputArtifacts，不改写。每个任务写 `acIds`，只列本片 AC。再为每个任务写 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的用例骨架、冻结的共享契约，以及这些 caseId 在影响分析里已经定位的证据窗口（`文件:起始-结束`，每条不超过 3 行）。每个任务包逐项列出关联 AC 的 Given 和 Then，以及分配 caseId；每个 Given 必须落实到 fixtures 或步骤，每个 Then 必须有对应业务断言。场景缺少 AC 关联时，先追溯并补齐；来源没有明确 AC 的，依据原文建立可追溯 AC，规则不明则列待确认，不凭空补预期。任务包附最小有效契约示例：`suite` 只能是 `ui`、`api`、`performance`、`security`；步骤 `kind` 为 `action`、`setup` 或 `cleanup`；仅准备/清理步骤可用非空字符串 `assertionExemption` 说明豁免。按场景和步骤复杂度平衡分组，避免单组明显过重。
+派发前，主 Agent 把 [共享契约](shared-contract.md) 原样复制到 `cases/generation/frozen/shared-contract.md`，哈希写入 inputArtifacts，不改写。每个任务写 `acIds`，只列本片 AC，且 caseIds 不超过 7 个。然后运行 `slice_inputs.py <runDir> --plan <plan.json>`，它写出 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入，不要手抄，也不要把整份 impact-analysis.json 放进去。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的用例骨架、冻结的共享契约、断言质量，以及这些 caseId 在影响分析里已经定位的证据窗口（`文件:起始-结束`，每条不超过 3 行）。每个任务包逐项列出关联 AC 的 Given 和 Then，以及分配 caseId；每个 Given 必须落实到 fixtures 或步骤，每个 Then 必须有对应业务断言。场景缺少 AC 关联时，先追溯并补齐；来源没有明确 AC 的，依据原文建立可追溯 AC，规则不明则列待确认，不凭空补预期。任务包附最小有效契约示例：`suite` 只能是 `ui`、`api`、`performance`、`security`；步骤 `kind` 为 `action`、`setup` 或 `cleanup`；仅准备/清理步骤可用非空字符串 `assertionExemption` 说明豁免。按场景和步骤复杂度平衡分组，避免单组明显过重。
 
 任务包同时附 [断言质量](assertion-quality.md) 的四类模板（路径清单、记录四件套、字段与按钮集合、配置界面与服务端取值对照）和禁用措辞表。本片用例涉及路径、记录、弹窗结构或配置保存时，对应模板的断言一条都不能少；模板只约束写法，不改变来源结论，来源没给的集合或条数仍标待确认。worker 写出「符合预期」「状态正常」这类占位措辞即视为未完成。
 
@@ -78,7 +78,7 @@ notes 按 [待确认事项](pending-items.md) 写 `cases/notes.json`（人读版
 
 脚本检查全部分片、输入/输出哈希、依赖、文件所有权、唯一 ID、场景集合、步骤断言及入口文件。所有任务完整才给生成 status=PASSED。用 `--merge <新的输出路径>` 写合并的 draft 用例数组；输出相同字节时幂等成功，异内容拒绝覆盖；只规范化 JSON 格式与排序，不自动补写或改写 draft、审批状态和关键引用。缺少 phase 的旧计划仍按旧版文件入口契约校验，迁移必须创建新计划。该状态仅代表生成结构完整，不代表覆盖或业务测试通过。
 
-主 Agent 先停止所有 worker 写入，再运行合并，保留合并后的 cases.json。seal 会拒绝常量前置、断言中的「记录保留」、没有基线步骤的增量，以及任务 `acIds` 以外的 AC 编号。随后按 prd-to-cases 第 5 节对照来源核对遗漏，只为原文已经写明的遗漏 ID 追加生成。合并后、出评审表前各跑一次 `assertion_check.py` 与 `notes_check.py`：只跑这一次，不逐片跑，也不要求 worker 在 seal 前自己跑，避免 7 份重复检查和逐片重派。BLOCKED 时按报错定位到 caseId，只把含这些 caseId 的分片 attempt 加一后重派，其他分片、已合并结果和哈希不动；重派片仍走 emit 与 seal，再重新合并。辅助 Jev 在这次合并后按第 5 节只跑一次。再出评审表。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现在脚本发布后执行。人工评审通过即接受执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
+主 Agent 先停止所有 worker 写入，再运行合并，保留合并后的 cases.json。seal 会拒绝常量前置、断言中的「记录保留」、没有基线步骤的增量，以及任务 `acIds` 以外的 AC 编号。随后按 prd-to-cases 第 5 节对照来源核对遗漏，只为原文已经写明的遗漏 ID 追加生成。合并后、出评审表前跑一次 `verify_all.py <runDir> --cases`：只跑这一次，不逐片跑，也不要求 worker 在 seal 前自己跑。BLOCKED 时按报错定位到 caseId，只把含这些 caseId 的分片 attempt 加一后重派，其他分片、已合并结果和哈希不动；重派片仍走 emit 与 seal，再重新合并。辅助 Jev 在这次合并后按第 5 节只跑一次。再出评审表。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现在脚本发布后执行。人工评审通过即接受执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
 
 ## 阶段交接准备
 
