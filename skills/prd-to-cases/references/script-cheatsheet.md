@@ -58,6 +58,7 @@ AC 绑定 TSV，制表符分隔：
 | `sources 必须原样复制` | 使用任务包 `copyVerbatim.sources`，三个任务写同一份 |
 | `缺少 sourceIds` / `缺少 reason` / `missing schemaVersion` | 按任务包 `requiredFields` 和 `sample` 补字段。reviewRef、approvalRef 留空字符串 |
 | `六维留空 24/36 超过三分之一` | 先把变更对象查完再登记空格。允许的空格会自动写成 `impact-gaps.json` 的 `GAP-<obj>-<dim>` |
+| `交接项 X-H1 缺少 producer` / `交接项 X-H1: evidence span > 3 lines` | handoff 按任务包 `sample` 写全 `handoffId`、`producer`、`receiver`、`path`、`evidenceRef`、`question`；无接收任务时 `receiver` 留空字符串 |
 | `六维结论不成立 … 理由不足` | `not_applicable`/`out_of_scope` 的理由不能只写“不适用/无”；写清该维度为何不被本次变更触及 |
 | `impact-gaps.json 与实际六维空格不一致` | 手改过 `impact-analysis.json`。重跑 `assemble_baseline.py impact` 重新生成登记表 |
 | `六维未核查项必须写进待确认事项：GAP-…` | 在 `content.json` 的 notes 里补一条，`sourceRefs` 写 `impact-gaps.json:<gapId>` |

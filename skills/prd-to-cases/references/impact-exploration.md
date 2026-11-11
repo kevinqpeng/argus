@@ -94,7 +94,7 @@ worker 只读这份任务包。已经附上原文的窗口不再执行 `sed`。s
 
 1. 所有任务完成且回执对应当前输入；逐项核对初始来源、变更对象和六维检查。若某对象的每个维度都是 `not_applicable`/`out_of_scope`，工具只给提示 `可能不是本次变更对象`，不阻断 —— 这类对象通常应当合并或删除。`cases/impact-analysis.json` 的六维（含扩展维度，顶层 `dimensions` 记录本次实际分母）结论由 `matrix_errors` 校验：有结论的格子理由必须成立，空格率超过三分之一视为探索未完成；其余空格由 `cases/exploration/impact-gaps.json` 逐条登记（`GAP-<objectId>-<dimension>` 加待确认问法），`cases/exploration/impact-matrix.json` 记录本次格数、各处置计数、每格 checkId 与 `gaps`。`phase_gate.py --phase dispatch`、`--phase cases`、`--phase presentation` 复核同一矩阵；`--phase presentation` 还要求每个 `gapId` 以 `impact-gaps.json:<gapId>` 出现在待确认事项的 `sourceRefs` 里——可以不查，但不能不登记。空格不许用“其他对象已覆盖”抵消。新增依赖交给已有负责人或建立后续任务，继续到有证据的停止边界。
 2. 合并实际依赖和候选义务，保留所有证据引用；同条件、同结果与副作用才可合并义务。冲突回到原始代码或权威契约核查，未解决记 unknown。
-3. 对跨任务交接逐条核对生产者、消费者、字段或事件语义及完整路径。任何无人接收的交接或缺回执均为未完成，不用其他任务完成率抵消。
+3. 对跨任务交接逐条核对生产者、消费者、字段或事件语义及完整路径。任何无人接收的交接或缺回执均为未完成，不用其他任务完成率抵消。`assemble_baseline.py impact` 把 `handoffs` 原样带进 `cases/impact-analysis.json`；缺 `producer`/`path`/`evidenceRef`/`question` 或证据不合规直接报错，不静默丢弃。没有接收任务时 `receiver` 留空字符串。
 4. 并行探索涉及关键数据、权限或多写入者交错时，由非原作者的 reasoning worker 独立复核该路径与停止依据；主 Agent 汇总差异，缺复核证据保持未知。单 Agent 分支由主 Agent 核对同样边界并如实记录未做独立复核。
 
 在探索记录中保存任务到最终 sourceUnits/checks/obligations 的映射和未完成项。`cases/exploration.md` 的六维核对写成对象×维度的矩阵表：每格填 checkId、带理由的 NA 或 `GAP-<objectId>-<dimension>`，不能只写六行维度汇总；登记为 GAP 的格子必须在待确认事项里有对应条目。将完成的探索记录及回执以 observation 来源登记到影响分析，记录原始字节哈希并由 evidenceRef/reviewRef 引用；它们仅是探索过程证据，不能代替业务批准。未完成任务、未闭合交接和未解决冲突必须进入 sourceUnits 或 checks，disposition=unknown，不能当成已覆盖或完整验收。冻结后不改回执；修改按输入变化处理。unknown 检查和独立复核留在记录里，不为了少一轮派发删掉。

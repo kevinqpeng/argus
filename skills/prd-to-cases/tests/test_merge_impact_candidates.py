@@ -234,6 +234,17 @@ class CollectTest(unittest.TestCase):
             self.assertEqual(empty.returncode, 2)
             self.assertEqual(json.loads(empty.stdout)["empty"], ["cases/exploration/A/1.json"])
 
+    def test_the_sample_shows_the_handoff_fields_the_checker_requires(self):
+        plan = {"schemaVersion": 1, "inputHash": "h", "tasks": [{"taskId": "A", "attempt": 1,
+                                                                   "objectIds": ["O1"]}]}
+        sample = merge.minimal_sample(plan["tasks"][0], plan, {"sourceId": "PRD"},
+                                     [{"evidenceRef": "A.java:1-1"}])
+        handoff = sample["handoffs"][0]
+        missing = [field for field in merge.IMPACT_REQUIRED["handoffs"] if not merge.filled(handoff, field)]
+        self.assertEqual(missing, [])
+        self.assertTrue(merge.identifier_ok("A", "handoffs", handoff["handoffId"]))
+        self.assertEqual(merge.evidence_errors(handoff["evidenceRef"]), [])
+
     def test_plan_needs_resolvable_windows_before_dispatch(self):
         plan = {"schemaVersion": 1, "inputHash": "h", "tasks": [{"taskId": "A", "attempt": 1,
                                                                    "objectIds": ["OBJ-01"]}]}

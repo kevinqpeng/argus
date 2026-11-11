@@ -69,6 +69,41 @@ class AssembleBaselineTest(unittest.TestCase):
                                  capture_output=True, text=True)
         self.assertEqual(blocked.returncode, 0, blocked.stderr)
 
+    def test_impact_keeps_the_cross_task_handoffs(self):
+        digest = assemble.file_hash(self.prd)
+        handoff = {"schemaVersion": 1, "handoffId": "A-H1", "producer": "A", "receiver": "",
+                   "path": "模型设置 → 流程定义扩展表 → 发起时读取", "evidenceRef": "cases/sources/prd.md:5",
+                   "question": "开关生效时点：跟发布快照还是发起时读模型？"}
+        merged = {"status": "READY_FOR_REVIEW", "candidates": {
+            "sources": {"PRD": [{"value": {"sourceId": "PRD", "kind": "prd",
+                                           "sourceRef": "run://cases/sources/prd.md", "sourceHash": digest},
+                                 "tasks": ["A"]}]},
+            "sourceUnits": {}, "objects": {}, "checks": {}, "obligations": {},
+            "handoffs": {"A-H1": [{"value": handoff, "tasks": ["A"]}]}}}
+        path = self.run / "merged.json"
+        path.write_text(json.dumps(merged), encoding="utf-8")
+        assemble.command_impact(self.run, self.relative, "PRD", path)
+        impact = json.loads((self.run / "cases/impact-analysis.json").read_text(encoding="utf-8"))
+        self.assertEqual([row["handoffId"] for row in impact["handoffs"]], ["A-H1"])
+        self.assertEqual(impact["handoffs"][0]["receiver"], "")
+        self.assertEqual(impact["handoffs"][0]["question"], handoff["question"])
+
+    def test_impact_refuses_a_handoff_without_its_evidence(self):
+        digest = assemble.file_hash(self.prd)
+        handoff = {"schemaVersion": 1, "handoffId": "A-H1", "producer": "A",
+                   "path": "模型设置 → 流程定义扩展表", "question": "开关生效时点？"}
+        merged = {"status": "READY_FOR_REVIEW", "candidates": {
+            "sources": {"PRD": [{"value": {"sourceId": "PRD", "kind": "prd",
+                                           "sourceRef": "run://cases/sources/prd.md", "sourceHash": digest},
+                                 "tasks": ["A"]}]},
+            "sourceUnits": {}, "objects": {}, "checks": {}, "obligations": {},
+            "handoffs": {"A-H1": [{"value": handoff, "tasks": ["A"]}]}}}
+        path = self.run / "merged.json"
+        path.write_text(json.dumps(merged), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "交接项 A-H1 缺少 evidenceRef"):
+            assemble.command_impact(self.run, self.relative, "PRD", path)
+        self.assertFalse((self.run / "cases/impact-analysis.json").exists())
+
     def test_impact_blocks_a_hand_edited_object_without_six_dimensions(self):
         digest = assemble.file_hash(self.prd)
         merged = {"status": "READY_FOR_REVIEW", "candidates": {
