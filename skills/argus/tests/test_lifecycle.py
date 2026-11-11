@@ -387,6 +387,22 @@ class LifecycleTests(unittest.TestCase):
         gate.presentation()
         self.assertFalse([gap for gap in gate.gaps if "六维" in gap or "evidence-check" in gap], gate.gaps)
 
+    def test_matrix_dimensions_cannot_shrink_below_base(self):
+        self.write("cases/impact-analysis.json", {"schemaVersion": 1, "dimensions": ["data", "permission"],
+                                                  "objects": [], "checks": []})
+        gate = Gate(self.run)
+        gate._impact_completeness()
+        self.assertTrue(any("维度不能少于或替换基线六维" in gap for gap in gate.gaps), gate.gaps)
+        self.write("cases/impact-analysis.json", {
+            "schemaVersion": 1, "dimensions": ["data", "inflight", "lifecycle", "permission",
+                                               "side_effect", "ordering", "compat"],
+            "objects": [], "checks": []})
+        self.write("cases/exploration/impact-gaps.json", {"schemaVersion": 1, "gaps": []})
+        self.write("cases/exploration/evidence-check.json", {"status": "PASSED", "failed": 0, "failures": []})
+        gate = Gate(self.run)
+        gate._impact_completeness()
+        self.assertFalse([gap for gap in gate.gaps if "维度" in gap], gate.gaps)
+
     def test_blank_matrix_cells_must_show_up_in_notes(self):
         self.write("cases/exploration/impact-gaps.json", {"schemaVersion": 1, "gaps": [
             {"gapId": "GAP-OBJ-01-inflight", "objectId": "OBJ-01", "dimension": "inflight"}]})

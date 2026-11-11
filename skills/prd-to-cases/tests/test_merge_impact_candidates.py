@@ -121,6 +121,31 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(result["gaps"], [])
         self.assertEqual(result["matrix"]["counts"]["notApplicable"], 2)
 
+    def test_plan_may_add_dimensions_but_not_replace_base(self):
+        plan = {"schemaVersion": 1, "inputHash": "snapshot",
+                "extraDimensions": [{"key": "compat", "question": "历史数据与老客户端是否兼容"}],
+                "tasks": [{"taskId": "A", "attempt": 1, "objectIds": ["OBJ-01"],
+                           "windows": [{"objectId": "OBJ-01", "refs": [f"A.java:{i}-{i + 1}" for i in range(1, 5)]}]}]}
+        dimensions, errors = merge.plan_dimensions(plan)
+        self.assertEqual(errors, [])
+        self.assertEqual(dimensions, [*merge.BASE_DIMENSIONS, "compat"])
+        self.assertEqual(merge.matrix_summary(["OBJ-01"], [], dimensions)["cells"], len(dimensions))
+        self.assertEqual(len(merge.matrix_gaps(["OBJ-01"], [], dimensions)), len(dimensions))
+        plan["extraDimensions"] = [{"key": "data", "question": "不允许覆盖基线维度"}]
+        self.assertTrue(merge.plan_dimensions(plan)[1])
+        plan["extraDimensions"] = [{"key": "compat", "question": "太短"}]
+        self.assertTrue(merge.plan_dimensions(plan)[1])
+
+    def test_object_with_only_na_conclusions_is_flagged_not_blocked(self):
+        checks = [{"checkId": f"C{index}", "objectId": "OBJ-01", "dimension": dimension,
+                   "disposition": "not_applicable",
+                   "reason": "该对象只是模型配置字段，不产生外部调用、消息或并发写入，顺序也无从谈起"}
+                  for index, dimension in enumerate(merge.BASE_DIMENSIONS, start=1)]
+        self.assertEqual(merge.matrix_errors(["OBJ-01"], checks), [])
+        hints = merge.merged_hints(["OBJ-01"], checks)
+        self.assertEqual(len(hints), 1)
+        self.assertIn("可能不是本次变更对象", hints[0])
+
     def test_bundle_cannot_swallow_data_or_permission(self):
         checks = [{"checkId": "A-C1", "objectId": "OBJ-01", "dimensions": ["data", "side_effect"],
                    "disposition": "not_applicable",

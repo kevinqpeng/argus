@@ -53,7 +53,7 @@ AC 绑定 TSV，制表符分隔：
 | `六维结论不成立 … 理由不足` | `not_applicable`/`out_of_scope` 的理由不能只写“不适用/无”；写清该维度为何不被本次变更触及 |
 | `impact-gaps.json 与实际六维空格不一致` | 手改过 `impact-analysis.json`。重跑 `assemble_baseline.py impact` 重新生成登记表 |
 | `六维未核查项必须写进待确认事项：GAP-…` | 在 `content.json` 的 notes 里补一条，`sourceRefs` 写 `impact-gaps.json:<gapId>` |
-| `data 不能和别的维度合并` / `一次最多 3 个` | `dimensions: [...]` 批量豁免不允许包含 `data`、`permission`，且每对象最多 3 维 |
+| `data 不能和别的维度合并` / `一次最多 3 个` || 扩展维度不能重复或覆盖基线六维 | `extraDimensions[].key` 不能叫 `data` 等基线名，也不能重复 || `扩展维度 … 要写清它回答什么问题` | `question` 至少 10 字，写清这个维度要验证什么 || `维度不能少于或替换基线六维` | `impact-analysis.json` 或 plan 的分母被删减/改名；只能往后追加 | `dimensions: [...]` 批量豁免不允许包含 `data`、`permission`，且每对象最多 3 维 |
 | `缺少 windows` / `应有 4 到 6 个窗口` | `plan.json` 每个 task 按 objectId 写 `windows: [{objectId, refs}]`，每对象 4 到 6 个 `文件:起始-结束` |
 | `窗口跨度超过 3 行` | 窗口最多 3 行；跨多段就拆成多个窗口 |
 | `文件不存在` / `行号越界`（verify_evidence） | `evidenceRef` 的路径相对基线工作树，行号必须落在真实文件内；拼错或靠 PRD 反推都会被拦 |

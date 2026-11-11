@@ -44,7 +44,7 @@ description: Generates reviewable test cases from requirements, or imports exist
 3. `assemble_baseline.py ac --run <runDir> --prd <相对路径> --source-id <ID> --bindings <tsv>`
 4. `assemble_baseline.py cover --run <runDir> --prd <相对路径> --acs cases/acs.json`。未通过则停，不写 `impact-analysis.json`，也不生成用例。
 5. 合并回执后先跑 `verify_evidence.py <merged.json> --baseline <基线工作树> --run <runDir>`，`failed` 必须为 0，否则回补证据后重派，不要靠改行号绕过。
-6. 探索候选已是 READY_FOR_REVIEW 后，`assemble_baseline.py impact --run <runDir> --prd <相对路径> --source-id <ID> --candidates <merged.json>`。六维结论理由不足、或空格率超过三分之一时它会拒绝写入；允许的空格会同时写成 `cases/exploration/impact-gaps.json` 的具名缺口，供待确认事项引用。
+6. 探索候选已是 READY_FOR_REVIEW 后，`assemble_baseline.py impact --run <runDir> --prd <相对路径> --source-id <ID> --candidates <merged.json>`。六维（可用 `plan.extraDimensions` 追加、但不能减少）结论理由不足、或空格率超过三分之一时它会拒绝写入；允许的空格会同时写成 `cases/exploration/impact-gaps.json` 的具名缺口，供待确认事项引用。
 
 Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，或单元格正文命中这些词，且不是非必填、选填、可选。
 

@@ -165,7 +165,7 @@ class Gate:
 
     def _impact_completeness(self) -> None:
         """六维缺口必须被登记为待确认事项，证据必须真实；大面积留空仍不算完成。"""
-        from merge_impact_candidates import matrix_errors, matrix_gaps
+        from merge_impact_candidates import BASE_DIMENSIONS, matrix_errors, matrix_gaps
         try:
             impact = read_json(self.run_dir / "cases/impact-analysis.json")
         except ValueError as exc:
@@ -176,9 +176,14 @@ class Gate:
         else:
             objects = [row.get("objectId") for row in impact.get("objects") or [] if isinstance(row, dict)]
             checks = [row for row in impact.get("checks") or [] if isinstance(row, dict)]
-            for gap in matrix_errors(objects, checks):
+            dimensions = impact.get("dimensions") or list(BASE_DIMENSIONS)
+            self.need(isinstance(dimensions, list)
+                      and tuple(dimensions[:len(BASE_DIMENSIONS)]) == BASE_DIMENSIONS
+                      and len(set(dimensions)) == len(dimensions),
+                      "影响分析的维度不能少于或替换基线六维，只能追加")
+            for gap in matrix_errors(objects, checks, dimensions):
                 self.gaps.append("影响分析未结论：" + gap)
-            blanks = matrix_gaps(objects, checks)
+            blanks = matrix_gaps(objects, checks, dimensions)
             if blanks:
                 register = read_json(self.run_dir / "cases/exploration/impact-gaps.json")
                 listed = {row.get("gapId") for row in (register or {}).get("gaps") or []

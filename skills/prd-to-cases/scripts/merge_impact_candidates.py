@@ -8,8 +8,10 @@ from pathlib import Path
 
 GROUPS = {"sources": "sourceId", "sourceUnits": "unitId", "objects": "objectId",
           "checks": "checkId", "obligations": "obligationId", "handoffs": "handoffId"}
-DIMENSION_ORDER = ("data", "inflight", "lifecycle", "permission", "side_effect", "ordering")
-DIMENSIONS = set(DIMENSION_ORDER)
+BASE_DIMENSIONS = ("data", "inflight", "lifecycle", "permission", "side_effect", "ordering")
+DIMENSION_ORDER = BASE_DIMENSIONS
+DIMENSIONS = set(BASE_DIMENSIONS)
+EXTRA_QUESTION_MIN = 10
 DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
 DECIDED = {"covered", "unknown"}
 UNDECIDED = {"not_applicable", "out_of_scope"}
@@ -49,13 +51,36 @@ def explained(reason):
     return len(str(reason or "").strip()) >= MIN_REASON and bool(text.strip("。. ;；,，:：、 \n"))
 
 
+def plan_dimensions(plan):
+    """基线六维是分母下限；计划只能往上加，不能减也不能改名。"""
+    extra = plan.get("extraDimensions")
+    if extra is None:
+        return list(BASE_DIMENSIONS), []
+    if not isinstance(extra, list):
+        return list(BASE_DIMENSIONS), ["extraDimensions 必须是数组"]
+    keys, errors = [], []
+    for row in extra:
+        if not isinstance(row, dict) or not isinstance(row.get("key"), str) or not row["key"].strip():
+            errors.append("extraDimensions 每项需要 key 与 question")
+            continue
+        key, question = row["key"].strip(), row.get("question")
+        if key in BASE_DIMENSIONS or key in keys:
+            errors.append(f"扩展维度不能重复或覆盖基线六维：{key}")
+            continue
+        if not isinstance(question, str) or len(question.strip()) < EXTRA_QUESTION_MIN:
+            errors.append(f"扩展维度 {key} 要写清它回答什么问题（{EXTRA_QUESTION_MIN} 字以上）")
+            continue
+        keys.append(key)
+    return list(BASE_DIMENSIONS) + keys, errors
+
+
 def dims_of(row):
     """A check may conclude several unrelated dimensions at once, but not data/permission."""
     listed = row.get("dimensions")
     return listed if isinstance(listed, list) else [row.get("dimension")]
 
 
-def bundle_errors(check_id, row):
+def bundle_errors(check_id, row, dimensions=DIMENSION_ORDER):
     listed = row.get("dimensions")
     if listed is None:
         return []
@@ -65,7 +90,7 @@ def bundle_errors(check_id, row):
     if len(set(listed)) != len(listed):
         errors.append(f"check {check_id}: dimensions 有重复项")
     for dimension in listed:
-        if dimension not in DIMENSIONS:
+        if dimension not in dimensions:
             errors.append(f"check {check_id}: invalid dimension {dimension}")
         elif dimension in NO_BUNDLE:
             errors.append(f"check {check_id}: {dimension} 不能和别的维度合并，必须单独给结论")
@@ -76,11 +101,11 @@ def bundle_errors(check_id, row):
     return errors
 
 
-def matrix_gaps(object_ids, checks):
+def matrix_gaps(object_ids, checks, dimensions=DIMENSION_ORDER):
     """Blank cells are allowed, but each one becomes a named gap to register."""
     gaps = []
     for object_id in object_ids:
-        for dimension in DIMENSION_ORDER:
+        for dimension in dimensions:
             if not [row for row in checks if row.get("objectId") == object_id
                     and dimension in dims_of(row)]:
                 gaps.append({"gapId": f"GAP-{object_id}-{dimension}",
@@ -89,11 +114,11 @@ def matrix_gaps(object_ids, checks):
     return gaps
 
 
-def matrix_errors(object_ids, checks):
+def matrix_errors(object_ids, checks, dimensions=DIMENSION_ORDER):
     """Blank cells are counted, not forbidden: only an unusable matrix blocks."""
     errors = []
     for object_id in object_ids:
-        for dimension in DIMENSION_ORDER:
+        for dimension in dimensions:
             cell = [row for row in checks if row.get("objectId") == object_id
                     and dimension in dims_of(row)]
             if not cell:
@@ -105,20 +130,20 @@ def matrix_errors(object_ids, checks):
                 if not explained(row.get("reason")):
                     errors.append(f"六维结论不成立 {label}：{row.get('disposition')} 理由不足 "
                                   f"（需 {MIN_REASON} 字以上并写清为什么该维度不受影响）")
-    gaps = matrix_gaps(object_ids, checks)
-    total = len(object_ids) * len(DIMENSION_ORDER)
+    gaps = matrix_gaps(object_ids, checks, dimensions)
+    total = len(object_ids) * len(dimensions)
     if total and len(gaps) / total > GAP_LIMIT:
         errors.append(f"六维留空 {len(gaps)}/{total} 超过三分之一：先把变更对象查完，"
                       f"剩下的空格才能登记为待确认")
     return errors
 
 
-def matrix_summary(object_ids, checks):
+def matrix_summary(object_ids, checks, dimensions=DIMENSION_ORDER):
     counts = {name: 0 for name in ("covered", "unknown", "notApplicable", "outOfScope", "empty")}
     matrix = {}
     for object_id in object_ids:
         matrix[object_id] = {}
-        for dimension in DIMENSION_ORDER:
+        for dimension in dimensions:
             cell = [row for row in checks if row.get("objectId") == object_id
                     and dimension in dims_of(row)]
             dispositions = [row.get("disposition") for row in cell]
@@ -130,8 +155,20 @@ def matrix_summary(object_ids, checks):
                 key = {"not_applicable": "notApplicable", "out_of_scope": "outOfScope"}.get(disposition, disposition)
                 if key in counts:
                     counts[key] += 1
-    return {"schemaVersion": 1, "dimensions": list(DIMENSION_ORDER), "objects": len(object_ids),
-            "cells": len(object_ids) * len(DIMENSION_ORDER), "counts": counts, "matrix": matrix}
+    return {"schemaVersion": 1, "dimensions": list(dimensions), "objects": len(object_ids),
+            "cells": len(object_ids) * len(dimensions), "counts": counts, "matrix": matrix}
+
+
+def merged_hints(object_ids, checks, dimensions=DIMENSION_ORDER):
+    """An object that concludes nothing at all is probably not a change object."""
+    hints = []
+    for object_id in object_ids:
+        cells = [row for row in checks
+                 if row.get("objectId") == object_id and any(d in dimensions for d in dims_of(row))]
+        if cells and all(row.get("disposition") in UNDECIDED for row in cells):
+            hints.append(f"{object_id} 所有维度都是 not_applicable/out_of_scope："
+                         f"它可能不是本次变更对象，考虑合并或删除")
+    return hints
 
 
 def window_errors(plan):
@@ -214,9 +251,10 @@ def collect(plan, receipts):
         if not isinstance(tid, str) or not tid.strip() or tid in expected or type(attempt) is not int or attempt < 1:
             raise ValueError("invalid or duplicate task")
         expected[tid] = attempt
+    dimensions, dimension_errors = plan_dimensions(plan)
     object_owner = owners(tasks)
     entries = {group: {} for group in GROUPS}
-    errors = []
+    errors = list(dimension_errors)
     seen = set()
     for receipt in receipts:
         tid = receipt.get("taskId")
@@ -249,9 +287,9 @@ def collect(plan, receipts):
                 if group == "objects" and object_owner and object_owner.get(row.get("objectId")) != tid:
                     errors.append(f"{tid}: object not assigned: {row.get('objectId')}")
                 if group == "checks":
-                    if not isinstance(row.get("dimensions"), list) and row.get("dimension") not in DIMENSIONS:
+                    if not isinstance(row.get("dimensions"), list) and row.get("dimension") not in set(dimensions):
                         errors.append(f"{tid}: check {row[key]}: invalid dimension")
-                    errors.extend(f"{tid}: {issue}" for issue in bundle_errors(row[key], row))
+                    errors.extend(f"{tid}: {issue}" for issue in bundle_errors(row[key], row, dimensions))
                     forbidden = FORBIDDEN_CHECK_KEYS & row.keys()
                     if forbidden:
                         errors.append(f"{tid}: check {row[key]}: forbidden {','.join(sorted(forbidden))}")
@@ -272,15 +310,16 @@ def collect(plan, receipts):
     errors.extend(f"missing receipt: {tid}" for tid in sorted(set(expected) - seen))
     object_ids = sorted({*(object_owner or {}), *entries["objects"]})
     flat_checks = [variant["value"] for variants in entries["checks"].values() for variant in variants]
-    errors.extend(matrix_errors(object_ids, flat_checks))
-    gaps = matrix_gaps(object_ids, flat_checks)
+    errors.extend(matrix_errors(object_ids, flat_checks, dimensions))
+    gaps = matrix_gaps(object_ids, flat_checks, dimensions)
     conflicts = [f"{group}: {ident}" for group, values in entries.items()
                  for ident, variants in values.items() if len(variants) > 1]
     return {"schemaVersion": 1, "inputHash": plan["inputHash"],
             "status": "BLOCKED" if errors or conflicts else "READY_FOR_REVIEW",
             "errors": sorted(errors), "conflicts": sorted(conflicts), "candidates": entries,
-            "gaps": gaps,
-            "matrix": {**matrix_summary(object_ids, flat_checks), "gaps": gaps}}
+            "gaps": gaps, "hints": merged_hints(object_ids, flat_checks, dimensions),
+            "dimensions": list(dimensions),
+            "matrix": {**matrix_summary(object_ids, flat_checks, dimensions), "gaps": gaps}}
 
 
 def main():

@@ -18,7 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generation import file_hash, publish_bytes, safe_path
-from merge_impact_candidates import bundle_errors, matrix_errors, matrix_gaps, matrix_summary
+from merge_impact_candidates import (BASE_DIMENSIONS, bundle_errors, matrix_errors, matrix_gaps,
+                                     matrix_summary, merged_hints)
 
 PRIORITIES = {"P0", "P1", "P2", "P3"}
 DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
@@ -28,7 +29,7 @@ MUST_CELL = re.compile(r"(?i)(?<!非)(?<!不)(?:必填|必须|校验)|(?<![A-Za-
 HEADER_MUST = re.compile(r"必填|校验|(?i:must)")
 CELL_YES = re.compile(r"(?i)^(是|y|yes|must|必填|校验|必须)$")
 KINDS = {"prd", "business_rule", "contract", "history", "code", "observation"}
-DIMENSIONS = {"data", "inflight", "lifecycle", "permission", "side_effect", "ordering"}
+DIMENSIONS = set(BASE_DIMENSIONS)
 HASH = re.compile(r"^[a-f0-9]{64}$")
 
 
@@ -238,6 +239,9 @@ def command_impact(run, prd, source_id, candidates_path):
     merged = json.loads(Path(candidates_path).read_text(encoding="utf-8"))
     if merged.get("status") != "READY_FOR_REVIEW":
         raise ValueError("探索候选还不是 READY_FOR_REVIEW")
+    dimensions = merged.get("dimensions") or list(BASE_DIMENSIONS)
+    if not isinstance(dimensions, list) or tuple(dimensions[:len(BASE_DIMENSIONS)]) != BASE_DIMENSIONS or len(set(dimensions)) != len(dimensions):
+        raise ValueError("维度不能少于或替换基线六维，只能在其后追加")
     candidates = merged.get("candidates") or {}
     sources = one(candidates, "sources")
     units = one(candidates, "sourceUnits")
@@ -276,10 +280,10 @@ def command_impact(run, prd, source_id, candidates_path):
         require_fields(check, ("checkId", "objectId", "sourceIds", "evidenceRef", "disposition", "reason"), check.get("checkId", "check"))
         listed = check.get("dimensions")
         if listed is None:
-            if check.get("dimension") not in DIMENSIONS:
+            if check.get("dimension") not in set(dimensions):
                 raise ValueError(f"dimension 无效: {check.get('checkId')}")
         else:
-            issues = bundle_errors(str(check.get("checkId")), check)
+            issues = bundle_errors(str(check.get("checkId")), check, dimensions)
             if issues:
                 raise ValueError("；".join(issues))
         if check.get("disposition") not in DISPOSITIONS:
@@ -294,21 +298,22 @@ def command_impact(run, prd, source_id, candidates_path):
     if not HASH.fullmatch(digest):
         raise ValueError("快照哈希无效")
     object_ids = [item["objectId"] for item in objects]
-    errors = matrix_errors(object_ids, checks)
+    errors = matrix_errors(object_ids, checks, dimensions)
     if errors:
         raise ValueError("六维矩阵不可用：" + "；".join(errors[:6]))
-    document = {"schemaVersion": 1, "sources": sources, "sourceUnits": units, "objects": objects,
-                "checks": checks, "obligations": obligations}
+    document = {"schemaVersion": 1, "dimensions": list(dimensions), "sources": sources,
+                "sourceUnits": units, "objects": objects, "checks": checks, "obligations": obligations}
     target = safe_path(run, "cases/impact-analysis.json")
     write_json(target, document)
-    gaps = matrix_gaps(object_ids, checks)
+    gaps = matrix_gaps(object_ids, checks, dimensions)
     write_json(safe_path(run, "cases/exploration/impact-matrix.json"),
-               {**matrix_summary(object_ids, checks), "gaps": gaps})
+               {**matrix_summary(object_ids, checks, dimensions), "gaps": gaps})
     write_json(safe_path(run, "cases/exploration/impact-gaps.json"),
                {"schemaVersion": 1, "gaps": gaps})
     print(json.dumps({"path": "cases/impact-analysis.json", "sourceUnits": len(units),
-                      "obligations": len(obligations), "cells": len(object_ids) * len(DIMENSIONS),
-                      "gaps": len(gaps)}, ensure_ascii=False))
+                      "obligations": len(obligations), "cells": len(object_ids) * len(dimensions),
+                      "gaps": len(gaps), "hints": merged_hints(object_ids, checks, dimensions)},
+                     ensure_ascii=False))
 
 
 def main():
