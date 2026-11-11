@@ -144,6 +144,8 @@ class Gate:
             self.need_file("evidence/page-map.json", "UI 用例缺少本 run 页面地图")
         self.need_file("cases/discovered.txt", "缺少 runner discovery 结果")
         self._coverage_closed()
+        self._assertion_quality()
+        self._pending_items()
 
     def _coverage_closed(self) -> None:
         """覆盖闭合：形态轴、组合定论、越界签署、覆盖率阈值统一交给 coverage_check。"""
@@ -269,7 +271,32 @@ class Gate:
             return
         for case in cases:
             validate_steps(case.get("steps"), case.get("assertions"))
+        self._assertion_quality()
+        self._pending_items()
         self._semantic_review(cases)
+
+    def _assertion_quality(self) -> None:
+        """断言写不出可观察结果就是用例不准，设计评审和出表前各拦一次。"""
+        from assertion_check import check
+
+        if not self._generated_cases():
+            return
+        for gap in check(self.run_dir)["gaps"]:
+            self.gaps.append("断言质量：" + gap)
+
+    def _pending_items(self) -> None:
+        """待确认事项先自查再提问：三分法缺字段即阻断（旧 run 只提示）。"""
+        from notes_check import check
+
+        if not self._generated_cases():
+            return
+        for gap in check(self.run_dir)["gaps"]:
+            self.gaps.append("待确认事项未收口：" + gap)
+
+    def _generated_cases(self) -> list:
+        """空壳运行不查断言与待确认，与覆盖门禁的空壳回退一致。"""
+        cases = read_json(self.run_dir / "cases/cases.json")
+        return cases if isinstance(cases, list) and cases else []
 
     def presentation(self) -> None:
         """评审表发布前验证固定提示词、输入输出哈希及业务文案检查。"""
@@ -279,6 +306,8 @@ class Gate:
             return
         self._impact_completeness()
         self._coverage_closed()
+        self._assertion_quality()
+        self._pending_items()
         round_id = str((self.manifest.get('presentation') or {}).get('round', '1'))
         if not re.fullmatch(r'[A-Za-z0-9_-]+', round_id):
             raise ValueError('展示轮次无效')

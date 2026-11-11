@@ -23,6 +23,8 @@
 | 用例正文 | `python3 <本技能>/scripts/emit_cases.py --tsv <taskId>.rows.tsv --ac-ids <本任务AC> --check`，通过后加 `--out <attempt>/cases.json` |
 | 封印 | `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录> --seal <taskId> --gaps '[]'` |
 | 展示分片 | `python3 <本技能>/scripts/render_review_table.py <runDir> --plan-slices`。派发前跑每片 `probeCommand`，收回后跑 `--stat-slices` |
+| 断言质量 | `python3 <本技能>/scripts/assertion_check.py <runDir>`，合并后、出评审表前跑一次，不逐片；弱措辞与或然结论 exit 2 |
+| 待确认三分法 | `python3 <本技能>/scripts/notes_check.py <runDir> [--baseline <基线工作树>]`，同样合并后跑一次；核对 `cases/notes.json` 的 `disposition`、`searchedRefs` 与证据，`--strict` 强制旧 run 也阻断 |
 
 `baselineHash` 和 `inputHash` 是 64 位小写 hex。基线哈希用 `generation.digest`：`sort_keys=True`、`ensure_ascii=False`、`separators=(",", ":")` 的 UTF-8 SHA-256。文件字节哈希不能填进 `baselineHash`。
 

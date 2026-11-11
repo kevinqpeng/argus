@@ -54,6 +54,8 @@ HEAD_MAIN = ['场景名称', '用例标题', '前置条件', '操作步骤', '�
 WIDTH_MAIN = [18, 44, 34, 42, 44, 14]
 HEAD_NOTES = ['类别', '待确认内容', '建议处理']
 WIDTH_NOTES = [22, 64, 50]
+# 待确认事项三分法：只有 decision 进 Excel，其余写 cases.md 附录。
+NOTE_DISPOSITIONS = ('decision', 'resolved_by_code', 'assumption')
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEAD_FILL = PatternFill('solid', fgColor='1F3864')
@@ -456,6 +458,28 @@ def render_notes(wb, notes):
     return ws
 
 
+def disposition(note):
+    return note.get('disposition') or 'decision'
+
+
+def note_dispositions(run_dir):
+    """生成阶段的 cases/notes.json 是三分法事实源；旧 run 无此文件时全部为 decision。"""
+    path = run_dir / 'cases/notes.json'
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except ValueError:
+        print('ERROR cases/notes.json 不是合法 JSON，无法回填待确认类型', file=sys.stderr)
+        sys.exit(2)
+    rows = data.get('notes') if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        print('ERROR cases/notes.json 需为 {notes: [...]}', file=sys.stderr)
+        sys.exit(2)
+    return {str(row['category']): row.get('disposition') or 'decision'
+            for row in rows if isinstance(row, dict) and row.get('category')}
+
+
 def low_scores(semantic):
     if not semantic:
         return []
@@ -491,9 +515,21 @@ def render_md(path, content, units, source, notes, low):
                                        for i, g in enumerate(unit['expectedSources'], 1)), '',
                '**源用例数据**', '', '```json',
                json.dumps(case, ensure_ascii=False, indent=2), '```', '']
+    pending = [n for n in notes if disposition(n) == 'decision']
+    settled = [n for n in notes if disposition(n) != 'decision']
     md += ['## 待确认事项与已知限制', ''] + [
         f"- **{n['category']}**：{n['question']}；{n['action']}（来源：{', '.join(n['sourceRefs'])}）"
-        for n in notes]
+        for n in pending]
+    if settled:
+        md += ['', '## 已自查结论与假设（不进评审表）', '']
+        for note in settled:
+            kind = '已按代码确定' if disposition(note) == 'resolved_by_code' else '假设'
+            line = f"- **{note['category']}**（{kind}）：{note.get('conclusion') or note.get('basis') or note['question']}"
+            if note.get('evidenceRef'):
+                line += f"；依据 {note['evidenceRef']}"
+            if note.get('falsifier'):
+                line += f"；若 {note['falsifier']} 则不成立"
+            md.append(line)
     md += ['', '## 影响分析与追踪原始数据', '', '```json',
            json.dumps(source['impact'], ensure_ascii=False, indent=2), '```']
     md += ['', '## 语义审查低分项与处置', ''] + [f'- {line}' for line in low]
@@ -611,6 +647,9 @@ def main():
         sys.exit(2)
 
     notes = content.get('notes') or []
+    for note in notes:
+        if isinstance(note, dict) and not note.get('disposition'):
+            note['disposition'] = note_dispositions(run_dir).get(note.get('category'), 'decision')
     for i, note in enumerate(notes, 1):
         if (not isinstance(note, dict) or
                 any(not isinstance(note.get(k), str) or not note[k].strip()
@@ -618,6 +657,10 @@ def main():
                 not isinstance(note.get('sourceRefs'), list) or not note['sourceRefs'] or
                 any(not isinstance(ref, str) or not ref.strip() for ref in note['sourceRefs'])):
             print(f'ERROR notes[{i}]: 需提供 category、question、action 和非空 sourceRefs', file=sys.stderr)
+            sys.exit(2)
+        if note.get('disposition') is not None and note['disposition'] not in NOTE_DISPOSITIONS:
+            print(f"ERROR notes[{i}]: disposition 只能是 {', '.join(NOTE_DISPOSITIONS)}，"
+                  f"收到 {note['disposition']!r}", file=sys.stderr)
             sys.exit(2)
     if args.cases_only and notes:
         print('ERROR 业务片的 notes 必须是空数组，待确认事项由 notes 片写入', file=sys.stderr)
@@ -665,7 +708,8 @@ def main():
     low = low_scores(source['semantic'])
     wb = Workbook()
     sheet_rows = render_main(wb, units, source)
-    render_notes(wb, notes)
+    pending = [note for note in notes if disposition(note) == 'decision']
+    render_notes(wb, pending)
     xlsx = out_dir / 'cases.xlsx'
     wb.save(xlsx)
     md_lines = render_md(out_dir / 'cases.md', content, units, source, notes, low)
@@ -677,9 +721,17 @@ def main():
         if rendered != mirrored.resolve():
             shutil.copyfile(rendered, mirrored)
     mapping = build_mapping(units, source, sheet_rows, round_dir)
-    mapping['notes'] = [
-        {'sheet': '待确认事项', 'row': i + 2, 'sourceRefs': note['sourceRefs']}
-        for i, note in enumerate(notes)]
+    mapping['notes'] = []
+    row = 2
+    for note in notes:
+        entry = {'disposition': disposition(note), 'category': note['category'],
+                 'sourceRefs': note['sourceRefs']}
+        if disposition(note) == 'decision':
+            entry.update({'sheet': '待确认事项', 'row': row})
+            row += 1
+        else:
+            entry.update({'file': 'cases.md', 'section': '已自查结论与假设'})
+        mapping['notes'].append(entry)
     (round_dir / 'mapping.json').write_text(
         json.dumps(mapping, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(f'{xlsx} cases={len(units)} rows={len(sheet_rows)}; cases.md lines={md_lines}; '
