@@ -82,7 +82,73 @@ class CheckTest(unittest.TestCase):
         result = run(self.root)
         self.assertEqual(result.returncode, 2)
         errors = json.loads(result.stdout)["errors"]
-        self.assertTrue(any("未裁定" in item for item in errors), errors)
+        self.assertTrue(any("多个同级口径" in item for item in errors), errors)
+
+    def test_a_partial_row_covers_its_whole_slice(self):
+        build(self.root, [{"values": {"方式": "重新发起"}, "status": "covered",
+                           "scenarios": ["SCN-01"], "expected": "弹窗出现两种重新审批方式"},
+                          {"values": {"方式": "继续审批"}, "status": "out_of_scope",
+                           "reason": "本轮不含从当前节点继续审批的改造，该方式沿用基线行为"}],
+              cases=[{"caseId": "CASE-01", "scenarioId": "SCN-01"}])
+        result = run(self.root)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(json.loads(result.stdout)["cells"], 4)
+        done = run(self.root, "expand")
+        self.assertEqual(done.returncode, 0, done.stdout)
+        matrix = json.loads((Path(self.root) / "cases/coverage-matrix.json").read_text(encoding="utf-8"))
+        covered = [cell for cell in matrix["cells"] if cell["status"] == "covered"]
+        self.assertEqual(len(covered), 2)
+        self.assertTrue(all(cell["caseIds"] == ["CASE-01"] for cell in covered))
+
+    def test_the_more_specific_row_wins_over_the_slice(self):
+        build(self.root, [{"values": {"方式": "重新发起"}, "status": "covered",
+                           "scenarios": ["SCN-01"], "expected": "弹窗出现两种重新审批方式"},
+                          {"values": {"方式": "继续审批"}, "status": "out_of_scope",
+                           "reason": "本轮不含从当前节点继续审批的改造，该方式沿用基线行为"},
+                          {"values": {"角色": "转办接手人", "方式": "继续审批"},
+                           "status": "unknown", "risk": "high",
+                           "reason": "PRD 没有规定转办接手人从当前节点继续审批时任务归谁"}])
+        result = run(self.root)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["counts"]["covered"], 2)
+        self.assertEqual(report["counts"]["out_of_scope"], 1)
+        self.assertEqual(report["counts"]["unknown"], 1)
+        self.assertEqual(len(report["pendingReview"]), 1)
+
+    def test_one_table_entry_can_hold_fifteen_cells(self):
+        write(self.root, "decision-table.json", {
+            "schemaVersion": 1,
+            "dimensions": [{"name": "角色", "values": ["普通审批人", "转办接手人", "加签处理人"]},
+                           {"name": "路径", "values": ["经过原驳回节点", "不经过原驳回节点",
+                                                       "分支变更后仍经过原驳回节点",
+                                                       "新增节点后仍经过原驳回节点",
+                                                       "新增节点后不经过原驳回节点"]},
+                           {"name": "方式", "values": ["重新发起", "继续审批"]},
+                           {"name": "开关", "values": ["开启", "关闭"]}],
+            "rows": [{"values": {"方式": "重新发起", "开关": "开启"}, "status": "covered",
+                      "scenarios": ["SCN-01"], "expected": "驳回后重新发起时重新走审批流"},
+                     {"values": {"方式": "重新发起", "开关": "关闭"}, "status": "covered",
+                      "scenarios": ["SCN-02"], "expected": "开关关闭时只走原有的驳回后重新提交"},
+                     {"values": {"方式": "继续审批", "开关": "开启", "角色": "普通审批人"},
+                      "status": "covered", "scenarios": ["SCN-03"], "expected": "弹窗出现两种方式"},
+                     {"values": {"方式": "继续审批", "开关": "开启", "角色": "转办接手人",
+                                 "路径": "经过原驳回节点"},
+                      "status": "unknown", "risk": "high",
+                      "reason": "PRD 只规定转办接手人回到该审核人，没有给出任务归属"}],
+            "defaults": [{"values": {"方式": "继续审批", "开关": "开启"}, "status": "out_of_scope",
+                          "reason": "PRD 未给出路径变化或新增节点后的归属规则，本轮无验收标的"},
+                         {"values": {"方式": "继续审批", "开关": "关闭"}, "status": "out_of_scope",
+                          "reason": "开关关闭的实例不出现两种重新审批方式，与基线一致"}]})
+        result = run(self.root)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["cells"], 60)
+        self.assertEqual(len(report["unregistered"]), 0)
+        # 6 条登记（4 行 + 2 条 defaults）管住 60 格
+        self.assertEqual(report["counts"]["covered"], 35)
+        self.assertEqual(report["counts"]["unknown"], 1)
+        self.assertEqual(report["counts"]["out_of_scope"], 24)
 
     def test_covered_row_needs_scenario_and_expected(self):
         build(self.root, [row("原审批人", "重新发起", expected="出现两种方式")])

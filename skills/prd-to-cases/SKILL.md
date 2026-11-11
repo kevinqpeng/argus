@@ -53,7 +53,7 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 - 一个独立可验证行为一个场景。按适用性覆盖正常、异常、边界、权限、幂等、重试、并发、状态和输入校验。
 - 对每项需求检查是否存在共享资源或状态竞争、重复提交/重复请求、超时重试或重复消息等业务边界。结合 PRD、业务规则和已有证据判断适用性，记录依据；不适用记录原因，规则或预期不明标 needs_clarification，不自行假设业务结果。
 - 适用时在冻结基线前补充对应场景与用例：明确操作主体、共享对象、并发或重复方式、前置数据、预期响应及最终业务状态，分别断言关键副作用的次数和状态。需要同时竞争时在单条用例内安排并发操作；普通分片并行和测试失败重试不能替代业务并发或重复操作验证。
-- 组合口径以决策表 `cases/decision-table.json` 为准：维度及取值的完整笛卡尔积就是分母，逐格在场景冻结前裁定 `covered`（附场景与预期）、`not_applicable`、`out_of_scope` 或 `unknown`，理由 20 字以上。只登记来源真正裁定过的组合，其余由 `defaults` 继承，仍继承不到的阻断。`unknown` 标 `risk`：`high` 进待确认事项；`medium`/`low` 写 `assumption`，由 `expand` 落进 `cases/assumptions.md` 作为可反驳的合并口径。用例合并后运行 `decision_table.py expand` 展开出组合矩阵 `cases/coverage-matrix.json`，矩阵是决策表的投影，不手改；`coverage_check.py` 核对两者一致。结构见 [影响探索](references/impact-exploration.md#1-先写决策表)。矩阵上限 60 格，超出时减少取值或拆矩阵，确有必要才加 `--allow-large-matrix`。
+- 组合口径以决策表 `cases/decision-table.json` 为准：维度及取值的完整笛卡尔积就是分母，逐格在场景冻结前裁定 `covered`（附场景与预期）、`not_applicable`、`out_of_scope` 或 `unknown`，理由 20 字以上。只登记来源真正裁定过的组合，`values` 少写轴就是管这一片（更具体的优先），其余由 `defaults` 继承，仍继承不到的阻断。`unknown` 标 `risk`：`high` 进待确认事项；`medium`/`low` 写 `assumption`，由 `expand` 落进 `cases/assumptions.md` 作为可反驳的合并口径。用例合并后运行 `decision_table.py expand` 展开出组合矩阵 `cases/coverage-matrix.json`，矩阵是决策表的投影，不手改；`coverage_check.py` 核对两者一致。结构见 [影响探索](references/impact-exploration.md#1-先写决策表)。矩阵上限 60 格，超出时减少取值或拆矩阵，确有必要才加 `--allow-large-matrix`。
 - P0 按已确认的核心流程、资金/关键数据、严重权限边界定级，保留理由。
 - 冻结前执行 [形式化路由](../decision-router/references/formal-routing.md)，选中时调用 Argus 的形式化子技能并接收反例及边界义务。将其映射到来源 AC 和真实用例，未确认的业务规则保持 needs_clarification。已有同指纹路由和模型证据直接复用，不重复运行。
 

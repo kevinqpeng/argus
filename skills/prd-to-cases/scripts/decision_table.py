@@ -11,7 +11,7 @@
 unknown 必须写 risk：只有 risk=high 进入待确认事项；medium/low 必须写
 assumption（本轮采用的合并口径），由用例按该口径执行，不占用评审名单。
 
-行结构（combo 必须写全所有轴取值）：
+行长什么样：
   {"values": {"触发角色": "转办接手人", ...},
    "status": "covered|not_applicable|out_of_scope|unknown",
    "scenarios": ["SCN-1"],              # status=covered 必填，一条以上
@@ -19,6 +19,11 @@ assumption（本轮采用的合并口径），由用例按该口径执行，不�
    "sideEffects": [], "notExpectedToChange": [], "illegalTransitions": [],
    "reason": "为什么 Not applicable / out_of_scope / unknown",
    "risk": "high", "assumption": "medium/low 时的合并口径"}
+
+values 可以只写部分轴，少写就是「管这一片」：{"重新审批方式": "驳回后重新发起"}
+一条顶掉这条轴上所有角色的格子，格子的数量由轴相乘得出，不靠人手写。
+一格同时命中多条时，限定的轴越多的越具体、优先；两条同级口径同时命中
+就是没裁定，阻断而不是按书写顺序取一条。
 """
 import argparse
 import hashlib
@@ -98,10 +103,9 @@ def row_errors(row, names, index):
     label = f"决策表第 {index + 1} 行"
     errors = []
     values = row.get("values") or {}
-    missing = [name for name in names if name not in values]
+    if not values:
+        errors.append(f"{label} 没有 values：至少限定一个轴取值，否则与 defaults 无异")
     unknown = [name for name in values if name not in names]
-    if missing:
-        errors.append(f"{label} 缺轴取值：{missing}")
     if unknown:
         errors.append(f"{label} 引用了未声明的轴：{unknown}")
     status = row.get("status")
@@ -162,19 +166,24 @@ def table_errors(table, cases=None):
         errors.extend(default_errors(default, names, index))
     combos = product(table.get(DIMENSIONS) or [])
     valid = {axis["name"]: axis["values"] for axis in table.get(DIMENSIONS) or []}
+    candidates = rows + defaults
     seen = {}
     for index, row in enumerate(rows):
-        key = tuple((row.get("values") or {}).get(name) for name in names)
+        key = tuple(sorted((row.get("values") or {}).items()))
         if key in seen:
-            errors.append(f"决策表行重复：{dict(zip(names, key))}（第 {seen[key] + 1} 行与第 {index + 1} 行）")
+            errors.append(f"决策表行重复：{dict(key)}（第 {seen[key] + 1} 行与第 {index + 1} 行）")
         seen[key] = index
         for name, value in (row.get("values") or {}).items():
             if name in valid and value not in valid[name]:
                 errors.append(f"决策表第 {index + 1} 行取值不在轴上：{name}={value}")
     for combo in combos:
-        if tuple(combo.get(name) for name in names) in seen:
+        if pick(combo, candidates) is not None:
             continue
-        if resolve(combo, defaults) is None:
+        tied = rivals(combo, candidates)
+        if tied:
+            errors.append(f"决策表组合有多个同级口径：{combo} → "
+                          f"{[item.get('values') for item in tied]}；补一条更具体的行")
+        else:
             errors.append(f"决策表组合未裁定：{combo}；写一行，或用 defaults 给维度级口径")
     covered = scenarios_of(table)
     if cases is not None:
@@ -185,31 +194,40 @@ def table_errors(table, cases=None):
     return errors
 
 
-def resolve(combo, defaults):
-    """最具体的默认口径优先：限定的轴越多越具体，同分视为歧义。"""
-    picked, best = None, 0
-    for default in defaults:
-        values = default.get("values") or {}
-        if any(combo.get(name) != value for name, value in values.items()):
+def matches(combo, item):
+    values = item.get("values") or {}
+    return bool(values) and all(combo.get(name) == value for name, value in values.items())
+
+
+def pick(combo, items):
+    """少写轴就是管这一片：命中多条时更具体的优先，同级命中视为歧义。"""
+    picked, best, ties = None, 0, 0
+    for item in items:
+        if not matches(combo, item):
             continue
-        if len(values) == best:
-            picked = None
-            continue
-        if len(values) > best:
-            picked, best = default, len(values)
-    return picked
+        size = len(item.get("values") or {})
+        if size > best:
+            picked, best, ties = item, size, 1
+        elif size == best:
+            ties += 1
+    return picked if ties == 1 else None
+
+
+def rivals(combo, items):
+    """命中最具体的那几条，用来解释「为什么这一格没裁定」。"""
+    hit = [item for item in items if matches(combo, item)]
+    if not hit:
+        return []
+    best = max(len(item.get("values") or {}) for item in hit)
+    return [item for item in hit if len(item.get("values") or {}) == best]
 
 
 def cells_of(table):
-    """展开成完整笛卡尔积：行优先，未登记的格子继承默认口径。"""
-    names = names_of(table)
-    rows = {(tuple((row.get("values") or {}).get(name) for name in names)): row
-            for row in table.get("rows") or []}
-    defaults = table.get("defaults") or []
+    """展开成完整笛卡尔积：最具体的行优先，未登记的格子由 defaults 兜底。"""
+    candidates = list(table.get("rows") or []) + list(table.get("defaults") or [])
     cells, uncovered = [], []
     for combo in product(table.get(DIMENSIONS) or []):
-        key = tuple(combo.get(name) for name in names)
-        source = rows.get(key) or resolve(combo, defaults)
+        source = pick(combo, candidates)
         if source is None:
             uncovered.append(combo)
             continue
@@ -255,15 +273,11 @@ def case_map(run):
 def matrix(table, mapping):
     """把裁定的结果投影成矩阵；covered 格附上真正引用这些场景的用例。"""
     cells, uncovered = cells_of(table)
-    names = names_of(table)
-    rows = {tuple((row.get("values") or {}).get(name) for name in names): row
-            for row in table.get("rows") or []}
-    defaults = table.get("defaults") or []
+    candidates = list(table.get("rows") or []) + list(table.get("defaults") or [])
     for cell in cells:
         if cell["status"] != "covered":
             continue
-        key = tuple(cell["values"].get(name) for name in names)
-        source = rows.get(key) or resolve(cell["values"], defaults) or {}
+        source = pick(cell["values"], candidates) or {}
         cell["caseIds"] = sorted({case_id
                                   for scenario_id in source.get("scenarios") or []
                                   for case_id in (mapping or {}).get(scenario_id, [])})

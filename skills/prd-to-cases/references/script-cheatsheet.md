@@ -61,7 +61,9 @@ AC 绑定 TSV，制表符分隔：
 | `六维结论不成立 … 理由不足` | `not_applicable`/`out_of_scope` 的理由不能只写“不适用/无”；写清该维度为何不被本次变更触及 |
 | `impact-gaps.json 与实际六维空格不一致` | 手改过 `impact-analysis.json`。重跑 `assemble_baseline.py impact` 重新生成登记表 |
 | `六维未核查项必须写进待确认事项：GAP-…` | 在 `content.json` 的 notes 里补一条，`sourceRefs` 写 `impact-gaps.json:<gapId>` |
-| `决策表组合未裁定` | 该格同时命中两条结论不同的规则，或 `defaults` 有两组都匹配。在 `rows` 里显式写这一格，别靠书写顺序决定 |
+| `决策表组合未裁定` | 这一格没有任何行或 `defaults` 命中。补一行，或用少写轴的一行把它和同片的格子一起管住 |
+| `决策表组合有多个同级口径` | 两条限定的轴一样多、又同时命中这一格。把其中一条写得更具体，或合并成一条 |
+| `决策表行重复` | 两行的 `values` 完全一样，包括只写了部分轴的写法 |
 | `决策表标 covered 的场景没有用例` | `covered` 行的 `scenarios` 必须是用例真正引用的 `scenarioId`，不能直接写 caseId |
 | `决策表 … 必须写 risk` / `必须写 assumption` | `unknown` 判它是否改变本轮验收结论：会改变标 `risk: high` 进待确认；不会改变写 `assumption`，`expand` 会把它连同原因写进 `cases/assumptions.md` |
 | `决策表与组合矩阵的维度或取值不一致` | 矩阵必须是决策表的展开。改决策表后重跑 `expand`，不要手改矩阵 |
