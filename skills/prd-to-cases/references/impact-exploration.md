@@ -34,7 +34,7 @@ worker 只读任务书给出的基线工作树。一次 shell 用 `sed -n` 输�
 
 结构化回执顶层包含 `schemaVersion: 1`、`taskId`、正整数 `attempt`、与派发一致的 `inputHash`、`status`（`complete` 或 `partial`），以及 `sources`、`sourceUnits`、`objects`、`checks`、`obligations`、`handoffs` 六个数组（无项填空数组）。字段按 [回执模板](exploration-receipt.template.json) 填写，不改键名。标识带本任务前缀：`sourceUnits` 为 `<taskId>-U<n>`，`checks` 为 `<taskId>-C<n>`，`obligations` 为 `<taskId>-OB-<n>`，`handoffs` 为 `<taskId>-H<n>`，n 从 1 开始。`objects.objectId` 只用计划分配给本任务的 objectId。`disposition` 只能是 `covered`、`not_applicable`、`unknown`、`out_of_scope`。kind 为 prd 的 `sourceRef` 写 `run://` 加本 run 相对路径。候选可以有待确认字段，不能标成已批准。`checks.dimension` 只能是 `data`、`inflight`、`lifecycle`、`permission`、`side_effect`、`ordering`。可测性、夹具和执行成本写入 handoffs，不写入 checks，也不要使用 `kind` 或 `result` 字段。每个 handoff 包含唯一 `handoffId`、生产者、接收任务、依赖路径、证据定位和未决问题；无接收任务或未闭环保留未知。证据内容只写一次，其他项引用可定位的来源或回执，不复制长段源码。
 
-主 Agent 写 `cases/exploration/plan.json`，包含 `schemaVersion: 1`、绑定冻结来源与任务输入的 `inputHash` 和 `tasks: [{taskId, attempt, objectIds}]`，每次重派更新当前 attempt。收到回执立即运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py <plan.json> <当前回执...>`，将输出保存为候选汇总；未收到全部回执时允许 BLOCKED 的部分结果供局部整理。程序检查当前任务、attempt、输入指纹、数组/ID、`dimension`、证据条数和行跨度、任务 `objectIds` 以及 partial 状态，按同 ID 且内容完全相同合并并保留任务映射；不同内容保留全部版本并阻断，不能按 ID、文本相似度或程序输出判定业务等价。它不验证完整 schema、证据真实性、交接闭环或语义，也不生成最终基线；主 Agent 核验这些事项。不要运行覆盖脚本。历史 Markdown 回执按原流程恢复，不转换成虚假的新回执。
+主 Agent 写 `cases/exploration/plan.json`，包含 `schemaVersion: 1`、绑定冻结来源与任务输入的 `inputHash` 和 `tasks: [{taskId, attempt, objectIds, windows: [{objectId, refs}]}]`，每次重派更新当前 attempt。`windows` 每题对象写 4 到 6 个已核对过的 `文件:起始-结束`，每段不超过 3 行；`merge_impact_candidates.py` 与 `phase_gate.py --phase dispatch` 都拒绝缺窗口、条数越界和跨度超 3 行的计划。收到回执立即运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py <plan.json> <当前回执...>`，将输出保存为候选汇总；未收到全部回执时允许 BLOCKED 的部分结果供局部整理。程序检查当前任务、attempt、输入指纹、数组/ID、`dimension`、证据条数和行跨度、任务 `objectIds`、索引窗口以及 partial 状态，按同 ID 且内容完全相同合并并保留任务映射；不同内容保留全部版本并阻断，不能按 ID、文本相似度或程序输出判定业务等价。它还核对每个声明对象的六维结论：每个 `objectId × dimension` 要么有 check，要么写 `not_applicable`/`out_of_scope` 并给出 20 字以上、说清为什么该维度不受影响的理由，缺格直接 BLOCKED 并逐条列出 `OBJ × dimension`。它不验证完整 schema、证据真实性、交接闭环或语义，也不生成最终基线；主 Agent 核验这些事项。证据真实性由 `python3 <prd-to-cases>/scripts/verify_evidence.py <merged.json> --baseline <基线工作树> --run <runDir>` 打开每条 `文件:行` 核对路径与行号，结果写 `cases/exploration/evidence-check.json`，`failed` 必须为 0。不要运行覆盖脚本。历史 Markdown 回执按原流程恢复，不转换成虚假的新回执。
 
 收到一项结果即核对证据并处理新边界，同时整理其 sourceUnits/checks/obligations 候选，关键路径有足够证据时即可派发独立复核；最终冻结仍等待全部回执、交接闭环和跨任务复核。exploration.md 保留调度、证据索引、交接处理和未决项，细节引用独占回执，避免再完整改写全部探索结论。失败重派前停止旧 worker，增加 attempt 并使用新回执路径；迟到旧结果不合并。预算不足时保留未完成任务和缺口，不减少原范围。恢复时先核对真实 Agent 状态、来源指纹和回执，避免重复派发；来源变化按影响分析规则新建 run。
 
@@ -42,11 +42,11 @@ worker 只读任务书给出的基线工作树。一次 shell 用 `sed -n` 输�
 
 主 Agent 独占最终 `impact-analysis.json`，完成以下检查才进入义务确认和场景冻结：
 
-1. 所有任务完成且回执对应当前输入；逐项核对初始来源、变更对象和六维检查。新增依赖交给已有负责人或建立后续任务，继续到有证据的停止边界。
+1. 所有任务完成且回执对应当前输入；逐项核对初始来源、变更对象和六维检查。`cases/impact-analysis.json` 的六维结论由 `matrix_errors` 硬校验：每个对象六个维度都要有 check 或带理由的 `not_applicable`/`out_of_scope`，`cases/exploration/impact-matrix.json` 记录本次格数、各处置计数和每格 checkId，`phase_gate.py --phase dispatch` 与 `--phase cases` 复核同一矩阵。缺格不许用“其他对象已覆盖”抵消。新增依赖交给已有负责人或建立后续任务，继续到有证据的停止边界。
 2. 合并实际依赖和候选义务，保留所有证据引用；同条件、同结果与副作用才可合并义务。冲突回到原始代码或权威契约核查，未解决记 unknown。
 3. 对跨任务交接逐条核对生产者、消费者、字段或事件语义及完整路径。任何无人接收的交接或缺回执均为未完成，不用其他任务完成率抵消。
 4. 并行探索涉及关键数据、权限或多写入者交错时，由非原作者的 reasoning worker 独立复核该路径与停止依据；主 Agent 汇总差异，缺复核证据保持未知。单 Agent 分支由主 Agent 核对同样边界并如实记录未做独立复核。
 
-在探索记录中保存任务到最终 sourceUnits/checks/obligations 的映射和未完成项。将完成的探索记录及回执以 observation 来源登记到影响分析，记录原始字节哈希并由 evidenceRef/reviewRef 引用；它们仅是探索过程证据，不能代替业务批准。未完成任务、未闭合交接和未解决冲突必须进入 sourceUnits 或 checks，disposition=unknown，不能当成已覆盖或完整验收。冻结后不改回执；修改按输入变化处理。unknown 检查和独立复核留在记录里，不为了少一轮派发删掉。
+在探索记录中保存任务到最终 sourceUnits/checks/obligations 的映射和未完成项。`cases/exploration.md` 的六维核对写成对象×维度的矩阵表：每格填 checkId 或带理由的 NA，空格等于漏查，不能只写六行维度汇总。将完成的探索记录及回执以 observation 来源登记到影响分析，记录原始字节哈希并由 evidenceRef/reviewRef 引用；它们仅是探索过程证据，不能代替业务批准。未完成任务、未闭合交接和未解决冲突必须进入 sourceUnits 或 checks，disposition=unknown，不能当成已覆盖或完整验收。冻结后不改回执；修改按输入变化处理。unknown 检查和独立复核留在记录里，不为了少一轮派发删掉。
 
 报告实际串行/并行方式、任务完成与缺口、分工/探索/合并/复核的耗时和调用成本。完整墙钟时间包含全部阶段；没有同输入对照实测，不报告提速比例或准确率提升。宿主负责核查未登记来源和依赖。

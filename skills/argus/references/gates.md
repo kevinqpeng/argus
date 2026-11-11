@@ -22,6 +22,8 @@
 影响探索与用例生成由宿主子 Agent 完成，主会话只写计划、调度状态和最终材料。
 
 - 影响探索：按 [调度规则](../../prd-to-cases/references/impact-exploration.md) 判定单 Agent 或并行，判定依据与任务清单写 `cases/exploration.md`。启用并行时每个任务有独占回执 `cases/exploration/<taskId>/<attempt>.json`。
+- 索引窗口：`cases/exploration/plan.json` 每个任务的每个对象写 4 到 6 个 `文件:起始-结束`（每段不超过 3 行），缺窗口或跨度越界 BLOCKED。
+- 影响结论：`cases/impact-analysis.json` 的每个对象乘六个维度都要有 check 或带理由的 `not_applicable`/`out_of_scope`；`cases/exploration/evidence-check.json` 的 `failed` 必须为 0。缺格或伪造证据 BLOCKED，不能靠用例条数或覆盖率抵消。
 - 用例生成：按 [并行生成流程](../../prd-to-cases/references/parallel-generation.md) 写 `cases/generation/plan.json`、`state.json`，每个任务完成后写 `<taskId>/<attempt>/result.json`，最终 `cases/cases.json` 只能由合并结果产生。
 - 主会话直接写出 `cases.json` 而没有任何任务回执时，视为未调度，产物无效，不能进入阶段 4。
 - 宿主无子 Agent 能力、冻结角色不可调用或预算不足时 BLOCKED，主会话不能冒充子 Agent，也不能用"单 Agent 也做完了"代替调度证据。
@@ -76,7 +78,7 @@
 
 ## 发布、清理与输入完整性硬门禁
 
-- `dispatch` 运行 generation.evaluate 校验当前 attempt、哈希、draft、引用及依赖；仅存在 result.json 不算通过。
+- `dispatch` 运行 generation.evaluate 校验当前 attempt、哈希、draft、引用及依赖；仅存在 result.json 不算通过。`--phase cases` 额外复核六维矩阵无缺格且证据真实性回执 PASSED。
 - 脚本生成前用 `--phase review` 检查冻结配置与人工审批。脚本产出后用 `--phase publish` 校验本地契约，由 lifecycle.py 在锁内再次执行相同门禁并原子发布；执行前 `--phase scripts` 检查已发布哈希与真实 discovery。
 - 具体路径、状态、清理所有权、复用及统计要求统一见 [产物生命周期](lifecycle.md)。已批准的 cases.json 保持不可变。
 - Jev 文本输入先经过 jev.py 的 subjects/evidenceHash 与 mapping 字段检查；直接 MCP 调用也先运行相同 build_request 检查，发送其输出的完整 state。不得以工具输出预览或截断 JSON 组装 state；不完整输入 fail fast，返回 retryable=false。

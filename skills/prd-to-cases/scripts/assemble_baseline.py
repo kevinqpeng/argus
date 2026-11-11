@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generation import file_hash, publish_bytes, safe_path
+from merge_impact_candidates import matrix_errors, matrix_summary
 
 PRIORITIES = {"P0", "P1", "P2", "P3"}
 DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
@@ -286,11 +287,18 @@ def command_impact(run, prd, source_id, candidates_path):
         require_fields(duty, ("obligationId", "sourceIds", "text"), duty.get("obligationId", "obligation"))
     if not HASH.fullmatch(digest):
         raise ValueError("快照哈希无效")
+    object_ids = [item["objectId"] for item in objects]
+    gaps = matrix_errors(object_ids, checks)
+    if gaps:
+        raise ValueError("六维矩阵不完整：" + "；".join(gaps[:6]))
     document = {"schemaVersion": 1, "sources": sources, "sourceUnits": units, "objects": objects,
                 "checks": checks, "obligations": obligations}
     target = safe_path(run, "cases/impact-analysis.json")
     write_json(target, document)
-    print(json.dumps({"path": "cases/impact-analysis.json", "sourceUnits": len(units), "obligations": len(obligations)}, ensure_ascii=False))
+    write_json(safe_path(run, "cases/exploration/impact-matrix.json"),
+               matrix_summary(object_ids, checks))
+    print(json.dumps({"path": "cases/impact-analysis.json", "sourceUnits": len(units),
+                      "obligations": len(obligations), "cells": len(object_ids) * len(DIMENSIONS)}, ensure_ascii=False))
 
 
 def main():

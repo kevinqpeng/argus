@@ -94,6 +94,8 @@ class Gate:
         generation = self.manifest.get("generation") or {}
         self.need(bool(generation), "manifest.generation 缺失（未记录生成计划与结果）")
         self.need_file("cases/exploration.md", "影响探索方式、判定依据与任务清单未记录")
+        self._exploration_windows()
+        self._impact_completeness()
         plan_path = generation.get("planRef") or generation.get("planPath") or "cases/generation/plan.json"
         state_path = generation.get("stateRef") or "cases/generation/state.json"
         plan = read_json(safe_path(self.run_dir, plan_path))
@@ -122,6 +124,7 @@ class Gate:
 
     # --- 门禁三：页面地图与用例可执行性 ---
     def cases(self) -> None:
+        self._impact_completeness()
         cases = read_json(self.run_dir / "cases/cases.json")
         if not self.need(isinstance(cases, list) and bool(cases), "缺少 cases/cases.json 或为空"):
             return
@@ -140,6 +143,38 @@ class Gate:
         if any(item.get("suite") == "ui" for item in cases):
             self.need_file("evidence/page-map.json", "UI 用例缺少本 run 页面地图")
         self.need_file("cases/discovered.txt", "缺少 runner discovery 结果")
+
+    def _exploration_windows(self) -> None:
+        """派发前每个对象必须有 4-6 个可解析的行号窗口，否则六维只能靠常识填。"""
+        from merge_impact_candidates import window_errors
+        plan = read_json(self.run_dir / "cases/exploration/plan.json")
+        if not self.need(isinstance(plan, dict), "缺少 cases/exploration/plan.json（索引窗口未落盘）"):
+            return
+        for gap in window_errors(plan):
+            self.gaps.append("探索计划缺索引窗口：" + gap)
+
+    def _impact_completeness(self) -> None:
+        """六维矩阵和证据真实性必须在用例前有机器结论。"""
+        from merge_impact_candidates import matrix_errors
+        try:
+            impact = read_json(self.run_dir / "cases/impact-analysis.json")
+        except ValueError as exc:
+            self.gaps.append("cases/impact-analysis.json 无法解析：" + str(exc))
+            impact = None
+        if not isinstance(impact, dict):
+            self.gaps.append("缺少 cases/impact-analysis.json（影响分析未冻结）")
+        else:
+            objects = [row.get("objectId") for row in impact.get("objects") or [] if isinstance(row, dict)]
+            for gap in matrix_errors(objects, [row for row in impact.get("checks") or [] if isinstance(row, dict)]):
+                self.gaps.append("影响分析未结论：" + gap)
+        evidence = read_json(self.run_dir / "cases/exploration/evidence-check.json")
+        if not self.need(isinstance(evidence, dict), "缺少 cases/exploration/evidence-check.json（先运行 verify_evidence.py）"):
+            return
+        self.need(evidence.get("status") == "PASSED",
+                  f"探索证据未通过真实性校验：{evidence.get('failed')} 条无效证据")
+        failures = [item for item in evidence.get("failures") or [] if isinstance(item, dict)]
+        for item in failures[:10]:
+            self.gaps.append(f"证据真实性：{item.get('id')} {item.get('reason')}（{item.get('evidenceRef')}）")
 
     def _semantic_review(self, _cases: list) -> None:
         """语义审查必须由 decision-router 的 Jev 回执证明，不接受散文自述。"""

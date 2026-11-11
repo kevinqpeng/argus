@@ -62,11 +62,29 @@ class AssembleBaselineTest(unittest.TestCase):
         assemble.command_impact(self.run, self.relative, "PRD", path)
         impact = json.loads((self.run / "cases/impact-analysis.json").read_text(encoding="utf-8"))
         self.assertEqual(impact["sourceUnits"][0]["unitId"], "A-U1")
+        self.assertEqual(impact["objects"], [])
         self.assertEqual(impact["obligations"][0]["reviewStatus"], "needs_clarification")
         blocked = subprocess.run([sys.executable, str(SCRIPT), "impact", "--run", str(self.run),
                                   "--prd", self.relative, "--source-id", "PRD", "--candidates", str(path)],
                                  capture_output=True, text=True)
         self.assertEqual(blocked.returncode, 0, blocked.stderr)
+
+    def test_impact_blocks_a_hand_edited_object_without_six_dimensions(self):
+        digest = assemble.file_hash(self.prd)
+        merged = {"status": "READY_FOR_REVIEW", "candidates": {
+            "sources": {"PRD": [{"value": {"sourceId": "PRD", "kind": "prd",
+                                           "sourceRef": "run://cases/sources/prd.md", "sourceHash": digest},
+                                 "tasks": ["A"]}]},
+            "sourceUnits": {}, "obligations": {},
+            "objects": {"OBJ-01": [{"value": {"objectId": "OBJ-01", "description": "驳回请求体"}, "tasks": ["A"]}]},
+            "checks": {"A-C1": [{"value": {"checkId": "A-C1", "objectId": "OBJ-01", "dimension": "data",
+                                           "sourceIds": ["PRD"], "evidenceRef": "cases/sources/prd.md:5",
+                                           "disposition": "covered", "reason": "字段新增"}, "tasks": ["A"]}]}}}
+        path = self.run / "merged.json"
+        path.write_text(json.dumps(merged), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "六维矩阵不完整"):
+            assemble.command_impact(self.run, self.relative, "PRD", path)
+        self.assertFalse((self.run / "cases/impact-analysis.json").exists())
 
 
 if __name__ == "__main__":

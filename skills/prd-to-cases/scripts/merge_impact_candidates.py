@@ -8,8 +8,15 @@ from pathlib import Path
 
 GROUPS = {"sources": "sourceId", "sourceUnits": "unitId", "objects": "objectId",
           "checks": "checkId", "obligations": "obligationId", "handoffs": "handoffId"}
-DIMENSIONS = {"data", "inflight", "lifecycle", "permission", "side_effect", "ordering"}
+DIMENSION_ORDER = ("data", "inflight", "lifecycle", "permission", "side_effect", "ordering")
+DIMENSIONS = set(DIMENSION_ORDER)
 DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
+DECIDED = {"covered", "unknown"}
+UNDECIDED = {"not_applicable", "out_of_scope"}
+MIN_REASON = 20
+FILLER = ("不适用", "无需", "无影响", "无关", "none", "n/a", "na", "无")
+WINDOW_LINES = (4, 6)
+WINDOW = re.compile(r"(.+):(\d+)-(\d+)$")
 FORBIDDEN_CHECK_KEYS = {"kind", "result", "testability"}
 CODE_REF = re.compile(r"(.+):(\d+)(?:-(\d+))?$")
 ID_RULES = {"sourceUnits": "-U", "checks": "-C", "obligations": "-OB-", "handoffs": "-H"}
@@ -29,6 +36,100 @@ def evidence_errors(value):
         start, end = int(match.group(2)), int(match.group(3) or match.group(2))
         if end < start or end - start + 1 > 3:
             errors.append(f"evidence span > 3 lines: {part}")
+    return errors
+
+
+def explained(reason):
+    text = str(reason or "").strip()
+    for filler in FILLER:
+        text = text.replace(filler, " ")
+    return len(str(reason or "").strip()) >= MIN_REASON and bool(text.strip("。. ;；,，:：、 \n"))
+
+
+def matrix_errors(object_ids, checks):
+    """Every declared object must conclude all six dimensions, not just some."""
+    errors = []
+    for object_id in object_ids:
+        for dimension in DIMENSION_ORDER:
+            cell = [row for row in checks
+                    if row.get("objectId") == object_id and row.get("dimension") == dimension]
+            label = f"{object_id} × {dimension}"
+            if not cell:
+                errors.append(f"六维缺格 {label}：没有 check，也没有 not_applicable/out_of_scope 结论")
+                continue
+            if any(row.get("disposition") in DECIDED for row in cell):
+                continue
+            for row in cell:
+                if not explained(row.get("reason")):
+                    errors.append(f"六维缺格 {label}：{row.get('disposition')} 理由不足 "
+                                  f"（需 {MIN_REASON} 字以上并写清为什么该维度不受影响）")
+    return errors
+
+
+def matrix_summary(object_ids, checks):
+    counts = {name: 0 for name in ("covered", "unknown", "notApplicable", "outOfScope", "empty")}
+    matrix = {}
+    for object_id in object_ids:
+        matrix[object_id] = {}
+        for dimension in DIMENSION_ORDER:
+            cell = [row for row in checks
+                    if row.get("objectId") == object_id and row.get("dimension") == dimension]
+            dispositions = [row.get("disposition") for row in cell]
+            matrix[object_id][dimension] = {
+                "checkIds": [row.get("checkId") for row in cell], "dispositions": dispositions}
+            if not cell:
+                counts["empty"] += 1
+            for disposition in dispositions:
+                key = {"not_applicable": "notApplicable", "out_of_scope": "outOfScope"}.get(disposition, disposition)
+                if key in counts:
+                    counts[key] += 1
+    return {"schemaVersion": 1, "dimensions": list(DIMENSION_ORDER), "objects": len(object_ids),
+            "cells": len(object_ids) * len(DIMENSION_ORDER), "counts": counts, "matrix": matrix}
+
+
+def window_errors(plan):
+    """The index must hand every object 4-6 resolvable 3-line windows before dispatch."""
+    tasks = plan.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        return ["探索计划没有任务"]
+    errors = []
+    low, high = WINDOW_LINES
+    for task in tasks:
+        task_id = task.get("taskId")
+        object_ids = task.get("objectIds")
+        if not isinstance(object_ids, list) or not object_ids:
+            errors.append(f"{task_id}: 计划未写 objectIds（六维无法逐对象核对）")
+            continue
+        windows = task.get("windows")
+        if not isinstance(windows, list) or not windows:
+            errors.append(f"{task_id}: 缺少 windows（每个对象写 {low} 到 {high} 个 文件:起始-结束）")
+            continue
+        by_object = {}
+        for row in windows:
+            if not isinstance(row, dict):
+                errors.append(f"{task_id}: windows 每项必须是 objectId/refs 对象")
+                continue
+            object_id, refs = row.get("objectId"), row.get("refs")
+            if object_id in by_object:
+                errors.append(f"{task_id}: 对象窗口重复 {object_id}")
+                continue
+            by_object[object_id] = refs
+        for object_id in object_ids:
+            refs = by_object.get(object_id)
+            if not isinstance(refs, list) or not low <= len(refs) <= high:
+                errors.append(f"{task_id}: {object_id} 应有 {low} 到 {high} 个窗口，实际 "
+                              f"{len(refs) if isinstance(refs, list) else 0}")
+                continue
+            for ref in refs:
+                match = WINDOW.fullmatch(ref.strip()) if isinstance(ref, str) else None
+                if match is None:
+                    errors.append(f"{task_id}: {object_id} 窗口必须写成 文件:起始-结束：{str(ref)[:40]}")
+                    continue
+                start, end = int(match.group(2)), int(match.group(3))
+                if end < start or end - start + 1 > 3:
+                    errors.append(f"{task_id}: {object_id} 窗口跨度超过 3 行：{ref}")
+        for extra in sorted(set(by_object) - set(object_ids)):
+            errors.append(f"{task_id}: 窗口对象未分配给本任务：{extra}")
     return errors
 
 
@@ -119,12 +220,18 @@ def collect(plan, receipts):
                     match["tasks"].append(tid)
                 else:
                     errors.append(f"{tid}: duplicate {group} identifier: {row[key]}")
+    errors.extend(window_errors(plan))
     errors.extend(f"missing receipt: {tid}" for tid in sorted(set(expected) - seen))
+    object_ids = sorted({*(object_owner or {}), *entries["objects"]})
+    errors.extend(matrix_errors(object_ids, [variant["value"] for variants in entries["checks"].values()
+                                            for variant in variants]))
     conflicts = [f"{group}: {ident}" for group, values in entries.items()
                  for ident, variants in values.items() if len(variants) > 1]
     return {"schemaVersion": 1, "inputHash": plan["inputHash"],
             "status": "BLOCKED" if errors or conflicts else "READY_FOR_REVIEW",
-            "errors": sorted(errors), "conflicts": sorted(conflicts), "candidates": entries}
+            "errors": sorted(errors), "conflicts": sorted(conflicts), "candidates": entries,
+            "matrix": matrix_summary(object_ids, [variant["value"] for variants in entries["checks"].values()
+                                                  for variant in variants])}
 
 
 def main():

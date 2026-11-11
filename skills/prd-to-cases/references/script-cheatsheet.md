@@ -14,6 +14,7 @@
 | 覆盖 | `python3 <本技能>/scripts/assemble_baseline.py cover --run <runDir> --prd <相对路径> --acs cases/acs.json` |
 | 影响分析 | `python3 <本技能>/scripts/assemble_baseline.py impact --run <runDir> --prd <相对路径> --source-id <ID> --candidates <merged.json>` |
 | 探索回执 | `python3 <本技能>/scripts/merge_impact_candidates.py <plan.json> <回执.json>...` |
+| 证据真实性 | `python3 <本技能>/scripts/verify_evidence.py <merged.json> --baseline <基线工作树> --run <runDir>` |
 | 用例正文 | `python3 <本技能>/scripts/emit_cases.py --tsv <taskId>.rows.tsv --ac-ids <本任务AC> --check`，通过后加 `--out <attempt>/cases.json` |
 | 封印 | `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录> --seal <taskId> --gaps '[]'` |
 | 展示分片 | `python3 <本技能>/scripts/render_review_table.py <runDir> --plan-slices` |
@@ -48,6 +49,11 @@ AC 绑定 TSV，制表符分隔：
 |---|---|
 | `invalid baselineHash` | 改成 64 位小写 hex，用 `generation.digest` |
 | `evidence span > 3 lines` | `文件:起-止` 含首尾最多 3 行；一条 check 最多 2 段，用 `;` 分隔 |
+| `六维缺格 OBJ-01 × inflight` | 该对象该维度没写结论。补一条 check，或写 `not_applicable` 并给出 20 字以上、说清为什么该维度不受影响的理由 |
+| `六维缺格 … 理由不足` | `not_applicable`/`out_of_scope` 的理由不能只写“不适用/无”；写清该维度为何不被本次变更触及 |
+| `缺少 windows` / `应有 4 到 6 个窗口` | `plan.json` 每个 task 按 objectId 写 `windows: [{objectId, refs}]`，每对象 4 到 6 个 `文件:起始-结束` |
+| `窗口跨度超过 3 行` | 窗口最多 3 行；跨多段就拆成多个窗口 |
+| `文件不存在` / `行号越界`（verify_evidence） | `evidenceRef` 的路径相对基线工作树，行号必须落在真实文件内；拼错或靠 PRD 反推都会被拦 |
 | `同一 AC 的场景或优先级不一致` | 一个 acId 只保留一套 requirementId、scenarioId、priority、title、expected、text |
 | `同一需求的正文不一致` | 同一个 requirementId 的 text 改成同一份原文 |
 | `绑定表表头必须是` | 绑定表改成上面的 AC 表头，制表符、列序不变 |
