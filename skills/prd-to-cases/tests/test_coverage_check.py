@@ -127,6 +127,73 @@ class CoverageCheckTest(unittest.TestCase):
             allowed = run(tmp, "--allow-large-matrix")
             self.assertNotIn("超过上限", allowed.stdout)
 
+    def test_matrix_without_decision_table_only_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build(tmp)
+            done = run(tmp)
+            self.assertEqual(done.returncode, 0, done.stdout)
+            self.assertIn("未写决策表", done.stdout)
+
+    def test_decision_table_drift_from_the_matrix_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build(tmp, matrix_cells=[
+                {"values": {"方式": "重新发起"}, "status": "covered", "caseIds": ["CASE-01"]},
+                {"values": {"方式": "继续审批"}, "status": "out_of_scope",
+                 "reason": "本轮不涉及从当前节点继续审批，沿用基线行为"}])
+            write(tmp, "decision-table.json", {
+                "schemaVersion": 1,
+                "dimensions": [{"name": "方式", "values": ["重新发起", "继续审批"]}],
+                "rows": [{"values": {"方式": "重新发起"}, "status": "covered",
+                          "scenarios": ["SCN-01"], "expected": "弹窗出现两种方式"},
+                         {"values": {"方式": "继续审批"}, "status": "not_applicable",
+                          "reason": "本轮不涉及从当前节点继续审批，沿用基线行为"}],
+            })
+            done = run(tmp)
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("决策表", done.stdout)
+
+    def test_decision_table_covered_row_without_its_case_blocks_here_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build(tmp)
+            write(tmp, "decision-table.json", {
+                "schemaVersion": 1,
+                "dimensions": [{"name": "方式", "values": ["重新发起", "继续审批"]}],
+                "rows": [{"values": {"方式": "重新发起"}, "status": "covered",
+                          "scenarios": ["SCN-MISSING"], "expected": "弹窗出现两种方式"},
+                         {"values": {"方式": "继续审批"}, "status": "not_applicable",
+                          "reason": "本轮不涉及从当前节点继续审批，沿用基线行为"}],
+            })
+            done = run(tmp)
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("没有用例", done.stdout)
+
+    def test_unknown_cell_registered_by_the_decision_table_is_not_a_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build(tmp, matrix_cells=[
+                {"values": {"方式": "重新发起"}, "status": "covered", "caseIds": ["CASE-01"]},
+                {"values": {"方式": "继续审批"}, "status": "unknown",
+                 "reason": "PRD 没有规定从当前节点继续审批时任务归谁，需产品确认"}])
+            write(tmp, "decision-table.json", {
+                "schemaVersion": 1,
+                "dimensions": [{"name": "方式", "values": ["重新发起", "继续审批"]}],
+                "rows": [{"values": {"方式": "重新发起"}, "status": "covered",
+                          "scenarios": ["SCN-01"], "expected": "弹窗出现两种方式"},
+                         {"values": {"方式": "继续审批"}, "status": "unknown", "risk": "high",
+                          "reason": "PRD 没有规定从当前节点继续审批时任务归谁，需产品确认"}],
+            })
+            done = run(tmp)
+            self.assertEqual(done.returncode, 0, done.stdout)
+
+    def test_unregistered_unknown_cell_still_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build(tmp, matrix_cells=[
+                {"values": {"方式": "重新发起"}, "status": "covered", "caseIds": ["CASE-01"]},
+                {"values": {"方式": "继续审批"}, "status": "unknown",
+                 "reason": "PRD 没有规定从当前节点继续审批时任务归谁，需产品确认"}])
+            done = run(tmp)
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("未定论", done.stdout)
+
     def test_requires_matrix(self):
         with tempfile.TemporaryDirectory() as tmp:
             build(tmp)
