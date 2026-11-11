@@ -36,6 +36,16 @@ def run(root, command="check"):
 
 
 class CheckTest(unittest.TestCase):
+    def test_covered_by_is_not_a_field(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("decision_table", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        errors = module.row_errors(
+            {"values": {"角色": "原审批人"}, "status": "covered", "scenarios": ["SCN-01"],
+             "expected": "出现两种方式", "coveredBy": ["C1"]},
+            ["角色", "方式"], 0)
+        self.assertTrue(any("coveredBy" in item for item in errors))
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = self.tmp.name

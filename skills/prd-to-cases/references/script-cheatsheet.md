@@ -23,8 +23,13 @@
 | 用例正文 | `python3 <本技能>/scripts/emit_cases.py --tsv <taskId>.rows.tsv --ac-ids <本任务AC> --check`，通过后加 `--out <attempt>/cases.json` |
 | 封印 | `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录> --seal <taskId> --gaps '[]'` |
 | 展示分片 | `python3 <本技能>/scripts/render_review_table.py <runDir> --plan-slices`。派发前跑每片 `probeCommand`，收回后跑 `--stat-slices` |
-| 断言质量 | `python3 <本技能>/scripts/assertion_check.py <runDir>`，合并后、出评审表前跑一次，不逐片；弱措辞、或然结论、路径断言的代词锚点、`anchors.start` 未落断言、记录追加缺条数 exit 2 |
-| 待确认三分法 | `python3 <本技能>/scripts/notes_check.py <runDir> [--baseline <基线工作树>]`，同样合并后跑一次；核对 `cases/notes.json` 的 `disposition`、`searchedRefs` 与证据，`--strict` 强制旧 run 也阻断 |
+| 分片输入 | `python3 <本技能>/scripts/slice_inputs.py <runDir> --plan <plan.json>`。评审计划写出 `slices/<name>/input.md`，生成计划写出 `inputs/<taskId>.md`。生成任务超过 7 条会拒绝 |
+| 冻结前一次写对 | `python3 <本技能>/scripts/verify_all.py <runDir> --draft`。证据跨度、义务 acIds、路径锚点、决策表、版本 |
+| 合并后门禁 | `python3 <本技能>/scripts/verify_all.py <runDir> --cases [--baseline <基线工作树>] [--previous <历史评审表.xlsx>]`。一次跑完覆盖、断言、待确认 |
+| 评审表核验 | `python3 <本技能>/scripts/verify_all.py <runDir> [--round 1] --feature <功能名称>`。表头、合并、行高、下拉、默认值、mapping、产物哈希、发布前检查。不发布 |
+| 阶段计时 | `python3 <argus>/scripts/timing.py <runDir> stamp --stage <阶段> --event start`，结束把 `start` 换成 `end`。`show` 只读 |
+| 断言质量 | 由 `verify_all.py --cases` 调用。单独跑时：`python3 <本技能>/scripts/assertion_check.py <runDir>`。弱措辞、或然结论、路径断言的代词锚点、`anchors.start` 未落断言、记录追加缺条数 exit 2 |
+| 待确认三分法 | 由 `verify_all.py --cases` 调用。单独跑时：`python3 <本技能>/scripts/notes_check.py <runDir> [--baseline <基线工作树>]`。核对 `cases/notes.json` 的 `disposition`、`searchedRefs` 与证据，`--strict` 强制旧 run 也阻断 |
 
 `baselineHash` 和 `inputHash` 是 64 位小写 hex。基线哈希用 `generation.digest`：`sort_keys=True`、`ensure_ascii=False`、`separators=(",", ":")` 的 UTF-8 SHA-256。文件字节哈希不能填进 `baselineHash`。
 
@@ -55,7 +60,10 @@ AC 绑定 TSV，制表符分隔：
 | 原文 | 修法 |
 |---|---|
 | `invalid baselineHash` | 改成 64 位小写 hex，用 `generation.digest` |
-| `evidence span > 3 lines` | `文件:起-止` 含首尾最多 3 行；一条 check 最多 2 段，用 `;` 分隔 |
+| `evidence span > 3 lines` | `文件:起-止` 含首尾最多 3 行；一条 check 最多 2 段，用 `;` 分隔。来源单元在 `source_units.py` 写入时就拦，不要等冻结后再改 |
+| `义务要当场写 acIds` | 从任务包 `acCatalog` 选已有 acId。只有 needs_clarification 且 expected 为空才能留空 |
+| `没有 coveredBy 字段` | 决策表覆盖关系写 `scenarios`，值是场景 ID |
+| `生成任务超过 7 条` | 先拆任务，再跑 `slice_inputs.py`，然后才冻结计划 |
 | `evidenceRef 必须是分号拼接的字符串` | 写成 `文件:起-止`，两条用 `;` 连接。不要写成 JSON 数组 |
 | `sources 必须原样复制` | 使用任务包 `copyVerbatim.sources`，三个任务写同一份 |
 | `缺少 sourceIds` / `缺少 reason` / `missing schemaVersion` | 按任务包 `requiredFields` 和 `sample` 补字段。reviewRef、approvalRef 留空字符串 |

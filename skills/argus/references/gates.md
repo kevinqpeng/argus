@@ -62,7 +62,7 @@
 
 ## 门禁五：计时与报告（阶段 8）
 
-- `manifest.timing` 按阶段记录墙钟与等待时间：输入、目标探测、影响探索、用例生成、人工评审等待、执行、诊断与修复、发布。
+- `manifest.timing` 按阶段记录墙钟与等待时间：输入、目标探测、影响探索、用例生成、计划门禁、人工评审等待、执行、诊断与修复、发布。设计交付另记 `presentation`。用 `python3 <本目录>/../scripts/timing.py <runDir> stamp --stage <阶段> --event start|end` 写入开始和结束。阶段名用 `input`、`targetProbe`、`exploration`、`generation`、`planGate`、`caseReview`、`execution`、`diagnosis`、`publish`，外加 `presentation`。没跑过的阶段不要补时间，不从会话记录反推。
 - 报告必须给出计划/执行/通过分子分母、失败处置、门禁状态、阶段耗时与最慢环节；无法采集标 `unknown`，不估算。
 - 出现"某阶段耗时显著高于同类阶段"时，报告写明原因归类：调度未并行、每用例重复冷启动、失败重试、真实业务等待、真实诊断。
 

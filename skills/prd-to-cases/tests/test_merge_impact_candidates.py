@@ -234,6 +234,43 @@ class CollectTest(unittest.TestCase):
             self.assertEqual(empty.returncode, 2)
             self.assertEqual(json.loads(empty.stdout)["empty"], ["cases/exploration/A/1.json"])
 
+    def test_packet_requires_ac_ids_when_the_catalog_is_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            baseline = root / "baseline"
+            run = root / "run"
+            baseline.mkdir()
+            (run / "cases/sources").mkdir(parents=True)
+            (baseline / "A.java").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+            (run / "cases/sources/prd.md").write_text("规则原文\n", encoding="utf-8")
+            (run / "cases/acs.json").write_text(
+                json.dumps([{"acId": "AC-1", "text": "驳回后从起点重新审批"}]), encoding="utf-8")
+            plan = {"schemaVersion": 1, "inputHash": "snapshot", "tasks": [{
+                "taskId": "A", "attempt": 1, "objectIds": ["O1"],
+                "windows": [{"objectId": "O1", "refs": ["A.java:1-1", "A.java:2-2", "A.java:3-3", "A.java:4-4"]}]}]}
+            plan_path = root / "plan.json"
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            packet_path = run / "cases/exploration/packets/A.json"
+            created = subprocess.run(
+                [sys.executable, str(Path(merge.__file__).with_name("generation.py")), "packet",
+                 "--task", "A", "--plan", str(plan_path), "--baseline", str(baseline),
+                 "--run", str(run), "--prd", "cases/sources/prd.md", "--source-id", "PRD",
+                 "--out", str(packet_path)], capture_output=True, text=True)
+            self.assertEqual(created.returncode, 0, created.stderr)
+            packet = json.loads(packet_path.read_text(encoding="utf-8"))
+            self.assertEqual(packet["acCatalog"][0]["acId"], "AC-1")
+            self.assertEqual(packet["sample"]["obligations"][0]["acIds"], ["AC-1"])
+            self.assertEqual(merge.check_receipt(packet, packet["sample"]), [])
+            empty = json.loads(json.dumps(packet["sample"]))
+            empty["obligations"][0]["acIds"] = []
+            empty["obligations"][0]["reviewStatus"] = "draft"
+            self.assertTrue(any("当场写 acIds" in item for item in merge.check_receipt(packet, empty)))
+            unknown = json.loads(json.dumps(packet["sample"]))
+            unknown["obligations"][0]["reviewStatus"] = "needs_clarification"
+            unknown["obligations"][0]["expected"] = ""
+            unknown["obligations"][0]["acIds"] = []
+            self.assertEqual(merge.check_receipt(packet, unknown), [])
+
     def test_the_sample_shows_the_handoff_fields_the_checker_requires(self):
         plan = {"schemaVersion": 1, "inputHash": "h", "tasks": [{"taskId": "A", "attempt": 1,
                                                                    "objectIds": ["O1"]}]}

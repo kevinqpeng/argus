@@ -24,6 +24,9 @@ class SourceUnitsTest(unittest.TestCase):
             units.convert(text + "U1\tS1\t原文\tprd:1\tcovered\t\tbecause\tref\n")
         with self.assertRaises(ValueError):
             units.convert(HEADER + "\nU2\tS1\t原文\tprd:1\tmaybe\t\tbecause\tref\n")
+        with self.assertRaises(ValueError) as span:
+            units.convert(HEADER + "\nU3\tS1\t原文\tprd:1-4\tcovered\t\tbecause\tref\n")
+        self.assertIn("evidence span > 3 lines", str(span.exception))
 
     def test_cli_writes_once(self):
         with tempfile.TemporaryDirectory() as tmp:

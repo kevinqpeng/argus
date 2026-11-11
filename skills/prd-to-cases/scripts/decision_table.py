@@ -112,6 +112,8 @@ def row_errors(row, names, index):
     if status not in STATUSES:
         errors.append(f"{label} status 非法：{status}")
         return errors
+    if "coveredBy" in row:
+        errors.append(f"{label} 没有 coveredBy 字段，覆盖关系写 scenarios（场景 ID）")
     if status == "covered":
         if not (row.get("scenarios") or []):
             errors.append(f"{label} 标 covered 但没有场景")
