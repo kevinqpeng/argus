@@ -69,6 +69,7 @@ sourceUnits 与 checks 共用以下处置字段：
 ## 3. 确认测试义务与预期
 
 obligations 每项表示一个独立业务规则，保存 obligationId、sourceIds、text、expected、acIds、reviewStatus、approvalRef。未知预期可先留空并标 needs_clarification，进入待确认清单；进入冻结基线前每项都必须 approved、预期明确并映射 AC。approvalRef 指向适用的既有权威规则或真实业务确认；仅有代码现状、模型结论或“reviewed”标签不算业务依据。复用已确认规则无需重复询问。
+路径、节点或分支会变的义务（驳回后重新发起、从当前节点继续、换版重审、加签或转办后重审）另写 `anchors`：`{"start": "B0"}` 给出变更后新路径的第一个节点身份，可选 `path`（完整节点序列）与 `exclude`（新路径不再包含的节点），来源确实没给节点身份时写 `{"waiver": "…"}` 并说明节点清单取自哪里（不少于 20 字）。没有 `start` 也没有 `waiver` 的义务由 `assertion_check.py` 阻断——否则断言只能写「从流程起点重新审批」这类代词，换成换版、分支变化、加签之后就没有鉴别力。`start` 给了，覆盖该义务的用例断言里必须出现这个标识。
 
 ### 义务与 AC 双向核对
 
