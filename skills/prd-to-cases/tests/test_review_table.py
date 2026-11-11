@@ -254,12 +254,32 @@ class ReviewTableTest(unittest.TestCase):
                              '节点 C 的待办分别发给甲、乙，任一人通过即可',
                              '通过后甲、乙均无节点 C 待办，仅追加本轮持有人的一条通过记录',
                              '原 A、B 通过及甲驳回记录保留，处理人与意见不变'])
+        row.update(title='甲、乙都收到待办，任一人通过即可',
+                   fixtures=['开关已开启。节点 C 为甲、乙，任一人通过即可',
+                             'A、B 已通过，当前在 C'],
+                   steps=['甲选择「从当前节点继续审批」驳回',
+                          '发起人再次提交',
+                          '分别查看甲、乙的待办'],
+                   expected=['甲、乙各收到一条节点 C 待办，任一人通过即可',
+                             '通过后两人都没有这条待办',
+                             '流转记录仍有 A、B 的通过和甲的驳回'])
         self.assertEqual(module.presentation_issues({'cases': [row]}, source), [])
-        row['stepSources'] = [['S1'], ['S2'], ['S3', 'S4'], ['S5']]
+        row['steps'] = ['新建后读回，开关是关闭，版本号为 1']
+        self.assertTrue(any('读回' in issue for issue in module.presentation_issues({'cases': [row]}, source)))
+        row['steps'] = ['甲选择「从当前节点继续审批」驳回',
+                        '发起人再次提交',
+                        '分别查看甲、乙的待办']
+        row['expected'] = ['待办中有该单 1 条']
+        self.assertTrue(any('1 条' in issue for issue in module.presentation_issues({'cases': [row]}, source)))
+        row['expected'] = ['甲、乙各收到一条节点 C 待办，任一人通过即可',
+                           '通过后两人都没有这条待办',
+                           '流转记录仍有 A、B 的通过和甲的驳回']
+        row['stepSources'] = [['S1'], ['S2'], ['S3', 'S4', 'S5']]
+        row['expectedSources'] = [[0], [1], [2, 3, 4]]
         errors = []
         units = module.normalize({'cases': [row]}, source, errors)
         self.assertEqual(errors, [])
-        self.assertEqual(units[0]['expectedSources'], [[i] for i in range(5)])
+        self.assertEqual(units[0]['expectedSources'], [[0], [1], [2, 3, 4]])
         self.assertEqual(len(source['cases'][0]['steps']), 5)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'review.xlsx'
@@ -271,9 +291,9 @@ class ReviewTableTest(unittest.TestCase):
             sheet = rendered['用例主表']
             self.assertEqual(sheet['D2'].value, module.numbered(row['steps']))
             self.assertEqual(sheet['E2'].value, module.numbered(row['expected']))
-            self.assertIn('分别发给甲、乙', sheet['E2'].value)
+            self.assertIn('各收到一条', sheet['E2'].value)
             self.assertEqual(sheet['F2'].value, '未测试')
-            self.assertEqual(mapping['cases'][0]['stepMapping'][2]['sourceStepIds'], ['S3', 'S4'])
+            self.assertEqual(mapping['cases'][0]['stepMapping'][2]['sourceStepIds'], ['S3', 'S4', 'S5'])
             rendered.close()
 
     def test_density_exception_needs_specific_source_evidence(self):
@@ -371,7 +391,9 @@ class ReviewTableTest(unittest.TestCase):
             self.assertIn('--cases-only', case_rows[0]['checkCommand'])
             self.assertIn('--notes-only', slices[-1]['checkCommand'])
             self.assertIn('--parse-only', case_rows[0]['probeCommand'])
-            self.assertEqual(body['lineBudgets']['fixtures'], 6)
+            self.assertEqual(body['lineBudgets']['fixtures'], 4)
+            self.assertEqual(body['lineBudgets']['steps'], 5)
+            self.assertEqual(body['lineBudgets']['expected'], 10)
             self.assertEqual(body['cap'], 4)
             probed = subprocess.run(shlex.split(case_rows[0]['probeCommand']), capture_output=True, text=True)
             self.assertEqual(probed.returncode, 0, probed.stderr)

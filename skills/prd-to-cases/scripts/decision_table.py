@@ -20,6 +20,9 @@ assumption（本轮采用的合并口径），由用例按该口径执行，不�
    "reason": "为什么 Not applicable / out_of_scope / unknown",
    "risk": "high", "assumption": "medium/low 时的合并口径"}
 
+expansions 四类各一条：surface、subtype、both-arms、identity。
+不适用写 waiver（20 字以上）。写法在影响探索「展开四类」。
+
 values 可以只写部分轴，少写就是「管这一片」：{"重新审批方式": "驳回后重新发起"}
 一条顶掉这条轴上所有角色的格子，格子的数量由轴相乘得出，不靠人手写。
 一格同时命中多条时，限定的轴越多的越具体、优先；两条同级口径同时命中
@@ -43,6 +46,7 @@ MAX_CELLS = 400
 RISKS = ("high", "medium", "low")
 # 组合级字段：covered 行必须能独立判定，负面含义的字段允许留空。
 JUDGEMENT = ("sideEffects", "notExpectedToChange", "illegalTransitions")
+EXPANSIONS = ("surface", "subtype", "both-arms", "identity")
 
 
 def load(run, name, required=True):
@@ -187,6 +191,8 @@ def table_errors(table, cases=None):
                           f"{[item.get('values') for item in tied]}；补一条更具体的行")
         else:
             errors.append(f"决策表组合未裁定：{combo}；写一行，或用 defaults 给维度级口径")
+    errors.extend(expansion_errors(table, cases))
+    errors.extend(borrowed_coverage(table))
     covered = scenarios_of(table)
     if cases is not None:
         for scenario_id in sorted(covered):
@@ -249,6 +255,172 @@ def unknown_combos(table, names):
     cells, _ = cells_of(table)
     return {tuple(cell["values"].get(name) for name in names)
             for cell in cells if cell["status"] == "unknown"}
+
+
+def value_homes(table):
+    """取值出现在哪些轴上。展开项点名的取值必须在轴上，才会进入分母。"""
+    homes = {}
+    for axis in table.get(DIMENSIONS) or []:
+        for value in axis.get("values") or []:
+            homes.setdefault(value, set()).add(axis.get("name"))
+    return homes
+
+
+def expansion_errors(table, cases=None):
+    """四类展开各一条。适用就写成轴上的取值；不适用写够字数的豁免。"""
+    entries = table.get("expansions")
+    if not isinstance(entries, list):
+        return ["展开项缺失：expansions 要有 surface、subtype、both-arms、identity 各一条，"
+                "或各写 20 字以上的豁免"]
+    by_kind, errors = {}, []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            errors.append(f"展开项第 {index + 1} 条不是对象")
+            continue
+        kind = entry.get("kind")
+        if kind not in EXPANSIONS:
+            errors.append(f"展开项第 {index + 1} 条 kind 非法：{kind}（可用：{'、'.join(EXPANSIONS)}）")
+            continue
+        if kind in by_kind:
+            errors.append(f"展开项重复：{kind}")
+            continue
+        by_kind[kind] = entry
+    for kind in EXPANSIONS:
+        if kind not in by_kind:
+            errors.append(f"展开项缺失：{kind}；补这一类的轴取值，或写 20 字以上的豁免")
+    homes = value_homes(table)
+    known = scenario_ids(cases) if cases is not None else None
+    checkers = {"surface": lambda entry: surface_errors(entry, known),
+                "subtype": lambda entry: subtype_errors(entry, homes),
+                "both-arms": lambda entry: both_arms_errors(entry, table),
+                "identity": lambda entry: identity_errors(entry, homes)}
+    for kind, entry in by_kind.items():
+        waiver = entry.get("waiver")
+        if explained(waiver):
+            continue
+        if str(waiver or "").strip():
+            errors.append(f"展开项 {kind}：豁免不足 {MIN_REASON} 字，写清查过什么；"
+                          f"要展开就删掉 waiver，改成这一类的取值")
+            continue
+        errors.extend(checkers[kind](entry))
+    return errors
+
+
+def scenario_ids(cases):
+    found = set()
+    for row in cases or []:
+        found.update(row.get("scenarioIds") or ([row["scenarioId"]] if row.get("scenarioId") else []))
+    return found
+
+
+def surface_errors(entry, known):
+    """可见项各占一个场景，不乘进笛卡尔积。"""
+    label = str(entry.get("object") or "").strip()
+    items = entry.get("items")
+    if not label:
+        return ["展开项 surface：写 object，点名这个页面、弹窗或表单"]
+    if not isinstance(items, list) or not items:
+        return [f"展开项 surface：{label} 的每条文案、说明、可填字段、字数和按钮各写 {{name, scenario}}"]
+    errors, seen = [], {}
+    for index, item in enumerate(items):
+        name = str(item.get("name") or "").strip() if isinstance(item, dict) else ""
+        scenario = str(item.get("scenario") or "").strip() if isinstance(item, dict) else ""
+        if not name or not scenario:
+            errors.append(f"展开项 surface：{label} 第 {index + 1} 项要写 name 和 scenario")
+            continue
+        seen.setdefault(scenario, []).append(name)
+        if known is not None and scenario not in known:
+            errors.append(f"展开项 surface：场景 {scenario} 没有用例（{name}）")
+    for scenario, names in sorted(seen.items()):
+        if len(names) > 1:
+            errors.append(f"展开项 surface：场景 {scenario} 同时负责 {'、'.join(names)}；每一项单独一个场景")
+    return errors
+
+
+def subtype_errors(entry, homes):
+    parent = str(entry.get("parent") or "").strip()
+    evidence = str(entry.get("evidence") or "").strip()
+    values = list(entry.get("values") or [])
+    who = parent or "未命名"
+    if not parent:
+        return ["展开项 subtype：写 parent，点名被拆开的那个对象"]
+    if not evidence:
+        return [f"展开项 subtype：{who} 写 evidence，文件:行号，或用「检索无命中」开头并写检索范围"]
+    if evidence.startswith("检索无命中"):
+        present = values or [parent]
+        return [f"展开项 subtype：取值不在任何维度上：{value}；把它留在轴上"
+                for value in present if value not in homes]
+    if not _file_ref(evidence):
+        return [f"展开项 subtype：{who} 的 evidence 要写 文件:行号，或用「检索无命中」开头"]
+    if len(values) < 2:
+        if explained(entry.get("sameOutcome")):
+            return []
+        return [f"展开项 subtype：{who} 的代码已拆开，values 至少两个并写上轴；"
+                f"结果确实相同就写 20 字以上的 sameOutcome"]
+    return [f"展开项 subtype：取值不在任何维度上：{value}；加进轴，每个取值单独写场景"
+            for value in values if value not in homes]
+
+
+def _file_ref(evidence):
+    path, _, line = evidence.rpartition(":")
+    return bool(path.strip()) and line.strip().isdigit()
+
+
+def both_arms_errors(entry, table):
+    valid = {axis.get("name"): set(axis.get("values") or []) for axis in table.get(DIMENSIONS) or []}
+    choice = entry.get("choice")
+    cause = entry.get("cause")
+    arms = list(entry.get("arms") or [])
+    if choice not in valid:
+        return [f"展开项 both-arms：choice 要是一条轴的名字：{choice}"]
+    missing = [arm for arm in arms if arm not in valid[choice]]
+    errors = []
+    if len(arms) < 2 or missing:
+        errors.append(f"展开项 both-arms：arms 要是轴「{choice}」上至少两个取值"
+                      + (f"，缺：{'、'.join(missing)}" if missing else ""))
+    cause_axes = [name for name, values in valid.items() if cause in values and name != choice]
+    if not cause_axes:
+        errors.append(f"展开项 both-arms：cause「{cause}」要写在与「{choice}」不同的轴上，"
+                      f"选择和原因才会交叉出格子")
+    return errors
+
+
+def identity_errors(entry, homes):
+    target = str(entry.get("target") or "").strip()
+    values = list(entry.get("values") or [])
+    who = target or "未命名"
+    errors = []
+    if not target:
+        errors.append("展开项 identity：写 target，点名被找回的原对象")
+    if len(values) < 3:
+        errors.append(f"展开项 identity：{who} 要有三个取值：仍能找到并沿用、标识改了找不到、定义换了找不到")
+    errors.extend(f"展开项 identity：取值不在任何维度上：{value}；加进轴，每个取值单独写场景"
+                  for value in values if value not in homes)
+    return errors
+
+
+def borrowed_coverage(table):
+    """一个场景只能证明一个取值。把它同时标到互斥取值上，格子会显示已覆盖，用例里却没有这个人。"""
+    cells, _ = cells_of(table)
+    candidates = list(table.get("rows") or []) + list(table.get("defaults") or [])
+    by_scenario = {}
+    for cell in cells:
+        if cell.get("status") != "covered":
+            continue
+        source = pick(cell["values"], candidates) or {}
+        for scenario_id in source.get("scenarios") or []:
+            by_scenario.setdefault(scenario_id, []).append(cell["values"])
+    errors = []
+    for scenario_id, combos in sorted(by_scenario.items()):
+        for name in names_of(table):
+            present = sorted({combo.get(name) for combo in combos if combo.get(name) is not None})
+            if len(present) <= 1:
+                continue
+            errors.append(
+                f"场景 {scenario_id} 同时覆盖互斥取值 {name}={'、'.join(present)}；"
+                f"每个取值单独写场景，用例里要做这个取值对应的操作和结果")
+            break
+    return errors
 
 
 def scenarios_of(table):

@@ -63,10 +63,18 @@ SLICE_CAP = 4
 # 条数硬上限之外的内容预算：四条短用例仍是一片；步骤和断言多的用例提前换片。
 SLICE_WEIGHT = 24
 # 评审密度独立于 Excel 的 409 pt 容量；超预算需来源支持的逐字段例外。
+# 行数上限取自人工评审能扫读的标准表：前置 4 行、步骤 5 行、预期 10 行
+# （预期含「从哪开始 + 流转记录」列表）。再长就拆用例，不靠例外堆进一行。
 REVIEW_LINE_BUDGET = {
-    'title': (WIDTH_MAIN[1], 2), 'fixtures': (WIDTH_MAIN[2], 6),
-    'steps': (WIDTH_MAIN[3], 10), 'expected': (WIDTH_MAIN[4], 12),
+    'title': (WIDTH_MAIN[1], 2), 'fixtures': (WIDTH_MAIN[2], 4),
+    'steps': (WIDTH_MAIN[3], 5), 'expected': (WIDTH_MAIN[4], 10),
 }
+# 这些字样留在 cases.json。主表用业务短句；例外放行不了。
+FATIGUE = re.compile(
+    r"读回|版本号|记下|流程实例编号|配置接口|接口返回|请求体|观察请求|"
+    r"第\s*\d+\s*条|\d+\s*条|待测模型|尚未创建"
+)
+NOTE_FATIGUE = re.compile(r"\b(?:null|false|true)\b|字段名|接口|请求体|YFXT\d|caseId", re.I)
 
 # 人员评审表里一律不出现的执行细节；technicalExceptions 不能放行。
 ALWAYS_HIDDEN = re.compile(
@@ -120,6 +128,8 @@ def presentation_issues(content, source):
             values = values if isinstance(values, list) else [values]
             for index, value in enumerate(values, 1):
                 text = str(value)
+                for match in FATIGUE.finditer(text):
+                    issues.append(f"{row['caseId']} {field}[{index}]: 评审表不写「{match.group()}」，改成业务短句")
                 for match in ALWAYS_HIDDEN.finditer(text):
                     issues.append(f"{row['caseId']} {field}[{index}]: {match.group()}")
                 for match in TECHNICAL.finditer(text):
@@ -133,6 +143,8 @@ def presentation_issues(content, source):
     for index, note in enumerate(content.get('notes') or [], 1):
         for field in ('category', 'question', 'action'):
             text = str(note.get(field, ''))
+            for match in NOTE_FATIGUE.finditer(text):
+                issues.append(f"notes[{index}] {field}: 待确认不写「{match.group()}」")
             for match in ALWAYS_HIDDEN.finditer(text):
                 issues.append(f"notes[{index}] {field}: {match.group()}")
             for match in TECHNICAL.finditer(text):

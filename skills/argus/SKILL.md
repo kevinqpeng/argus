@@ -62,7 +62,7 @@ Web 与移动端目标配置按 [私有工作区](../setup-argus/references/stor
 - 用例与脚本按 [共享调度](references/scheduling.md) 规划任务并动态领取，分两阶段、不混批：本阶段**只生成用例**（按 prd-to-cases 的分组契约分配场景，worker 用步骤 TSV 经 emit_cases.py 产出 cases.json，另写 notes.md），脚本等人工评审批准后按批准用例分批生成（见 4.2）。主 Agent 负责依赖核查、宿主调度、失败重派和最终合并；子 Agent 写完分片文件后运行 `generation.py --seal` 生成 result.json。生成完整性未通过时交付缺口，全部生成任务完成后才能进入评审表。
 - 调度证据是产物的一部分：影响探索写 `cases/exploration.md`（方式判定、依据、任务与回执），生成写 `cases/generation/plan.json`、`state.json` 和每个任务 `result.json`。主会话直接写出 `cases.json` 而无任何任务回执时，产物无效，按 [门禁二](references/gates.md#门禁二并行调度阶段-3进入阶段-4-前必须-passed) BLOCKED。宿主无子 Agent 能力或冻结角色不可调用时保持 BLOCKED，主会话不能冒充。
 - 基线冻结前按 [形式化路由](../decision-router/references/formal-routing.md) 按需调用 [TLA+ 子技能](skills/formal-verification/SKILL.md)，把模型反例和边界义务交回 prd-to-cases。形式化检查是用例设计分析，真实回放仍走第 4.1 与第 5 阶段。
-- 合并后按 prd-to-cases 第 5 节对照原文补上已明确的遗漏用例及断言。然后按 [评审表生成契约](../prd-to-cases/references/review-table.md) 出评审表并运行 `phase_gate.py --phase presentation`。主表给人员评审：不写申请单号、与本例结论无关的造数标签，也不写接口、字段和请求体；这些留在 cases.json。预期只写要核对的变化，同一不变量只写一次。缺陷探测型用例按 PRD 写断言，不按实测行为写。
+- 合并后按 prd-to-cases 第 5 节对照原文补上已明确的遗漏用例及断言。然后按 [评审表生成契约](../prd-to-cases/references/review-table.md) 出评审表并运行 `phase_gate.py --phase presentation`。主表一句一个结论，句式用该契约的扫读例句：前置写当前状态，步骤写谁做什么，路径写「从哪开始、按照哪条链」，记录写成短列表。申请单号、造数标签、读回、第几条、版本号、接口和请求体留在 cases.json。展示检查拒绝这些字样。缺陷探测型用例按 PRD 写断言，不按实测行为写。
 - 范围内业务义务预期未明确、影响分析缺口或未授权关联范围写入待确认事项并阻断全量执行；评审表照常交付。不通过删除义务提高覆盖。
 
 ## 4. 交给人工评审

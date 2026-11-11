@@ -20,8 +20,17 @@ def row(role, way, status="covered", **extra):
     return {"values": {"角色": role, "方式": way}, "status": status, **extra}
 
 
+WAIVERS = [
+    {"kind": "surface", "waiver": "本表没有来源点名的界面文案、随选项变化的说明、可选字段或字数上限"},
+    {"kind": "subtype", "waiver": "本表角色已是最细取值，检索后没有再拆开的子类型"},
+    {"kind": "both-arms", "waiver": "本表没有第二条会改变结果的原因，选择轴本身已经完整"},
+    {"kind": "identity", "waiver": "本表的规则不按标识回找变更前的原对象，没有改名或替换后的查找"},
+]
+
+
 def table(rows, defaults=None):
-    return {"schemaVersion": 1, "dimensions": AXES, "rows": rows, "defaults": defaults or []}
+    return {"schemaVersion": 1, "dimensions": AXES, "rows": rows, "defaults": defaults or [],
+            "expansions": WAIVERS}
 
 
 def build(root, rows, cases=None, defaults=None):
@@ -94,25 +103,22 @@ class CheckTest(unittest.TestCase):
         errors = json.loads(result.stdout)["errors"]
         self.assertTrue(any("多个同级口径" in item for item in errors), errors)
 
-    def test_a_partial_row_covers_its_whole_slice(self):
+    def test_a_partial_covered_row_cannot_stand_in_for_every_value(self):
         build(self.root, [{"values": {"方式": "重新发起"}, "status": "covered",
                            "scenarios": ["SCN-01"], "expected": "弹窗出现两种重新审批方式"},
                           {"values": {"方式": "继续审批"}, "status": "out_of_scope",
                            "reason": "本轮不含从当前节点继续审批的改造，该方式沿用基线行为"}],
               cases=[{"caseId": "CASE-01", "scenarioId": "SCN-01"}])
         result = run(self.root)
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(json.loads(result.stdout)["cells"], 4)
-        done = run(self.root, "expand")
-        self.assertEqual(done.returncode, 0, done.stdout)
-        matrix = json.loads((Path(self.root) / "cases/coverage-matrix.json").read_text(encoding="utf-8"))
-        covered = [cell for cell in matrix["cells"] if cell["status"] == "covered"]
-        self.assertEqual(len(covered), 2)
-        self.assertTrue(all(cell["caseIds"] == ["CASE-01"] for cell in covered))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("互斥取值", result.stdout)
+        self.assertIn("角色", result.stdout)
 
     def test_the_more_specific_row_wins_over_the_slice(self):
-        build(self.root, [{"values": {"方式": "重新发起"}, "status": "covered",
+        build(self.root, [{"values": {"角色": "原审批人", "方式": "重新发起"}, "status": "covered",
                            "scenarios": ["SCN-01"], "expected": "弹窗出现两种重新审批方式"},
+                          {"values": {"角色": "转办接手人", "方式": "重新发起"}, "status": "covered",
+                           "scenarios": ["SCN-02"], "expected": "转办接手人重新发起后从起点审批，路径不含接手人"},
                           {"values": {"方式": "继续审批"}, "status": "out_of_scope",
                            "reason": "本轮不含从当前节点继续审批的改造，该方式沿用基线行为"},
                           {"values": {"角色": "转办接手人", "方式": "继续审批"},
@@ -126,7 +132,7 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(report["counts"]["unknown"], 1)
         self.assertEqual(len(report["pendingReview"]), 1)
 
-    def test_one_table_entry_can_hold_fifteen_cells(self):
+    def test_one_scenario_cannot_cover_fifteen_cells(self):
         write(self.root, "decision-table.json", {
             "schemaVersion": 1,
             "dimensions": [{"name": "角色", "values": ["普通审批人", "转办接手人", "加签处理人"]},
@@ -149,16 +155,13 @@ class CheckTest(unittest.TestCase):
             "defaults": [{"values": {"方式": "继续审批", "开关": "开启"}, "status": "out_of_scope",
                           "reason": "PRD 未给出路径变化或新增节点后的归属规则，本轮无验收标的"},
                          {"values": {"方式": "继续审批", "开关": "关闭"}, "status": "out_of_scope",
-                          "reason": "开关关闭的实例不出现两种重新审批方式，与基线一致"}]})
+                          "reason": "开关关闭的实例不出现两种重新审批方式，与基线一致"}],
+            "expansions": WAIVERS})
         result = run(self.root)
-        self.assertEqual(result.returncode, 0, result.stdout)
-        report = json.loads(result.stdout)
-        self.assertEqual(report["cells"], 60)
-        self.assertEqual(len(report["unregistered"]), 0)
-        # 6 条登记（4 行 + 2 条 defaults）管住 60 格
-        self.assertEqual(report["counts"]["covered"], 35)
-        self.assertEqual(report["counts"]["unknown"], 1)
-        self.assertEqual(report["counts"]["out_of_scope"], 24)
+        self.assertEqual(result.returncode, 2)
+        errors = json.loads(result.stdout)["errors"]
+        self.assertTrue(any("SCN-01" in item and "互斥取值" in item for item in errors), errors)
+        self.assertTrue(any("SCN-03" in item and "路径" in item for item in errors), errors)
 
     def test_covered_row_needs_scenario_and_expected(self):
         build(self.root, [row("原审批人", "重新发起", expected="出现两种方式")])
@@ -191,6 +194,102 @@ class CheckTest(unittest.TestCase):
         build(self.root, [row("原审批人", "重新发起", scenarios=["SCN-01"], expected="e")], cases=[])
         errors = json.loads(run(self.root).stdout)["errors"]
         self.assertTrue(any("没有用例" in item for item in errors), errors)
+
+    def test_a_table_without_expansions_is_blocked(self):
+        data = table([row("原审批人", "重新发起", scenarios=["SCN-01"], expected="出现两种方式"),
+                      row("原审批人", "继续审批", "out_of_scope", reason="本轮不含从当前节点继续审批的改造，该方式沿用基线行为"),
+                      row("转办接手人", "重新发起", "out_of_scope", reason="转办接手人不在本轮角色范围内，PRD 没有要求覆盖该角色"),
+                      row("转办接手人", "继续审批", "out_of_scope", reason="本轮不含从当前节点继续审批的改造，该方式沿用基线行为")])
+        data.pop("expansions")
+        write(self.root, "decision-table.json", data)
+        errors = json.loads(run(self.root).stdout)["errors"]
+        self.assertTrue(any("展开项缺失" in item and "surface" in item for item in errors), errors)
+
+    def test_a_short_expansion_waiver_is_blocked(self):
+        data = table([row("原审批人", "重新发起", scenarios=["SCN-01"], expected="出现两种方式"),
+                      row("原审批人", "继续审批", "out_of_scope", reason="本轮不含从当前节点继续审批的改造，该方式沿用基线行为"),
+                      row("转办接手人", "重新发起", "out_of_scope", reason="转办接手人不在本轮角色范围内，PRD 没有要求覆盖该角色"),
+                      row("转办接手人", "继续审批", "out_of_scope", reason="本轮不含从当前节点继续审批的改造，该方式沿用基线行为")])
+        data["expansions"] = [dict(item) for item in WAIVERS]
+        data["expansions"][0] = {"kind": "surface", "waiver": "没有界面"}
+        write(self.root, "decision-table.json", data)
+        errors = json.loads(run(self.root).stdout)["errors"]
+        self.assertTrue(any("豁免不足" in item and "surface" in item for item in errors), errors)
+
+    def test_subtype_values_must_sit_on_an_axis(self):
+        data = _closed()
+        data["expansions"] = [dict(item) for item in WAIVERS]
+        data["expansions"][1] = {"kind": "subtype", "parent": "加签处理人",
+                                 "values": ["向前加签", "向后加签"], "evidence": "SignType.java:12"}
+        write(self.root, "decision-table.json", data)
+        errors = json.loads(run(self.root).stdout)["errors"]
+        self.assertTrue(any("向前加签" in item and "不在任何维度" in item for item in errors), errors)
+
+    def test_both_arms_cause_needs_its_own_axis(self):
+        data = _closed()
+        data["expansions"] = [dict(item) for item in WAIVERS]
+        data["expansions"][2] = {"kind": "both-arms", "choice": "方式", "cause": "分支已改",
+                                 "arms": ["重新发起", "继续审批"]}
+        write(self.root, "decision-table.json", data)
+        errors = json.loads(run(self.root).stdout)["errors"]
+        self.assertTrue(any("cause" in item and "不同的轴" in item for item in errors), errors)
+
+    def test_surface_items_each_need_a_scenario_with_a_case(self):
+        data = _closed()
+        data["expansions"] = [dict(item) for item in WAIVERS]
+        data["expansions"][0] = {"kind": "surface", "object": "驳回弹窗", "items": [
+            {"name": "选中方式的说明", "scenario": "SCN-12"},
+            {"name": "抄送人", "scenario": "SCN-12"},
+            {"name": "驳回意见五百字", "scenario": "SCN-13"}]}
+        write(self.root, "decision-table.json", data)
+        write(self.root, "cases.json", [{"caseId": "CASE-01", "scenarioId": "SCN-01"}])
+        errors = json.loads(run(self.root).stdout)["errors"]
+        self.assertTrue(any("SCN-12" in item and "同时负责" in item for item in errors), errors)
+        self.assertTrue(any("SCN-13" in item and "没有用例" in item for item in errors), errors)
+
+    def test_lookup_miss_keeps_one_parent_value(self):
+        data = _closed()
+        data["expansions"] = [dict(item) for item in WAIVERS]
+        data["expansions"][1] = {"kind": "subtype", "parent": "转办接手人",
+                                 "evidence": "检索无命中：SignType 与按钮文案"}
+        write(self.root, "decision-table.json", data)
+        result = run(self.root)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_four_expansions_pass_when_values_sit_on_axes(self):
+        dimensions = [{"name": "角色", "values": ["原审批人", "向前加签", "向后加签"]},
+                      {"name": "方式", "values": ["重新发起", "继续审批"]},
+                      {"name": "原因", "values": ["分支未改", "分支已改"]},
+                      {"name": "原节点", "values": ["仍能找到并沿用", "标识改名后找不到", "定义被替换后找不到"]}]
+        reason = "这一片沿用基线行为，本轮没有单独的规则变化"
+        write(self.root, "decision-table.json", {
+            "schemaVersion": 1,
+            "dimensions": dimensions,
+            "rows": [{"values": {"角色": "向前加签", "方式": "重新发起", "原因": "分支已改",
+                                 "原节点": "仍能找到并沿用"},
+                      "status": "covered", "scenarios": ["SCN-02"],
+                      "expected": "分支改完后重新发起，走新分支"}],
+            "defaults": [{"values": {"角色": role}, "status": "not_applicable", "reason": reason}
+                         for role in ("原审批人", "向前加签", "向后加签")],
+            "expansions": [
+                {"kind": "surface", "object": "驳回弹窗", "items": [
+                    {"name": "选中方式的说明", "scenario": "SCN-12"}]},
+                {"kind": "subtype", "parent": "加签处理人", "values": ["向前加签", "向后加签"],
+                 "evidence": "SignType.java:12"},
+                {"kind": "both-arms", "choice": "方式", "cause": "分支已改",
+                 "arms": ["重新发起", "继续审批"]},
+                {"kind": "identity", "target": "原驳回节点",
+                 "values": ["仍能找到并沿用", "标识改名后找不到", "定义被替换后找不到"]},
+            ]})
+        result = run(self.root)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+
+def _closed():
+    return table([row("原审批人", "重新发起", scenarios=["SCN-01"], expected="出现两种方式"),
+                  row("原审批人", "继续审批", "out_of_scope", reason="本轮不含从当前节点继续审批的改造，该方式沿用基线行为"),
+                  row("转办接手人", "重新发起", "out_of_scope", reason="转办接手人不在本轮角色范围内，PRD 没有要求覆盖该角色"),
+                  row("转办接手人", "继续审批", "out_of_scope", reason="本轮不含从当前节点继续审批的改造，该方式沿用基线行为")])
 
 
 class ExpandTest(unittest.TestCase):
@@ -234,7 +333,8 @@ class ExpandTest(unittest.TestCase):
                      {"values": {"方式": "继续审批"}, "status": "unknown", "risk": "low",
                       "reason": "PRD 没有写继续审批的入口位置，但入口位置不改变验收结论",
                       "assumption": "按基线行为放在同一驳回弹窗内"}],
-            "defaults": []})
+            "defaults": [],
+            "expansions": WAIVERS})
         write(self.root, "cases.json", [{"caseId": "CASE-01", "scenarioId": "SCN-01"}])
         result = run(self.root, "expand")
         self.assertEqual(result.returncode, 0, result.stdout)
