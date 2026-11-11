@@ -306,7 +306,10 @@ class ReviewTableTest(unittest.TestCase):
             def sha(ref):
                 return hashlib.sha256((root / ref).read_bytes()).hexdigest()
             write('manifest.json', json.dumps({'presentation': {'round': 1}}))
-            files = {'cases.json': [{'caseId': 'C1', 'suite': 'ui'}],
+            files = {'cases.json': [{'caseId': 'C1', 'suite': 'ui',
+                                     'steps': [{'id': 'S1', 'kind': 'action', 'action': '保存配置'}],
+                                     'assertions': [{'stepId': 'S1',
+                                                     'expected': '重新进入页面后开关仍为开启'}]}],
                      'scenarios.json': [], 'acs.json': [], 'impact-analysis.json': {}}
             for name, data in files.items():
                 write('cases/' + name, json.dumps(data))
@@ -459,6 +462,70 @@ class ReviewTableTest(unittest.TestCase):
                                       capture_output=True, text=True)
             self.assertEqual(rejected.returncode, 2, rejected.stderr)
             self.assertIn('notes 必须是空数组', rejected.stderr)
+
+    def test_only_decision_notes_reach_workbook(self):
+        """已自查结论与假设不进 Excel，但仍在 mapping 和 cases.md 留痕。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cases = root / 'cases'
+            presentation = cases / 'presentation/1'
+            presentation.mkdir(parents=True)
+            case = {'caseId': 'C1', 'scenarioIds': ['S'], 'suite': 'ui', 'priority': 'P1',
+                    'automationRef': 'spec', 'fixtures': ['已登录'],
+                    'steps': [{'id': 'S1', 'action': '打开页面'}],
+                    'assertions': [{'stepId': 'S1', 'expected': '显示成功'}]}
+            data = {'cases.json': [case], 'scenarios.json': [{'scenarioId': 'S', 'acIds': ['A']}],
+                    'acs.json': [{'acId': 'A'}], 'impact-analysis.json': {'obligations': []}}
+            for name, value in data.items():
+                (cases / name).write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
+            refs = ['impact-analysis.json:obligations[0]']
+            content = {'title': '评审', 'cases': [
+                {'caseId': 'C1', 'group': '审批', 'title': '提交', 'fixtures': ['已登录'],
+                 'steps': ['打开页面'], 'expected': ['显示成功']}],
+                'notes': [
+                    {'category': '驳回记录', 'question': '记录如何展示？', 'action': '请产品确认',
+                     'sourceRefs': refs, 'disposition': 'decision'},
+                    {'category': '动作名称', 'question': '驳回文案是什么？', 'action': '查代码确定',
+                     'sourceRefs': refs, 'disposition': 'resolved_by_code',
+                     'evidenceRef': 'bpm/src/BpmCommentTypeEnum.java:12',
+                     'conclusion': '流转记录沿用既有驳回动作名称，不新增独立枚举值。'},
+                    {'category': '停留时长', 'question': '提示停留多久？', 'action': '按既有实现',
+                     'sourceRefs': refs, 'disposition': 'assumption',
+                     'basis': '既有浮层提示均为三秒，按它写不影响业务结论。',
+                     'falsifier': '产品要求更长时间'}],
+                'notesPlaceholder': None}
+            del content['notesPlaceholder']
+            (presentation / 'content.json').write_text(
+                json.dumps(content, ensure_ascii=False), encoding='utf-8')
+            command = [sys.executable, str(SCRIPT), str(root)]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            workbook = load_workbook(cases / 'cases.xlsx')
+            notes_sheet = workbook['待确认事项']
+            self.assertEqual(notes_sheet.max_row, 2)
+            self.assertEqual(notes_sheet['A2'].value, '驳回记录')
+            mapping = json.loads((presentation / 'mapping.json').read_text(encoding='utf-8'))
+            self.assertEqual([row['disposition'] for row in mapping['notes']],
+                             ['decision', 'resolved_by_code', 'assumption'])
+            self.assertEqual([row.get('sheet') for row in mapping['notes']],
+                             ['待确认事项', None, None])
+            md = (cases / 'cases.md').read_text(encoding='utf-8')
+            self.assertIn('已自查结论与假设', md)
+            self.assertIn('BpmCommentTypeEnum.java:12', md)
+
+            # 分片没带 disposition 时按生成阶段 cases/notes.json 回填，仍只有 decision 进 Excel
+            (cases / 'notes.json').write_text(json.dumps({'schemaVersion': 1, 'notes': [
+                {'category': '驳回记录', 'disposition': 'decision'},
+                {'category': '动作名称', 'disposition': 'resolved_by_code'},
+                {'category': '停留时长', 'disposition': 'assumption'}]}, ensure_ascii=False),
+                encoding='utf-8')
+            for note in content['notes']:
+                note.pop('disposition')
+            (presentation / 'content.json').write_text(
+                json.dumps(content, ensure_ascii=False), encoding='utf-8')
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(load_workbook(cases / 'cases.xlsx')['待确认事项'].max_row, 2)
 
 
 if __name__ == '__main__':

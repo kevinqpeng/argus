@@ -54,6 +54,8 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 派发前，主 Agent 把 [共享契约](shared-contract.md) 原样复制到 `cases/generation/frozen/shared-contract.md`，哈希写入 inputArtifacts，不改写。每个任务写 `acIds`，只列本片 AC。再为每个任务写 `inputs/<taskId>.md` 并列入 inputArtifacts。这一份是该 worker 唯一要读的业务输入。包内只放：本任务场景及其 AC、这些场景的义务预期、分配 caseId 的用例骨架、冻结的共享契约，以及这些 caseId 在影响分析里已经定位的证据窗口（`文件:起始-结束`，每条不超过 3 行）。每个任务包逐项列出关联 AC 的 Given 和 Then，以及分配 caseId；每个 Given 必须落实到 fixtures 或步骤，每个 Then 必须有对应业务断言。场景缺少 AC 关联时，先追溯并补齐；来源没有明确 AC 的，依据原文建立可追溯 AC，规则不明则列待确认，不凭空补预期。任务包附最小有效契约示例：`suite` 只能是 `ui`、`api`、`performance`、`security`；步骤 `kind` 为 `action`、`setup` 或 `cleanup`；仅准备/清理步骤可用非空字符串 `assertionExemption` 说明豁免。按场景和步骤复杂度平衡分组，避免单组明显过重。
 
+任务包同时附 [断言质量](assertion-quality.md) 的四类模板（路径清单、记录四件套、字段与按钮集合、配置界面与服务端取值对照）和禁用措辞表。本片用例涉及路径、记录、弹窗结构或配置保存时，对应模板的断言一条都不能少；模板只约束写法，不改变来源结论，来源没给的集合或条数仍标待确认。worker 写出「符合预期」「状态正常」这类占位措辞即视为未完成。
+
 任务输入同时指出必须保留的数量词、其作用对象及已确认的接收集合；worker 不得把「任一人可以完成」改成「仅一人收到」。整份 PRD、影响分析、场景全集、上一轮全量用例和整篇探索回执留在冻结源里，不放进任务书的阅读清单。
 
 用例正文写在 generation 根目录的 `<taskId>.rows.tsv`。attempt 目录只放计划里的 outputFiles。先写一条用例的步骤，运行 `python3 <本技能>/scripts/emit_cases.py --tsv <taskId>.rows.tsv --ac-ids <本任务 acIds，逗号分隔> --check`。通过后写完本任务的行，再加 `--out <taskId>/<attempt>/cases.json`。然后运行任务书里的 `--seal`。notes.md 仍写在 attempt 目录。表头和报错见 [脚本速查](script-cheatsheet.md)。这几次命令算在 bash 上限里。
@@ -68,13 +70,15 @@ worker 写完 outputFiles 后运行 `python3 <本技能>/scripts/generation.py <
 
 回执另必填 `unresolvedObligations`：无缺口填 `[]`；未覆盖或交给其他组的义务填 `{obligationId, reason}`，新增候选也先分配稳定义务ID。notes 同步解释但不替代此字段。非空或缺字段时 generation.py 阻断。主 Agent 对照原始回执逐项落实到接收任务、场景、caseId和断言；缺失场景按新计划版本补生成并重新收回回执，不能只把清单清空、代 worker 改哈希或说“其他组负责”就合并。
 
+notes 按 [待确认事项](pending-items.md) 写 `cases/notes.json`（人读版 `notes.md` 同时保留）：每条带 `disposition`（`resolved_by_code`、`assumption`、`decision`）与 `searchedRefs`，只有 `decision` 进评审表。提问前先查代码、接口契约和既有测试：查得到答案的写 `evidenceRef` 与结论并把结论落进断言，查不到但可按既有默认行为写的写 `basis` 与 `falsifier`。`notes_check.py` 在合并后逐条核对，缺字段即 BLOCKED。
+
 每个业务步骤必须有绑定其 stepId 的断言。仅准备/清理步骤可标 `kind=setup|cleanup` 并填写 `assertionExemption`，解释为何不是本用例待测行为；未标 kind 默认为 action，不能靠豁免文字跳过。准备数据本身是验收目标、取消操作要验证不发信、空内容提交要验证默认正文时，均是业务步骤。条件断言需由 fixtures 保证触发；“有空值则显示占位”不能代替明确的空值样本。
 
 阶段 A 没有脚本，automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`：只承诺脚本阶段会落这个文件名与标题，不声称文件已存在。阶段 B 生成脚本后，主 Agent 跑 runner discovery，在独立的 execution-cases.json 中把 automationRef 绑定为真实入口 `文件::标题`，保留已审批 cases.json；文件存在只说明入口存在，业务断言仍由人工评审与执行验证。
 
 脚本检查全部分片、输入/输出哈希、依赖、文件所有权、唯一 ID、场景集合、步骤断言及入口文件。所有任务完整才给生成 status=PASSED。用 `--merge <新的输出路径>` 写合并的 draft 用例数组；输出相同字节时幂等成功，异内容拒绝覆盖；只规范化 JSON 格式与排序，不自动补写或改写 draft、审批状态和关键引用。缺少 phase 的旧计划仍按旧版文件入口契约校验，迁移必须创建新计划。该状态仅代表生成结构完整，不代表覆盖或业务测试通过。
 
-主 Agent 先停止所有 worker 写入，再运行合并，保留合并后的 cases.json。seal 会拒绝常量前置、断言中的「记录保留」、没有基线步骤的增量，以及任务 `acIds` 以外的 AC 编号。随后按 prd-to-cases 第 5 节对照来源核对遗漏，只为原文已经写明的遗漏 ID 追加生成。辅助 Jev 在这次合并后按第 5 节只跑一次。再出评审表。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现在脚本发布后执行。人工评审通过即接受执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
+主 Agent 先停止所有 worker 写入，再运行合并，保留合并后的 cases.json。seal 会拒绝常量前置、断言中的「记录保留」、没有基线步骤的增量，以及任务 `acIds` 以外的 AC 编号。随后按 prd-to-cases 第 5 节对照来源核对遗漏，只为原文已经写明的遗漏 ID 追加生成。合并后、出评审表前各跑一次 `assertion_check.py` 与 `notes_check.py`：只跑这一次，不逐片跑，也不要求 worker 在 seal 前自己跑，避免 7 份重复检查和逐片重派。BLOCKED 时按报错定位到 caseId，只把含这些 caseId 的分片 attempt 加一后重派，其他分片、已合并结果和哈希不动；重派片仍走 emit 与 seal，再重新合并。辅助 Jev 在这次合并后按第 5 节只跑一次。再出评审表。此阶段仅校验声明式入口，不运行或伪造 runner discovery；真实发现在脚本发布后执行。人工评审通过即接受执行。已审批文件保留；修订生成新材料并重新评审。漏片即生成未完成，即使缺失仅占非 P0 的 5% 以内也不能跳过。部分产物可交付诊断，但不能合并成全量通过。
 
 ## 阶段交接准备
 
