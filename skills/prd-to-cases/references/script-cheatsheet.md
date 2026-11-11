@@ -64,7 +64,9 @@ AC 绑定 TSV，制表符分隔：
 | `六维结论不成立 … 理由不足` | `not_applicable`/`out_of_scope` 的理由不能只写“不适用/无”；写清该维度为何不被本次变更触及 |
 | `impact-gaps.json 与实际六维空格不一致` | 手改过 `impact-analysis.json`。重跑 `assemble_baseline.py impact` 重新生成登记表 |
 | `六维未核查项必须写进待确认事项：GAP-…` | 在 `content.json` 的 notes 里补一条，`sourceRefs` 写 `impact-gaps.json:<gapId>` |
-| `决策表组合未裁定` | 这一格没有任何行或 `defaults` 命中。补一行，或用少写轴的一行把它和同片的格子一起管住 |
+| `决策表组合未裁定` | 这一格没有任何行或 `defaults` 命中。非 covered 可以少写轴管住一整片；covered 必须每个取值有自己的场景 |
+| `同时覆盖互斥取值` | 同一个场景被拿去覆盖同一轴的两个取值。拆成每个取值一个场景，用例里做该取值的操作和结果 |
+| `展开项` | `expansions` 要有 surface、subtype、both-arms、identity 各一条。适用就把取值写上轴，界面项各写一个场景；没有这一类就写 20 字以上的 waiver。subtype 的 evidence 写 `文件:行号`，或用「检索无命中」开头 |
 | `决策表组合有多个同级口径` | 两条限定的轴一样多、又同时命中这一格。把其中一条写得更具体，或合并成一条 |
 | `决策表行重复` | 两行的 `values` 完全一样，包括只写了部分轴的写法 |
 | `决策表标 covered 的场景没有用例` | `covered` 行的 `scenarios` 必须是用例真正引用的 `scenarioId`，不能直接写 caseId |
