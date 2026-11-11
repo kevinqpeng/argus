@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Collect current exploration receipts without making business judgments."""
 import argparse
+import hashlib
 import json
 import re
+import shlex
+import sys
 from pathlib import Path
 
 
@@ -25,9 +28,36 @@ WINDOW = re.compile(r"(.+):(\d+)-(\d+)$")
 FORBIDDEN_CHECK_KEYS = {"kind", "result", "testability"}
 CODE_REF = re.compile(r"(.+):(\d+)(?:-(\d+))?$")
 ID_RULES = {"sourceUnits": "-U", "checks": "-C", "obligations": "-OB-", "handoffs": "-H"}
+# assemble_baseline.impact 用同一份必填清单。schemaVersion 由调用方先补 1。
+IMPACT_REQUIRED = {
+    "sources": ("sourceId", "kind", "sourceRef", "sourceHash"),
+    "sourceUnits": ("unitId", "sourceIds", "sourceExcerpt", "evidenceRef", "disposition", "reason"),
+    "objects": ("objectId", "description"),
+    "checks": ("checkId", "objectId", "sourceIds", "evidenceRef", "disposition", "reason"),
+    "obligations": ("obligationId", "sourceIds", "text"),
+    "handoffs": ("handoffId", "producer", "path", "evidenceRef", "question"),
+}
+EMPTY_FIELDS = (
+    {"field": "reviewRef", "groups": ["sourceUnits", "checks"], "value": "",
+     "reason": "本轮没有人工评审引用。留空字符串，不要为此询问主 Agent。"},
+    {"field": "approvalRef", "groups": ["obligations"], "value": "",
+     "reason": "候选义务尚未批准。留空字符串，不要为此询问主 Agent。"},
+    {"field": "expected", "groups": ["obligations"], "value": "",
+     "reason": "预期未冻结时留空，reviewStatus 写 needs_clarification。"},
+    {"field": "obligationIds", "groups": ["sourceUnits", "checks"], "value": [],
+     "reason": "还没有义务时用空数组。"},
+    {"field": "acIds", "groups": ["obligations"], "value": [],
+     "reason": "场景尚未冻结时用空数组。"},
+    {"field": "receiver", "groups": ["handoffs"], "value": "",
+     "reason": "没有接收任务时留空，并在 question 写未决问题。"},
+)
+EMPTY_FIELD_NAMES = frozenset(row["field"] for row in EMPTY_FIELDS)
+EVIDENCE_RULE = "evidenceRef 是字符串。多条用英文分号 ';' 拼接，最多 2 条。每条是 文件:行 或 文件:起-止，含首尾最多 3 行。不要写成 JSON 数组。"
 
 
 def evidence_errors(value):
+    if isinstance(value, list):
+        return ["evidenceRef 必须是分号拼接的字符串，不能是 JSON 数组"]
     if not isinstance(value, str) or not value.strip():
         return ["empty evidenceRef"]
     parts = [part.strip() for part in value.split(";")]
@@ -322,7 +352,246 @@ def collect(plan, receipts):
             "matrix": {**matrix_summary(object_ids, flat_checks, dimensions), "gaps": gaps}}
 
 
+def find_task(plan, task_id):
+    if plan.get("schemaVersion") != 1 or not isinstance(plan.get("inputHash"), str) or not plan["inputHash"]:
+        raise ValueError("invalid plan inputHash or schemaVersion")
+    matches = [task for task in plan.get("tasks") or [] if task.get("taskId") == task_id]
+    if len(matches) != 1:
+        raise ValueError(f"unknown task: {task_id}")
+    task = matches[0]
+    if type(task.get("attempt")) is not int or task["attempt"] < 1:
+        raise ValueError("invalid attempt")
+    return task
+
+
+def receipt_rel(task):
+    return f"cases/exploration/{task['taskId']}/{task['attempt']}.json"
+
+
+def inside(root, rel):
+    if not isinstance(rel, str) or not rel or rel.startswith("/") or "\\" in rel:
+        raise ValueError("path must stay inside the root")
+    parts = Path(rel).parts
+    if ".." in parts or parts[0] == "":
+        raise ValueError("path must stay inside the root")
+    path = (root.resolve() / rel).resolve()
+    if not path.is_relative_to(root.resolve()):
+        raise ValueError("path must stay inside the root")
+    return path
+
+
+def read_window(baseline, ref, object_id):
+    match = WINDOW.fullmatch(ref.strip()) if isinstance(ref, str) else None
+    if match is None:
+        raise ValueError(f"窗口必须写成 文件:起始-结束：{str(ref)[:40]}")
+    rel, start, end = match.group(1), int(match.group(2)), int(match.group(3))
+    path = inside(baseline, rel)
+    if not path.is_file():
+        raise ValueError(f"窗口文件不存在：{ref}")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if start < 1 or end > len(lines):
+        raise ValueError(f"窗口行号越界：{ref}")
+    return {"objectId": object_id, "ref": ref, "evidenceRef": ref,
+            "text": "\n".join(lines[start - 1:end])}
+
+
+def frozen_prd_source(run, prd_rel, source_id):
+    if not isinstance(source_id, str) or not source_id.strip():
+        raise ValueError("missing source id")
+    path = inside(run, prd_rel)
+    if not path.is_file():
+        raise ValueError("冻结 PRD 不存在")
+    return {"schemaVersion": 1, "sourceId": source_id, "kind": "prd",
+            "sourceRef": "run://" + prd_rel.replace("\\", "/").lstrip("/"),
+            "sourceHash": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
+def minimal_sample(task, plan, source, windows):
+    task_id, object_id = task["taskId"], task["objectIds"][0]
+    ref = windows[0]["evidenceRef"]
+    return {
+        "schemaVersion": 1, "taskId": task_id, "attempt": task["attempt"],
+        "inputHash": plan["inputHash"], "status": "complete", "sources": [source],
+        "sourceUnits": [{
+            "schemaVersion": 1, "unitId": f"{task_id}-U1", "sourceIds": [source["sourceId"]],
+            "sourceExcerpt": "替换成冻结来源中的原文。", "evidenceRef": "cases/sources/prd.md:1",
+            "disposition": "covered", "obligationIds": [], "reviewRef": "",
+            "reason": "样例只示范字段形状，正式回执写成这条来源的处置理由。",
+        }],
+        "objects": [{"schemaVersion": 1, "objectId": object_id, "description": "替换成该对象的变更前后。"}],
+        "checks": [{
+            "schemaVersion": 1, "checkId": f"{task_id}-C1", "objectId": object_id,
+            "dimension": "data", "sourceIds": [source["sourceId"]], "evidenceRef": ref,
+            "disposition": "unknown", "obligationIds": [], "reviewRef": "",
+            "reason": "样例：evidenceRef 是分号拼接的字符串，不是 JSON 数组。",
+        }],
+        "obligations": [{
+            "schemaVersion": 1, "obligationId": f"{task_id}-OB-1", "sourceIds": [source["sourceId"]],
+            "text": "替换成候选义务。", "expected": "", "acIds": [],
+            "reviewStatus": "needs_clarification", "approvalRef": "",
+        }],
+        "handoffs": [],
+    }
+
+
+def build_packet(plan, task_id, *, baseline, run, prd_rel, source_id, packet_path):
+    """Render one exploration brief from the same constants the checkers use."""
+    task = find_task(plan, task_id)
+    errors = window_errors({"tasks": [task]})
+    if errors:
+        raise ValueError("；".join(errors))
+    windows = [read_window(baseline, ref, row["objectId"])
+               for row in task["windows"] for ref in row["refs"]]
+    source = frozen_prd_source(run, prd_rel, source_id)
+    dimensions, dimension_errors = plan_dimensions(plan)
+    if dimension_errors:
+        raise ValueError("；".join(dimension_errors))
+    output = (run.resolve() / receipt_rel(task)).resolve()
+    command = shlex.join([sys.executable, str(Path(__file__).resolve()), "--task", task_id,
+                           "--check", str(output), "--packet", str(Path(packet_path).resolve())])
+    return {
+        "schemaVersion": 1, "taskId": task_id, "attempt": task["attempt"],
+        "inputHash": plan["inputHash"], "objectIds": list(task["objectIds"]),
+        "requiredFields": {group: ["schemaVersion", *fields] for group, fields in IMPACT_REQUIRED.items()},
+        "idRules": {group: f"{task_id}{suffix}<n>" for group, suffix in ID_RULES.items()},
+        "evidenceRef": EVIDENCE_RULE,
+        "dimensionRules": {"allowed": list(dimensions), "noBundle": sorted(NO_BUNDLE),
+                           "bundleMax": BUNDLE_MAX,
+                           "note": "data 和 permission 必须单独给结论。dimensions 一次最多 3 个。"},
+        "emptyFields": [dict(row) for row in EMPTY_FIELDS],
+        "copyVerbatim": {"sources": [source]},
+        "windows": windows,
+        "sample": minimal_sample(task, plan, source, windows),
+        "output": str(output),
+        "checkCommand": command,
+        "workerRules": [
+            "回执只写 output 指向的文件。写完立刻运行 checkCommand，失败只改这份回执。",
+            "sources 原样复制 copyVerbatim.sources，不要另写一份。",
+            "evidenceRef 使用 windows[].evidenceRef 的字面量，类型是字符串。",
+            "emptyFields 中的留空是合法的，不要询问主 Agent。",
+            "windows[].text 已是不超过 3 行的原文。这些窗口不要再打开仓库检索。",
+        ],
+    }
+
+
+def filled(row, field):
+    return field in row and row[field] not in ("", None, [])
+
+
+def check_receipt(packet, receipt):
+    """Shape-check one receipt. Merge still owns the cross-task matrix."""
+    errors = []
+    task_id = packet.get("taskId")
+    if receipt.get("schemaVersion") != 1:
+        errors.append("missing schemaVersion")
+    if receipt.get("taskId") != task_id:
+        errors.append("taskId mismatch")
+    if receipt.get("attempt") != packet.get("attempt") or receipt.get("inputHash") != packet.get("inputHash"):
+        errors.append("attempt or inputHash mismatch")
+    if receipt.get("status") not in {"complete", "partial"}:
+        errors.append("status must be complete or partial")
+    if receipt.get("sources") != (packet.get("copyVerbatim") or {}).get("sources"):
+        errors.append("sources 必须原样复制 packet.copyVerbatim.sources")
+    allowed = set((packet.get("dimensionRules") or {}).get("allowed") or BASE_DIMENSIONS)
+    assigned = set(packet.get("objectIds") or [])
+    for group, key in GROUPS.items():
+        rows = receipt.get(group)
+        if not isinstance(rows, list):
+            errors.append(f"missing {group}")
+            continue
+        seen = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                errors.append(f"invalid {group} row")
+                continue
+            if row.get("schemaVersion") != 1:
+                errors.append(f"{group}: missing schemaVersion")
+            label = row.get(key) if isinstance(row.get(key), str) else group
+            missing = [field for field in IMPACT_REQUIRED[group] if not filled(row, field)]
+            if missing:
+                errors.append(f"{label} 缺少 {', '.join(missing)}")
+            if isinstance(row.get(key), str):
+                if row[key] in seen:
+                    errors.append(f"duplicate {group} identifier: {row[key]}")
+                seen.add(row[key])
+                if not identifier_ok(task_id, group, row[key]):
+                    errors.append(f"{group} id must be {task_id}{ID_RULES[group]}<n>: {row[key]}")
+            if group in {"sourceUnits", "checks", "handoffs"}:
+                for issue in evidence_errors(row.get("evidenceRef")):
+                    errors.append(f"{label}: {issue}")
+            if group == "sourceUnits" and row.get("disposition") not in DISPOSITIONS:
+                errors.append(f"{label}: invalid disposition")
+            if group == "objects" and row.get("objectId") not in assigned:
+                errors.append(f"object not assigned: {row.get('objectId')}")
+            if group == "checks":
+                if not isinstance(row.get("dimensions"), list) and row.get("dimension") not in allowed:
+                    errors.append(f"{label}: invalid dimension")
+                errors.extend(bundle_errors(str(label), row, list(allowed)))
+                forbidden = FORBIDDEN_CHECK_KEYS & row.keys()
+                if forbidden:
+                    errors.append(f"{label}: forbidden {','.join(sorted(forbidden))}")
+                if assigned and row.get("objectId") not in assigned:
+                    errors.append(f"check object not assigned: {row.get('objectId')}")
+    return errors
+
+
+def stat_receipts(run, plan):
+    missing, empty, ok = [], [], []
+    for task in plan.get("tasks") or []:
+        rel = receipt_rel(task)
+        path = run / rel
+        if not path.is_file():
+            missing.append(rel)
+        elif path.stat().st_size == 0:
+            empty.append(rel)
+        else:
+            ok.append(rel)
+    return {"status": "READY" if not missing and not empty else "REDISPATCH",
+            "missing": missing, "empty": empty, "ok": ok}
+
+
+def check_main(argv):
+    parser = argparse.ArgumentParser(description="Check one exploration receipt against its packet")
+    parser.add_argument("--task", required=True)
+    parser.add_argument("--check", type=Path, required=True)
+    parser.add_argument("--packet", type=Path, required=True)
+    args = parser.parse_args(argv)
+    packet = json.loads(args.packet.read_text(encoding="utf-8"))
+    receipt = json.loads(args.check.read_text(encoding="utf-8"))
+    if packet.get("taskId") != args.task or receipt.get("taskId") != args.task:
+        errors = [f"task id must be {args.task}"]
+    else:
+        errors = check_receipt(packet, receipt)
+    status = "PASSED" if not errors else "BLOCKED"
+    print(json.dumps({"status": status, "errors": errors}, ensure_ascii=False, indent=2))
+    return 0 if status == "PASSED" else 2
+
+
+def stat_main(argv):
+    parser = argparse.ArgumentParser(description="Stat exploration receipts after workers return")
+    parser.add_argument("--plan", type=Path, required=True)
+    parser.add_argument("--run", type=Path, required=True)
+    args = parser.parse_args(argv)
+    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    result = stat_receipts(args.run, plan)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["status"] == "READY" else 2
+
+
 def main():
+    argv = sys.argv[1:]
+    if argv[:1] == ["--stat"]:
+        try:
+            return stat_main(argv[1:])
+        except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+            print(json.dumps({"status": "REDISPATCH", "errors": [str(exc)]}, ensure_ascii=False))
+            return 2
+    if "--check" in argv:
+        try:
+            return check_main(argv)
+        except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+            print(json.dumps({"status": "BLOCKED", "errors": [str(exc)]}, ensure_ascii=False))
+            return 2
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plan", type=Path)
     parser.add_argument("receipts", type=Path, nargs="+")

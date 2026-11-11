@@ -13,11 +13,14 @@
 | 绑定 AC | `python3 <本技能>/scripts/assemble_baseline.py ac --run <runDir> --prd <相对路径> --source-id <ID> --bindings <tsv>` |
 | 覆盖 | `python3 <本技能>/scripts/assemble_baseline.py cover --run <runDir> --prd <相对路径> --acs cases/acs.json` |
 | 影响分析 | `python3 <本技能>/scripts/assemble_baseline.py impact --run <runDir> --prd <相对路径> --source-id <ID> --candidates <merged.json>` |
-| 探索回执 | `python3 <本技能>/scripts/merge_impact_candidates.py <plan.json> <回执.json>...` |
+| 探索任务包 | `python3 <本技能>/scripts/generation.py packet --task <taskId> --plan <plan.json> --baseline <基线工作树> --run <runDir> --prd <相对路径> --source-id <ID> --out cases/exploration/packets/<taskId>.json` |
+| 探索回执自检 | 任务包里的 `checkCommand`（`merge_impact_candidates.py --task <taskId> --check <回执> --packet <任务包>`） |
+| 探索回执是否落盘 | `python3 <本技能>/scripts/merge_impact_candidates.py --stat --plan <plan.json> --run <runDir>` |
+| 探索回执合并 | `python3 <本技能>/scripts/merge_impact_candidates.py <plan.json> <回执.json>...` |
 | 证据真实性 | `python3 <本技能>/scripts/verify_evidence.py <merged.json> --baseline <基线工作树> --run <runDir>` |
 | 用例正文 | `python3 <本技能>/scripts/emit_cases.py --tsv <taskId>.rows.tsv --ac-ids <本任务AC> --check`，通过后加 `--out <attempt>/cases.json` |
 | 封印 | `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录> --seal <taskId> --gaps '[]'` |
-| 展示分片 | `python3 <本技能>/scripts/render_review_table.py <runDir> --plan-slices` |
+| 展示分片 | `python3 <本技能>/scripts/render_review_table.py <runDir> --plan-slices`。派发前跑每片 `probeCommand`，收回后跑 `--stat-slices` |
 
 `baselineHash` 和 `inputHash` 是 64 位小写 hex。基线哈希用 `generation.digest`：`sort_keys=True`、`ensure_ascii=False`、`separators=(",", ":")` 的 UTF-8 SHA-256。文件字节哈希不能填进 `baselineHash`。
 
@@ -49,6 +52,9 @@ AC 绑定 TSV，制表符分隔：
 |---|---|
 | `invalid baselineHash` | 改成 64 位小写 hex，用 `generation.digest` |
 | `evidence span > 3 lines` | `文件:起-止` 含首尾最多 3 行；一条 check 最多 2 段，用 `;` 分隔 |
+| `evidenceRef 必须是分号拼接的字符串` | 写成 `文件:起-止`，两条用 `;` 连接。不要写成 JSON 数组 |
+| `sources 必须原样复制` | 使用任务包 `copyVerbatim.sources`，三个任务写同一份 |
+| `缺少 sourceIds` / `缺少 reason` / `missing schemaVersion` | 按任务包 `requiredFields` 和 `sample` 补字段。reviewRef、approvalRef 留空字符串 |
 | `六维留空 24/36 超过三分之一` | 先把变更对象查完再登记空格。允许的空格会自动写成 `impact-gaps.json` 的 `GAP-<obj>-<dim>` |
 | `六维结论不成立 … 理由不足` | `not_applicable`/`out_of_scope` 的理由不能只写“不适用/无”；写清该维度为何不被本次变更触及 |
 | `impact-gaps.json 与实际六维空格不一致` | 手改过 `impact-analysis.json`。重跑 `assemble_baseline.py impact` 重新生成登记表 |
@@ -68,4 +74,4 @@ AC 绑定 TSV，制表符分隔：
 
 `--check` 同时拦住常量前置（`status=已驳回` 这种赋值）、断言里的「记录保留」、以及没有基线步骤的增量断言。传入 `--ac-ids` 时，步骤里出现的 `AC-…` 必须属于本任务。
 
-展示片的条数和 `lineBudgets` 以 `render_review_table.py --plan-slices` 写出的 plan.json 为准。代码定位方式在 [探索调度](impact-exploration.md)。
+展示片的条数、`lineBudgets`、`checkCommand` 和 `probeCommand` 以 `render_review_table.py --plan-slices` 写出的 plan.json 为准。业务片最多 4 条，待确认事项单独成片。代码定位方式在 [探索调度](impact-exploration.md)。

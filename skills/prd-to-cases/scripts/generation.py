@@ -321,7 +321,34 @@ def seal_ready(plan, state, root, gaps_by_task):
     return sealed
 
 
+def packet_main(argv):
+    parser = argparse.ArgumentParser(prog="generation.py packet",
+                                     description="Write one exploration task packet from checker constants")
+    parser.add_argument("--task", required=True)
+    parser.add_argument("--plan", type=Path, required=True)
+    parser.add_argument("--baseline", type=Path, required=True)
+    parser.add_argument("--run", type=Path, required=True)
+    parser.add_argument("--prd", required=True, help="PRD path relative to the run")
+    parser.add_argument("--source-id", required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args(argv)
+    from merge_impact_candidates import build_packet
+    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    packet = build_packet(plan, args.task, baseline=args.baseline, run=args.run, prd_rel=args.prd,
+                           source_id=args.source_id, packet_path=args.out)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(packet, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"path": str(args.out), "checkCommand": packet["checkCommand"]}, ensure_ascii=False))
+    return 0
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "packet":
+        try:
+            return packet_main(sys.argv[2:])
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            print(json.dumps({"status": "BLOCKED", "reason": str(exc)}, ensure_ascii=False))
+            return 2
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plan", type=Path)
     parser.add_argument("state", type=Path)

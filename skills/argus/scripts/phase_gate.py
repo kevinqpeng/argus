@@ -257,13 +257,31 @@ class Gate:
         from render_review_table import SLICE_CAP, prompt_text, slice_case_ids
         cases = read_json(self.run_dir / 'cases/cases.json')
         expected = slice_case_ids(cases) if isinstance(cases, list) and cases else []
-        if len(expected) > 1 or 'shards' in receipt:
-            plan = read_json(safe_path(self.run_dir, f'{base}/plan.json')) or {}
-            planned = [row.get('caseIds') for row in plan.get('slices') or []]
+        plan = read_json(safe_path(self.run_dir, f'{base}/plan.json')) or {}
+        notes_planned = any(row.get('kind') == 'notes' for row in plan.get('slices') or [] if isinstance(row, dict))
+        if len(expected) > 1 or 'shards' in receipt or notes_planned:
+            planned_rows = plan.get('slices') or []
+            notes_rows = [row for row in planned_rows if row.get('kind') == 'notes']
+            case_rows = [row for row in planned_rows if row.get('kind') != 'notes']
+            planned = [row.get('caseIds') for row in case_rows]
             self.need(planned == expected, '评审表分片计划与脚本容量不一致，先运行 render_review_table.py --plan-slices')
+            notes_ok = len(notes_rows) <= 1 and all(row.get('caseIds') == [] for row in notes_rows)
+            if any(row.get('kind') == 'cases' for row in planned_rows):
+                notes_ok = notes_ok and len(notes_rows) == 1
+            self.need(notes_ok, '待确认事项必须单独成片')
             shards = receipt.get('shards')
-            groups = [row.get('caseIds') for row in shards] if isinstance(shards, list) and all(isinstance(row, dict) for row in shards) else []
-            valid = all(isinstance(group, list) and group and len(group) <= SLICE_CAP for group in groups)
+            groups, empty, valid = [], 0, isinstance(shards, list) and all(isinstance(row, dict) for row in shards)
+            if valid:
+                for row in shards:
+                    group = row.get('caseIds')
+                    if group == []:
+                        empty += 1
+                        continue
+                    if not isinstance(group, list) or not group or len(group) > SLICE_CAP:
+                        valid = False
+                        break
+                    groups.append(group)
+                valid = valid and empty == (1 if notes_rows else 0)
             if valid:
                 for group in groups:
                     original = next((chunk for chunk in expected if group[0] in chunk), [])
