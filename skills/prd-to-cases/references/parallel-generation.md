@@ -6,7 +6,7 @@
 
 | 阶段 | 时机 | 切分粒度 | 任务数 | 产出 |
 |---|---|---|---|---|
-| A 用例 | 人工评审前 | AC 域 / 场景组 | 按工作量，可单组 | cases.json、notes.md |
+| A 用例 | 人工评审前 | AC 域 / 场景组 | 按工作量，可单组；超过 40 条至少两组 | rows.tsv → cases.json、notes.md |
 | B 脚本 | 人工评审批准后 | **spec 文件级**，DB 核验单列 | 按工作量，可单组 | 一个任务一个 spec + notes.md |
 
 理由：脚本依赖用例的期望值与断言。用例改一轮、脚本白写一轮；先批准用例再写脚本，脚本永远对应最新用例，且人工评审等待期不用干等脚本。脚本按 spec 拆分，实际并发受依赖与宿主槽位限制，利用率按真实占用记录计算。
@@ -17,7 +17,7 @@
 
 仅设计或外部用例规范化时，共享 harness/fixture 仅为声明式接口与隔离约定，不创建运行环境、获取账号或安装 runner。外部用例输入按 [接入规则](existing-cases.md) 保留来源、步骤和预期，仍使用本流程的真实任务回执与校验。
 
-按业务内聚性提出候选组，核对所有跨组输入/输出、共享 fixture、状态和全局约束；跨模块依赖也必须纳入，不能把“没有候选边”当作独立证据。阶段 A 按 AC/场景内聚性、步骤复杂度与依赖切分；任务数同时考虑上下文和模型调用成本，不以文件数或 AC 数平均分配。
+按业务内聚性提出候选组，核对所有跨组输入/输出、共享 fixture、状态和全局约束；跨模块依赖也必须纳入，不能把“没有候选边”当作独立证据。阶段 A 按 AC/场景内聚性、步骤复杂度与依赖切分；任务数同时考虑上下文和模型调用成本，不以文件数或 AC 数平均分配。预分配用例超过 40 条时，计划里至少有两个可同时领取的任务，dependsOn 不把它们连成只能串行的一条链。用例生成不读 `execution.parallelEnabled`，那个开关只限制执行并发。
 显式文件读写关系由主 Agent 直接确定；需要语义判断的候选关系按 decision-router 批量提交 `generation_dependency` 和 `generation_conflict`，正反向依赖分开提问。使用 `{questionId, subject}` 绑定具体任务与证据；记录 DecisionRecord、概率、题集版本及宿主最终处理依据。
 
 - 生成依赖：A 需要消费 B 尚未冻结的接口或产物，记 A.dependsOn 包含 B。已冻结接口可以消除生成等待。
@@ -46,7 +46,7 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 运行 `python3 <本技能>/scripts/generation.py <plan.json> <state.json> --root <generation目录>`。退出 0 仅表示检查有效；查看 status，PENDING 不表示生成完成。退出 2 为 BLOCKED。ready 是依赖已完成且不在 running/failed 的任务；按宿主当前可用子 Agent 槽位、冻结预算和限流取一批，一次派发。单个槽位按相同 ready 顺序串行；配置的角色无法调用则 BLOCKED，主会话不能冒充。
 
-每次派发先持久化 running，再把 planHash、任务范围、本任务输入包路径、依赖结果哈希、独占目录 `任务ID/attempt/`、验收要求和 `--seal` 命令交给 worker。生成期间只操作私有文件；不连接业务目标执行测试。worker 只写该目录里的 outputFiles，只读输入包和上游已完成产物，不写 manifest、state.json、最终 cases.json、Excel 或 Markdown。`result.json` 只由 seal 写入同一目录。
+每次派发先持久化 running，再把 planHash、任务范围、本任务输入包路径、依赖结果哈希、独占目录 `任务ID/attempt/`、验收要求和 `--seal` 命令交给 worker。生成期间只操作私有文件；不连接业务目标执行测试。worker 写 generation 根目录的 `<taskId>.rows.tsv`，并写独占目录里的 outputFiles；只读输入包和上游已完成产物，不写 manifest、state.json、最终 cases.json、Excel 或 Markdown。`result.json` 只由 seal 写入同一目录。
 
 主 Agent 等待任一任务结束即收取回执，确认 worker 已停止写入后移出 running，再校验并启动新就绪任务，无需等待整批最慢任务。失败记录原因并加入 failed；预算允许才重派。重派先停止旧 worker，将该任务及已消费旧结果的全部传递下游任务 attempt 加一、清除对应 running/failed 后持久化；下游重新等待。旧目录保留，迟到的旧回执不参与合并。恢复不修改已完成产物。
 
@@ -56,7 +56,9 @@ state.json 仅由主 Agent 写：`{schemaVersion:1, planHash, attempts:{任务ID
 
 任务输入同时指出必须保留的数量词、其作用对象及已确认的接收集合；worker 不得把「任一人可以完成」改成「仅一人收到」。整份 PRD、影响分析、场景全集、上一轮全量用例和整篇探索回执留在冻结源里，不放进任务书的阅读清单。
 
-任务书只给三样路径：这份输入包、独占目录、写完 outputFiles 后要运行的 seal 命令。主 Agent 从已加载的 Skill 位置解析并核实 seal 命令中 `generation.py` 的绝对路径；若任务确需 `case_contract.py` 或 `phase_gate.py`，也直接给出核实后的绝对路径及完整命令，缺失则回报，不搜索全盘。写明不得搜索其他目录，不得递归 `find`/`grep -r`，不读其他 run，不读被测仓库、基线工作树、PRD 全文和整份 impact-analysis.json，不跑 `playwright`/`mvn`/`npm`，不连业务目标。证据只用任务包里的行号摘录。shell 只用于建目录、写 outputFiles 和运行指定校验命令。
+用例正文写在 generation 根目录的 `<taskId>.rows.tsv`。attempt 目录只放计划里的 outputFiles。先写一条用例的步骤，运行 `python3 <本技能>/scripts/emit_cases.py --tsv <taskId>.rows.tsv --ac-ids <本任务 acIds，逗号分隔> --check`。通过后写完本任务的行，再加 `--out <taskId>/<attempt>/cases.json`。然后运行任务书里的 `--seal`。notes.md 仍写在 attempt 目录。表头和报错见 [脚本速查](script-cheatsheet.md)。这几次命令算在 bash 上限里。
+
+任务书只给四样路径：这份输入包、`<taskId>.rows.tsv`、独占目录、写完 outputFiles 后要运行的 emit 和 seal 命令。主 Agent 从已加载的 Skill 位置解析并核实 seal 命令中 `generation.py` 的绝对路径；若任务确需 `case_contract.py` 或 `phase_gate.py`，也直接给出核实后的绝对路径及完整命令，缺失则回报，不搜索全盘。写明不得搜索其他目录，不得递归 `find`/`grep -r`，不读其他 run，不读被测仓库、基线工作树、PRD 全文和整份 impact-analysis.json，不跑 `playwright`/`mvn`/`npm`，不连业务目标。证据只用任务包里的行号摘录。shell 用于建目录、写 `<taskId>.rows.tsv` 和 outputFiles，以及运行任务书给出的 emit 和 seal 命令。
 
 每个任务墙钟默认 10 分钟；仅当该组用例或步骤明显多于同批其他组时用 15 分钟。bash 最多 6 次。读文件不是加长墙钟或放宽 bash 的理由。超预算中止该任务并按失败重派。预算与已用值记入 `manifest.budgets`，报告用真实耗时判定是否需要再切分。
 

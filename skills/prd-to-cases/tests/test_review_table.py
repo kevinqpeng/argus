@@ -354,8 +354,11 @@ class ReviewTableTest(unittest.TestCase):
             plan = subprocess.run([sys.executable, str(SCRIPT), str(root), '--plan-slices'],
                                   capture_output=True, text=True)
             self.assertEqual(plan.returncode, 0, plan.stderr)
-            slices = json.loads((base / 'plan.json').read_text(encoding='utf-8'))['slices']
+            body = json.loads((base / 'plan.json').read_text(encoding='utf-8'))
+            slices = body['slices']
             self.assertEqual([len(row['caseIds']) for row in slices], [8, 1])
+            self.assertEqual(body['lineBudgets']['fixtures'], 6)
+            self.assertEqual(body['cap'], 8)
             receipt['shards'] = [{'agentId': 'agent', 'caseIds': row['caseIds'], 'status': 'completed'}
                                  for row in slices]
             (base / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
@@ -372,6 +375,19 @@ class ReviewTableTest(unittest.TestCase):
             (base / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
             incomplete = subprocess.run(command, capture_output=True, text=True)
             self.assertIn('逐片派发', incomplete.stdout)
+
+    def test_long_cases_make_shorter_slices(self):
+        spec = importlib.util.spec_from_file_location('render_slice', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        heavy = {'steps': [{'id': str(i), 'action': '步骤'} for i in range(6)],
+                 'assertions': [{'stepId': str(i), 'expected': '结果'} for i in range(6)]}
+        cases = [{'caseId': f'C{i}', **heavy} for i in range(9)]
+        slices = module.slice_case_ids(cases)
+        self.assertEqual([len(group) for group in slices], [4, 4, 1])
+        self.assertEqual([item for group in slices for item in group], [f'C{i}' for i in range(9)])
+        light = [{'caseId': f'C{i}'} for i in range(9)]
+        self.assertEqual([len(group) for group in module.slice_case_ids(light)], [8, 1])
 
 
 if __name__ == '__main__':

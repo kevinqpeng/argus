@@ -14,7 +14,7 @@ PRD 输入时，主 Agent 先核对来源采集完成的初步来源清单和变
 
 该规则是调度条件，不给业务结论打分。依赖相关性、规则支持和义务等价等语义判断沿用 decision-router 的集中题目与概率阈值，独立问题批量提交；证据不足先补证据，不以多数票决定事实。
 
-PRD 快照冻结后，来源清单和代码索引并行。采集只做快照和 sourceUnits；索引只依赖 PRD 原文里的对象、方法和契约名，不等 source_inventory 结束。索引墙钟 3 分钟，到点交出已命中的 `文件:行号` 和未命中符号。探索任务在该对象的行号写入任务书之后才派发。清单缺口仍阻断最终冻结。索引和探索派发前运行 `python3 <argus>/scripts/dispatch.py <runConfigPath> generation`，只传它打印的非 null 参数。generation 绑定为宿主已发现的快速模型，effort 取该模型关闭思考的档位；目录里没有关闭档时用它列出的最低档。不在任务书里另写模型名。已派发的 worker 保持原模型。
+PRD 快照冻结后，来源清单和代码索引并行。采集只做快照和 sourceUnits；索引只依赖 PRD 原文里的对象、方法和契约名，不等 source_inventory 结束。索引墙钟 3 分钟，到点交出已命中的 `文件:行号` 和未命中符号。被测检出含 `.codegraph/` 时，索引用一次 `codegraph_explore`：`query` 写这条链上的符号，`projectPath` 指含索引的检出。一次调用拿调用路径和带行号的源码，收成不超过 3 行的窗口。没有 `.codegraph/` 时做一次限定目录检索。先看 `rg --version`，输出含 ripgrep 才用 `rg`；否则用 `grep -n`。有的宿主把 `rg` 接成别的 grep。探索任务在该对象的行号写入任务书之后才派发。清单缺口仍阻断最终冻结。索引和探索派发前运行 `python3 <argus>/scripts/dispatch.py <runConfigPath> generation`，只传它打印的非 null 参数。generation 绑定为宿主已发现的快速模型，effort 取该模型关闭思考的档位；目录里没有关闭档时用它列出的最低档。不在任务书里另写模型名。已派发的 worker 保持原模型。
 
 ## 2. 派发只读任务
 
@@ -28,7 +28,7 @@ PRD 快照冻结后，来源清单和代码索引并行。采集只做快照和 
 
 探索任务按互斥的 objectId 切分，每任务 4 到 5 个对象。同一对象和同一调用链只进一个任务；跨任务的边写成 handoff，不在两个任务里各查一遍。`plan.json` 的每个 task 写 `objectIds`。任务书只传本任务的窗口、对象和来源定位，不继承完整探索历史。
 
-worker 只读任务书给出的基线工作树。一次 shell 可以用 `rg` 或 `sed -n` 输出多个已点名窗口。shell 不超过 25 次。每条 check 最多 2 条证据，每条不超过 3 行；这两条已经说明受影响或不受影响后停止，不再逐个调用者翻文件。点名窗口里没有该符号时，允许一次限定目录的 `rg`；仍没有则写入 handoff。不从 `/` 或 `$HOME` 递归搜索，禁止 `git show <SHA>:<path>`。路径不存在时回报具体缺口，由主 Agent 核对后补发，不能猜测路径或忽略依赖。
+worker 只读任务书给出的基线工作树。一次 shell 用 `sed -n` 输出多个已点名窗口。shell 不超过 25 次。每条 check 最多 2 条证据，每条不超过 3 行；这两条已经说明受影响或不受影响后停止，不再逐个调用者翻文件。点名窗口里没有该符号时，允许一次限定目录的检索（`rg --version` 含 ripgrep 才用 `rg`，否则 `grep -n`）；仍没有则写入 handoff。不从 `/` 或 `$HOME` 递归搜索，禁止 `git show <SHA>:<path>`。路径不存在时回报具体缺口，由主 Agent 核对后补发，不能猜测路径或忽略依赖。
 
 墙钟 6 分钟。到点把已完成的对象写入回执，`status` 为 `partial`，并列出未完成的 objectId 与 dimension。主 Agent 只补这些缺口。partial 不能当作探索完成。
 
