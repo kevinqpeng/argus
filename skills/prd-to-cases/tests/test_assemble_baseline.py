@@ -82,9 +82,30 @@ class AssembleBaselineTest(unittest.TestCase):
                                            "disposition": "covered", "reason": "字段新增"}, "tasks": ["A"]}]}}}
         path = self.run / "merged.json"
         path.write_text(json.dumps(merged), encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "六维矩阵不完整"):
+        with self.assertRaisesRegex(ValueError, "六维留空 5/6 超过三分之一"):
             assemble.command_impact(self.run, self.relative, "PRD", path)
         self.assertFalse((self.run / "cases/impact-analysis.json").exists())
+
+    def test_impact_registers_blank_cells_as_named_gaps(self):
+        digest = assemble.file_hash(self.prd)
+        row = {"sourceId": "PRD", "kind": "prd", "sourceRef": "run://cases/sources/prd.md", "sourceHash": digest}
+        dimensions = [{"dimension": "data", "disposition": "covered", "reason": "字段新增"},
+                      {"dimension": "permission", "disposition": "covered", "reason": "沿用列表权限"},
+                      {"dimensions": ["inflight", "lifecycle", "side_effect", "ordering"][:3],
+                       "disposition": "not_applicable",
+                       "reason": "该开关仅随模型发布保存，无运行中实例、定时任务与并发写入，顺序与副作用不成立"}]
+        merged = {"status": "READY_FOR_REVIEW", "candidates": {
+            "sources": {"PRD": [{"value": row, "tasks": ["A"]}]},
+            "sourceUnits": {}, "obligations": {},
+            "objects": {"OBJ-01": [{"value": {"objectId": "OBJ-01", "description": "配置开关"}, "tasks": ["A"]}]},
+            "checks": {f"A-C{index}": [{"value": {"checkId": f"A-C{index}", "objectId": "OBJ-01",
+                                                 "evidenceRef": "cases/sources/prd.md:5", "sourceIds": ["PRD"], **item}, "tasks": ["A"]}]
+                       for index, item in enumerate(dimensions, start=1)}}}
+        path = self.run / "merged.json"
+        path.write_text(json.dumps(merged), encoding="utf-8")
+        assemble.command_impact(self.run, self.relative, "PRD", path)
+        gaps = json.loads((self.run / "cases/exploration/impact-gaps.json").read_text(encoding="utf-8"))["gaps"]
+        self.assertEqual([item["gapId"] for item in gaps], ["GAP-OBJ-01-ordering"])
 
 
 if __name__ == "__main__":

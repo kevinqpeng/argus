@@ -338,26 +338,67 @@ class LifecycleTests(unittest.TestCase):
             "failures": [{"id": "I1", "reason": "文件不存在", "evidenceRef": "x.java:1"}]})
         gate = Gate(self.run)
         gate.cases()
-        self.assertTrue(any("六维缺格 OBJ-01 × inflight" in gap for gap in gate.gaps), gate.gaps)
+        self.assertTrue(any("六维留空 6/6 超过三分之一" in gap for gap in gate.gaps), gate.gaps)
         self.assertTrue(any("证据真实性" in gap for gap in gate.gaps), gate.gaps)
         self.write("cases/exploration/evidence-check.json", {"status": "PASSED", "failed": 0, "failures": []})
         self.write("cases/impact-analysis.json", {"schemaVersion": 1, "objects": [], "checks": []})
         gate = Gate(self.run)
         gate.cases()
-        self.assertFalse([gap for gap in gate.gaps if "六维缺格" in gap or "证据" in gap], gate.gaps)
+        self.assertFalse([gap for gap in gate.gaps if "六维" in gap or "证据" in gap], gate.gaps)
+
+    def test_cases_gate_accepts_named_gaps_and_rejects_missing_register(self):
+        self.approve()
+        (self.run / "cases/discovered.txt").write_text("[]")
+        objects = [{"objectId": "OBJ-01"}]
+        checks = [{"checkId": f"C{index}", "objectId": "OBJ-01", "dimension": dimension,
+                   "disposition": "covered", "sourceIds": ["PRD"], "evidenceRef": "A.java:1",
+                   "reason": "有明确落点"}
+                  for index, dimension in enumerate(("data", "inflight", "lifecycle", "permission"), start=1)]
+        checks.append({"checkId": "C5", "objectId": "OBJ-01", "dimensions": ["side_effect", "ordering"],
+                       "disposition": "not_applicable", "sourceIds": ["PRD"], "evidenceRef": "A.java:2",
+                       "reason": "该对象是流程模型配置项，不产生外部调用、消息或并发写入，顺序与副作用无从谈起"})
+        self.write("cases/impact-analysis.json", {"schemaVersion": 1, "objects": objects, "checks": checks})
+        self.write("cases/exploration/evidence-check.json", {"status": "PASSED", "failed": 0, "failures": []})
+        gate = Gate(self.run)
+        gate.cases()
+        self.assertFalse([gap for gap in gate.gaps if "六维" in gap], gate.gaps)
+        checks = [dict(row) for row in checks if row["checkId"] != "C5"]
+        self.write("cases/impact-analysis.json", {"schemaVersion": 1, "objects": objects, "checks": checks})
+        gate = Gate(self.run)
+        gate.cases()
+        self.assertTrue(any("impact-gaps.json 与实际六维空格不一致" in gap for gap in gate.gaps), gate.gaps)
+        self.write("cases/exploration/impact-gaps.json", {"schemaVersion": 1, "gaps": [
+            {"gapId": "GAP-OBJ-01-side_effect", "objectId": "OBJ-01", "dimension": "side_effect"},
+            {"gapId": "GAP-OBJ-01-ordering", "objectId": "OBJ-01", "dimension": "ordering"}]})
+        gate = Gate(self.run)
+        gate.cases()
+        self.assertFalse([gap for gap in gate.gaps if "六维" in gap or "impact-gaps" in gap], gate.gaps)
 
     def test_presentation_gate_carries_matrix_and_evidence_gaps(self):
         self.write("cases/impact-analysis.json", {"schemaVersion": 1,
                                                   "objects": [{"objectId": "OBJ-01"}], "checks": []})
         gate = Gate(self.run)
         gate.presentation()
-        self.assertTrue(any("六维缺格 OBJ-01 × data" in gap for gap in gate.gaps), gate.gaps)
+        self.assertTrue(any("六维留空 6/6 超过三分之一" in gap for gap in gate.gaps), gate.gaps)
         self.assertTrue(any("evidence-check.json" in gap for gap in gate.gaps), gate.gaps)
         self.write("cases/impact-analysis.json", {"schemaVersion": 1, "objects": [], "checks": []})
         self.write("cases/exploration/evidence-check.json", {"status": "PASSED", "failed": 0, "failures": []})
         gate = Gate(self.run)
         gate.presentation()
-        self.assertFalse([gap for gap in gate.gaps if "六维缺格" in gap or "evidence-check" in gap], gate.gaps)
+        self.assertFalse([gap for gap in gate.gaps if "六维" in gap or "evidence-check" in gap], gate.gaps)
+
+    def test_blank_matrix_cells_must_show_up_in_notes(self):
+        self.write("cases/exploration/impact-gaps.json", {"schemaVersion": 1, "gaps": [
+            {"gapId": "GAP-OBJ-01-inflight", "objectId": "OBJ-01", "dimension": "inflight"}]})
+        gate = Gate(self.run)
+        gate._impact_gaps_registered({"notes": [{"category": "其他", "question": "q",
+                                                "sourceRefs": ["impact-analysis.json:checks[0]"]}]})
+        self.assertTrue(any("六维未核查项必须写进待确认事项：GAP-OBJ-01-inflight" in gap
+                            for gap in gate.gaps), gate.gaps)
+        gate = Gate(self.run)
+        gate._impact_gaps_registered({"notes": [{"category": "其他", "question": "q",
+                                                "sourceRefs": ["impact-gaps.json:GAP-OBJ-01-inflight"]}]})
+        self.assertEqual(gate.gaps, [])
 
     def test_review_enabled_cannot_use_disabled_receipt(self):
         self.write("argus-model.json", {"config": {"execution": {"requireHumanCaseReview": True}}})

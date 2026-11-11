@@ -15,6 +15,9 @@ DECIDED = {"covered", "unknown"}
 UNDECIDED = {"not_applicable", "out_of_scope"}
 MIN_REASON = 20
 FILLER = ("不适用", "无需", "无影响", "无关", "none", "n/a", "na", "无")
+NO_BUNDLE = {"data", "permission"}
+BUNDLE_MAX = 3
+GAP_LIMIT = 1 / 3
 WINDOW_LINES = (4, 6)
 WINDOW = re.compile(r"(.+):(\d+)-(\d+)$")
 FORBIDDEN_CHECK_KEYS = {"kind", "result", "testability"}
@@ -46,23 +49,67 @@ def explained(reason):
     return len(str(reason or "").strip()) >= MIN_REASON and bool(text.strip("。. ;；,，:：、 \n"))
 
 
+def dims_of(row):
+    """A check may conclude several unrelated dimensions at once, but not data/permission."""
+    listed = row.get("dimensions")
+    return listed if isinstance(listed, list) else [row.get("dimension")]
+
+
+def bundle_errors(check_id, row):
+    listed = row.get("dimensions")
+    if listed is None:
+        return []
+    if not isinstance(listed, list) or not listed:
+        return [f"check {check_id}: dimensions must be a non-empty list"]
+    errors = []
+    if len(set(listed)) != len(listed):
+        errors.append(f"check {check_id}: dimensions 有重复项")
+    for dimension in listed:
+        if dimension not in DIMENSIONS:
+            errors.append(f"check {check_id}: invalid dimension {dimension}")
+        elif dimension in NO_BUNDLE:
+            errors.append(f"check {check_id}: {dimension} 不能和别的维度合并，必须单独给结论")
+    if len(listed) > BUNDLE_MAX:
+        errors.append(f"check {check_id}: dimensions 一次最多 {BUNDLE_MAX} 个")
+    if row.get("disposition") in UNDECIDED and not explained(row.get("reason")):
+        errors.append(f"check {check_id}: 合并豁免必须写清理由（需 {MIN_REASON} 字以上）")
+    return errors
+
+
+def matrix_gaps(object_ids, checks):
+    """Blank cells are allowed, but each one becomes a named gap to register."""
+    gaps = []
+    for object_id in object_ids:
+        for dimension in DIMENSION_ORDER:
+            if not [row for row in checks if row.get("objectId") == object_id
+                    and dimension in dims_of(row)]:
+                gaps.append({"gapId": f"GAP-{object_id}-{dimension}",
+                             "objectId": object_id, "dimension": dimension,
+                             "question": f"{object_id} 的 {dimension} 维度本轮未核查，是否影响本次需求？"})
+    return gaps
+
+
 def matrix_errors(object_ids, checks):
-    """Every declared object must conclude all six dimensions, not just some."""
+    """Blank cells are counted, not forbidden: only an unusable matrix blocks."""
     errors = []
     for object_id in object_ids:
         for dimension in DIMENSION_ORDER:
-            cell = [row for row in checks
-                    if row.get("objectId") == object_id and row.get("dimension") == dimension]
-            label = f"{object_id} × {dimension}"
+            cell = [row for row in checks if row.get("objectId") == object_id
+                    and dimension in dims_of(row)]
             if not cell:
-                errors.append(f"六维缺格 {label}：没有 check，也没有 not_applicable/out_of_scope 结论")
                 continue
+            label = f"{object_id} × {dimension}"
             if any(row.get("disposition") in DECIDED for row in cell):
                 continue
             for row in cell:
                 if not explained(row.get("reason")):
-                    errors.append(f"六维缺格 {label}：{row.get('disposition')} 理由不足 "
+                    errors.append(f"六维结论不成立 {label}：{row.get('disposition')} 理由不足 "
                                   f"（需 {MIN_REASON} 字以上并写清为什么该维度不受影响）")
+    gaps = matrix_gaps(object_ids, checks)
+    total = len(object_ids) * len(DIMENSION_ORDER)
+    if total and len(gaps) / total > GAP_LIMIT:
+        errors.append(f"六维留空 {len(gaps)}/{total} 超过三分之一：先把变更对象查完，"
+                      f"剩下的空格才能登记为待确认")
     return errors
 
 
@@ -72,8 +119,8 @@ def matrix_summary(object_ids, checks):
     for object_id in object_ids:
         matrix[object_id] = {}
         for dimension in DIMENSION_ORDER:
-            cell = [row for row in checks
-                    if row.get("objectId") == object_id and row.get("dimension") == dimension]
+            cell = [row for row in checks if row.get("objectId") == object_id
+                    and dimension in dims_of(row)]
             dispositions = [row.get("disposition") for row in cell]
             matrix[object_id][dimension] = {
                 "checkIds": [row.get("checkId") for row in cell], "dispositions": dispositions}
@@ -202,8 +249,9 @@ def collect(plan, receipts):
                 if group == "objects" and object_owner and object_owner.get(row.get("objectId")) != tid:
                     errors.append(f"{tid}: object not assigned: {row.get('objectId')}")
                 if group == "checks":
-                    if row.get("dimension") not in DIMENSIONS:
+                    if not isinstance(row.get("dimensions"), list) and row.get("dimension") not in DIMENSIONS:
                         errors.append(f"{tid}: check {row[key]}: invalid dimension")
+                    errors.extend(f"{tid}: {issue}" for issue in bundle_errors(row[key], row))
                     forbidden = FORBIDDEN_CHECK_KEYS & row.keys()
                     if forbidden:
                         errors.append(f"{tid}: check {row[key]}: forbidden {','.join(sorted(forbidden))}")
@@ -223,15 +271,16 @@ def collect(plan, receipts):
     errors.extend(window_errors(plan))
     errors.extend(f"missing receipt: {tid}" for tid in sorted(set(expected) - seen))
     object_ids = sorted({*(object_owner or {}), *entries["objects"]})
-    errors.extend(matrix_errors(object_ids, [variant["value"] for variants in entries["checks"].values()
-                                            for variant in variants]))
+    flat_checks = [variant["value"] for variants in entries["checks"].values() for variant in variants]
+    errors.extend(matrix_errors(object_ids, flat_checks))
+    gaps = matrix_gaps(object_ids, flat_checks)
     conflicts = [f"{group}: {ident}" for group, values in entries.items()
                  for ident, variants in values.items() if len(variants) > 1]
     return {"schemaVersion": 1, "inputHash": plan["inputHash"],
             "status": "BLOCKED" if errors or conflicts else "READY_FOR_REVIEW",
             "errors": sorted(errors), "conflicts": sorted(conflicts), "candidates": entries,
-            "matrix": matrix_summary(object_ids, [variant["value"] for variants in entries["checks"].values()
-                                                  for variant in variants])}
+            "gaps": gaps,
+            "matrix": {**matrix_summary(object_ids, flat_checks), "gaps": gaps}}
 
 
 def main():

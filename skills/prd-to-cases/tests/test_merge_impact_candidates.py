@@ -96,10 +96,42 @@ class CollectTest(unittest.TestCase):
                               "disposition": "covered", "reason": "字段新增，读写路径一致",
                               "evidenceRef": "A.java:1-2"}], "obligations": [], "handoffs": []}
         result = merge.collect(plan, [receipt])
-        self.assertEqual(result["status"], "BLOCKED")
-        gaps = [e for e in result["errors"] if "六维缺格" in e]
-        self.assertEqual(len(gaps), len(merge.DIMENSIONS) - 1)
+        self.assertEqual([gap["gapId"] for gap in result["gaps"]],
+                         [f"GAP-OBJ-01-{dimension}" for dimension in merge.DIMENSION_ORDER if dimension != "data"])
         self.assertEqual(result["matrix"]["cells"], len(merge.DIMENSIONS))
+        self.assertTrue(any("六维留空 5/6 超过三分之一" in item for item in result["errors"]))
+        self.assertFalse([item for item in result["errors"] if "六维结论不成立" in item])
+
+    def test_few_blank_cells_pass_and_stay_named_gaps(self):
+        plan = {"schemaVersion": 1, "inputHash": "snapshot",
+                "tasks": [{"taskId": "A", "attempt": 1, "objectIds": ["OBJ-01"],
+                           "windows": [{"objectId": "OBJ-01", "refs": [f"A.java:{i}-{i + 1}" for i in range(1, 5)]}]}]}
+        checks = [{"checkId": f"A-C{index}", "objectId": "OBJ-01", "dimension": dimension,
+                   "disposition": "covered", "evidenceRef": "A.java:1-2"}
+                  for index, dimension in enumerate(("data", "inflight", "lifecycle", "permission"), start=1)]
+        checks.append({"checkId": "A-C5", "objectId": "OBJ-01", "dimensions": ["side_effect", "ordering"],
+                       "disposition": "not_applicable",
+                       "reason": "该对象是流程模型配置项，不产生外部调用、消息或并发写入，顺序与副作用无从谈起",
+                       "evidenceRef": "A.java:3-4"})
+        receipt = {"schemaVersion": 1, "inputHash": "snapshot", "taskId": "A", "attempt": 1,
+                   "sources": [], "sourceUnits": [], "objects": [{"objectId": "OBJ-01", "description": "d"}],
+                   "checks": checks, "obligations": [], "handoffs": []}
+        result = merge.collect(plan, [receipt])
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["gaps"], [])
+        self.assertEqual(result["matrix"]["counts"]["notApplicable"], 2)
+
+    def test_bundle_cannot_swallow_data_or_permission(self):
+        checks = [{"checkId": "A-C1", "objectId": "OBJ-01", "dimensions": ["data", "side_effect"],
+                   "disposition": "not_applicable",
+                   "reason": "该对象是流程模型配置项，不产生外部调用、消息或并发写入，顺序与副作用无从谈起"}]
+        errors = merge.bundle_errors("A-C1", checks[0])
+        self.assertTrue(any("data 不能和别的维度合并" in item for item in errors))
+        checks[0]["dimensions"] = ["inflight", "lifecycle", "ordering", "side_effect"]
+        self.assertTrue(any("一次最多 3 个" in item for item in merge.bundle_errors("A-C1", checks[0])))
+        checks[0]["dimensions"] = ["inflight", "lifecycle"]
+        checks[0]["reason"] = "不适用"
+        self.assertTrue(any("合并豁免必须写清理由" in item for item in merge.bundle_errors("A-C1", checks[0])))
 
     def test_matrix_rejects_filler_not_applicable_reason(self):
         objects = ["OBJ-01"]

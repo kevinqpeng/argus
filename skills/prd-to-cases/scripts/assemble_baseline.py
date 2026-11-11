@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generation import file_hash, publish_bytes, safe_path
-from merge_impact_candidates import matrix_errors, matrix_summary
+from merge_impact_candidates import bundle_errors, matrix_errors, matrix_gaps, matrix_summary
 
 PRIORITIES = {"P0", "P1", "P2", "P3"}
 DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
@@ -273,9 +273,15 @@ def command_impact(run, prd, source_id, candidates_path):
         check.setdefault("schemaVersion", 1)
         check.setdefault("reviewRef", "")
         check.setdefault("obligationIds", [])
-        require_fields(check, ("checkId", "objectId", "dimension", "sourceIds", "evidenceRef", "disposition", "reason"), check.get("checkId", "check"))
-        if check.get("dimension") not in DIMENSIONS:
-            raise ValueError(f"dimension 无效: {check.get('checkId')}")
+        require_fields(check, ("checkId", "objectId", "sourceIds", "evidenceRef", "disposition", "reason"), check.get("checkId", "check"))
+        listed = check.get("dimensions")
+        if listed is None:
+            if check.get("dimension") not in DIMENSIONS:
+                raise ValueError(f"dimension 无效: {check.get('checkId')}")
+        else:
+            issues = bundle_errors(str(check.get("checkId")), check)
+            if issues:
+                raise ValueError("；".join(issues))
         if check.get("disposition") not in DISPOSITIONS:
             raise ValueError(f"disposition 无效: {check.get('checkId')}")
     for duty in obligations:
@@ -288,17 +294,21 @@ def command_impact(run, prd, source_id, candidates_path):
     if not HASH.fullmatch(digest):
         raise ValueError("快照哈希无效")
     object_ids = [item["objectId"] for item in objects]
-    gaps = matrix_errors(object_ids, checks)
-    if gaps:
-        raise ValueError("六维矩阵不完整：" + "；".join(gaps[:6]))
+    errors = matrix_errors(object_ids, checks)
+    if errors:
+        raise ValueError("六维矩阵不可用：" + "；".join(errors[:6]))
     document = {"schemaVersion": 1, "sources": sources, "sourceUnits": units, "objects": objects,
                 "checks": checks, "obligations": obligations}
     target = safe_path(run, "cases/impact-analysis.json")
     write_json(target, document)
+    gaps = matrix_gaps(object_ids, checks)
     write_json(safe_path(run, "cases/exploration/impact-matrix.json"),
-               matrix_summary(object_ids, checks))
+               {**matrix_summary(object_ids, checks), "gaps": gaps})
+    write_json(safe_path(run, "cases/exploration/impact-gaps.json"),
+               {"schemaVersion": 1, "gaps": gaps})
     print(json.dumps({"path": "cases/impact-analysis.json", "sourceUnits": len(units),
-                      "obligations": len(obligations), "cells": len(object_ids) * len(DIMENSIONS)}, ensure_ascii=False))
+                      "obligations": len(obligations), "cells": len(object_ids) * len(DIMENSIONS),
+                      "gaps": len(gaps)}, ensure_ascii=False))
 
 
 def main():

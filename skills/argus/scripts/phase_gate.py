@@ -153,9 +153,19 @@ class Gate:
         for gap in window_errors(plan):
             self.gaps.append("探索计划缺索引窗口：" + gap)
 
+    def _impact_gaps_registered(self, content) -> None:
+        """六维没查的格子可以不填，但每一条都得在待确认事项里露面。"""
+        register = read_json(self.run_dir / 'cases/exploration/impact-gaps.json') or {}
+        refs = {ref for note in content.get('notes') or [] if isinstance(note, dict)
+                for ref in note.get('sourceRefs') or []}
+        for row in register.get('gaps') or []:
+            if isinstance(row, dict) and row.get('gapId'):
+                self.need(f"impact-gaps.json:{row['gapId']}" in refs,
+                          f"六维未核查项必须写进待确认事项：{row['gapId']}")
+
     def _impact_completeness(self) -> None:
-        """六维矩阵和证据真实性必须在用例前有机器结论。"""
-        from merge_impact_candidates import matrix_errors
+        """六维缺口必须被登记为待确认事项，证据必须真实；大面积留空仍不算完成。"""
+        from merge_impact_candidates import matrix_errors, matrix_gaps
         try:
             impact = read_json(self.run_dir / "cases/impact-analysis.json")
         except ValueError as exc:
@@ -165,8 +175,16 @@ class Gate:
             self.gaps.append("缺少 cases/impact-analysis.json（影响分析未冻结）")
         else:
             objects = [row.get("objectId") for row in impact.get("objects") or [] if isinstance(row, dict)]
-            for gap in matrix_errors(objects, [row for row in impact.get("checks") or [] if isinstance(row, dict)]):
+            checks = [row for row in impact.get("checks") or [] if isinstance(row, dict)]
+            for gap in matrix_errors(objects, checks):
                 self.gaps.append("影响分析未结论：" + gap)
+            blanks = matrix_gaps(objects, checks)
+            if blanks:
+                register = read_json(self.run_dir / "cases/exploration/impact-gaps.json")
+                listed = {row.get("gapId") for row in (register or {}).get("gaps") or []
+                          if isinstance(row, dict)} if isinstance(register, dict) else set()
+                self.need(listed == {row["gapId"] for row in blanks},
+                          "cases/exploration/impact-gaps.json 与实际六维空格不一致，先重跑 assemble_baseline.py impact")
         evidence = read_json(self.run_dir / "cases/exploration/evidence-check.json")
         if not self.need(isinstance(evidence, dict), "缺少 cases/exploration/evidence-check.json（先运行 verify_evidence.py）"):
             return
@@ -265,6 +283,7 @@ class Gate:
         if content is not None:
             for issue in presentation_issues(content, load_run(self.run_dir)):
                 self.gaps.append('评审文案待处理：' + issue)
+            self._impact_gaps_registered(content)
 
     def delivery(self) -> None:
         """命名交付物必须已发布，且与内部 cases.xlsx 同字节（publish_review.py 之后才满足）。"""
