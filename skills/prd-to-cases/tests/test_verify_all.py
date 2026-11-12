@@ -94,7 +94,7 @@ class VerifyAllTest(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2, result.stdout)
             gaps = json.loads(result.stdout)["gaps"]
-            self.assertTrue(any("evidence span > 3 lines" in gap for gap in gaps))
+            self.assertFalse(any("evidence span" in gap for gap in gaps))
             self.assertTrue(any("当场写 acIds" in gap for gap in gaps))
 
 

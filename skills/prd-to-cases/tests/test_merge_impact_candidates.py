@@ -85,8 +85,7 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(result["status"], "BLOCKED")
         self.assertTrue(any("invalid dimension" in item for item in result["errors"]))
         self.assertTrue(any("forbidden kind" in item for item in result["errors"]))
-        self.assertTrue(any("span > 3" in item for item in result["errors"]))
-        self.assertTrue(any("more than 2" in item for item in result["errors"]))
+        self.assertEqual(merge.evidence_errors("A.java:10-13; B.java:1; C.java:2"), [])
         self.assertTrue(any("not assigned" in item for item in result["errors"]))
         self.assertIn("partial receipt: A", result["errors"])
         self.assertEqual(result["candidates"]["checks"]["D"][0]["tasks"], ["B"])
@@ -288,12 +287,14 @@ class CollectTest(unittest.TestCase):
         self.assertTrue(any("缺少 windows" in item for item in merge.window_errors(plan)))
         plan["tasks"][0]["windows"] = [{"objectId": "OBJ-01", "refs": ["A.java:1-2"] * 3}]
         errors = merge.window_errors(plan)
-        self.assertTrue(any("应有 4 到 6 个窗口" in item for item in errors))
+        self.assertEqual(errors, [])
         plan["tasks"][0]["windows"] = [{"objectId": "OBJ-01", "refs": ["A.java:1-2", "A.java:3-5",
                                                                         "A.java:7-9", "A.java:11-13"]}]
         self.assertEqual(merge.window_errors(plan), [])
         plan["tasks"][0]["windows"][0]["refs"] = ["A.java:1-5"] + ["A.java:7-9"] * 3
-        self.assertTrue(any("跨度超过 3 行" in item for item in merge.window_errors(plan)))
+        self.assertEqual(merge.window_errors(plan), [])
+        plan["tasks"][0]["windows"][0]["refs"] = ["A.java:5-1"]
+        self.assertTrue(any("行号无效" in item for item in merge.window_errors(plan)))
 
 
 

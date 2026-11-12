@@ -195,7 +195,7 @@ class CheckTest(unittest.TestCase):
         errors = json.loads(run(self.root).stdout)["errors"]
         self.assertTrue(any("没有用例" in item for item in errors), errors)
 
-    def test_a_table_without_expansions_is_blocked(self):
+    def test_expansions_are_optional(self):
         data = table([row("原审批人", "重新发起", scenarios=["SCN-01"], expected="出现两种方式"),
                       row("原审批人", "继续审批", "out_of_scope", reason="本轮不含从当前节点继续审批的改造，该方式沿用基线行为"),
                       row("转办接手人", "重新发起", "out_of_scope", reason="转办接手人不在本轮角色范围内，PRD 没有要求覆盖该角色"),
@@ -203,9 +203,9 @@ class CheckTest(unittest.TestCase):
         data.pop("expansions")
         write(self.root, "decision-table.json", data)
         errors = json.loads(run(self.root).stdout)["errors"]
-        self.assertTrue(any("展开项缺失" in item and "surface" in item for item in errors), errors)
+        self.assertEqual(errors, [])
 
-    def test_a_short_expansion_waiver_is_blocked(self):
+    def test_short_expansion_waiver_is_allowed(self):
         data = table([row("原审批人", "重新发起", scenarios=["SCN-01"], expected="出现两种方式"),
                       row("原审批人", "继续审批", "out_of_scope", reason="本轮不含从当前节点继续审批的改造，该方式沿用基线行为"),
                       row("转办接手人", "重新发起", "out_of_scope", reason="转办接手人不在本轮角色范围内，PRD 没有要求覆盖该角色"),
@@ -214,7 +214,7 @@ class CheckTest(unittest.TestCase):
         data["expansions"][0] = {"kind": "surface", "waiver": "没有界面"}
         write(self.root, "decision-table.json", data)
         errors = json.loads(run(self.root).stdout)["errors"]
-        self.assertTrue(any("豁免不足" in item and "surface" in item for item in errors), errors)
+        self.assertEqual(errors, [])
 
     def test_subtype_values_must_sit_on_an_axis(self):
         data = _closed()

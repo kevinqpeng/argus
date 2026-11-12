@@ -18,12 +18,10 @@ EXTRA_QUESTION_MIN = 10
 DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
 DECIDED = {"covered", "unknown"}
 UNDECIDED = {"not_applicable", "out_of_scope"}
-MIN_REASON = 20
 FILLER = ("不适用", "无需", "无影响", "无关", "none", "n/a", "na", "无")
 NO_BUNDLE = {"data", "permission"}
 BUNDLE_MAX = 3
 GAP_LIMIT = 1 / 3
-WINDOW_LINES = (4, 6)
 WINDOW = re.compile(r"(.+):(\d+)-(\d+)$")
 FORBIDDEN_CHECK_KEYS = {"kind", "result", "testability"}
 CODE_REF = re.compile(r"(.+):(\d+)(?:-(\d+))?$")
@@ -52,7 +50,7 @@ EMPTY_FIELDS = (
      "reason": "没有接收任务时留空，并在 question 写未决问题。"},
 )
 EMPTY_FIELD_NAMES = frozenset(row["field"] for row in EMPTY_FIELDS)
-EVIDENCE_RULE = "evidenceRef 是字符串。多条用英文分号 ';' 拼接，最多 2 条。每条是 文件:行 或 文件:起-止，含首尾最多 3 行。不要写成 JSON 数组。"
+EVIDENCE_RULE = "evidenceRef 是字符串。多条用英文分号 ';' 拼接，每条是 文件:行 或 文件:起-止，按来源复杂度选择必要范围。不要写成 JSON 数组。"
 
 
 def evidence_errors(value):
@@ -61,7 +59,7 @@ def evidence_errors(value):
     if not isinstance(value, str) or not value.strip():
         return ["empty evidenceRef"]
     parts = [part.strip() for part in value.split(";")]
-    errors = ["more than 2 evidence refs"] if len(parts) > 2 else []
+    errors = []
     for part in parts:
         match = CODE_REF.fullmatch(part)
         if match is None:
@@ -69,8 +67,8 @@ def evidence_errors(value):
                 errors.append(f"evidence ref too long: {part[:40]}")
             continue
         start, end = int(match.group(2)), int(match.group(3) or match.group(2))
-        if end < start or end - start + 1 > 3:
-            errors.append(f"evidence span > 3 lines: {part}")
+        if start < 1 or end < start:
+            errors.append(f"invalid evidence range: {part}")
     return errors
 
 
@@ -78,7 +76,7 @@ def explained(reason):
     text = str(reason or "").strip()
     for filler in FILLER:
         text = text.replace(filler, " ")
-    return len(str(reason or "").strip()) >= MIN_REASON and bool(text.strip("。. ;；,，:：、 \n"))
+    return bool(text.strip("。. ;；,，:：、 \n"))
 
 
 def plan_dimensions(plan):
@@ -127,7 +125,7 @@ def bundle_errors(check_id, row, dimensions=DIMENSION_ORDER):
     if len(listed) > BUNDLE_MAX:
         errors.append(f"check {check_id}: dimensions 一次最多 {BUNDLE_MAX} 个")
     if row.get("disposition") in UNDECIDED and not explained(row.get("reason")):
-        errors.append(f"check {check_id}: 合并豁免必须写清理由（需 {MIN_REASON} 字以上）")
+        errors.append(f"check {check_id}: 合并豁免必须写清理由")
     return errors
 
 
@@ -159,7 +157,7 @@ def matrix_errors(object_ids, checks, dimensions=DIMENSION_ORDER):
             for row in cell:
                 if not explained(row.get("reason")):
                     errors.append(f"六维结论不成立 {label}：{row.get('disposition')} 理由不足 "
-                                  f"（需 {MIN_REASON} 字以上并写清为什么该维度不受影响）")
+                                  f"（写清为什么该维度不受影响）")
     gaps = matrix_gaps(object_ids, checks, dimensions)
     total = len(object_ids) * len(dimensions)
     if total and len(gaps) / total > GAP_LIMIT:
@@ -202,12 +200,11 @@ def merged_hints(object_ids, checks, dimensions=DIMENSION_ORDER):
 
 
 def window_errors(plan):
-    """The index must hand every object 4-6 resolvable 3-line windows before dispatch."""
+    """Provide relevant source windows according to each object's complexity."""
     tasks = plan.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         return ["探索计划没有任务"]
     errors = []
-    low, high = WINDOW_LINES
     for task in tasks:
         task_id = task.get("taskId")
         object_ids = task.get("objectIds")
@@ -216,7 +213,7 @@ def window_errors(plan):
             continue
         windows = task.get("windows")
         if not isinstance(windows, list) or not windows:
-            errors.append(f"{task_id}: 缺少 windows（每个对象写 {low} 到 {high} 个 文件:起始-结束）")
+            errors.append(f"{task_id}: 缺少 windows（为对象提供相关来源范围）")
             continue
         by_object = {}
         for row in windows:
@@ -230,8 +227,8 @@ def window_errors(plan):
             by_object[object_id] = refs
         for object_id in object_ids:
             refs = by_object.get(object_id)
-            if not isinstance(refs, list) or not low <= len(refs) <= high:
-                errors.append(f"{task_id}: {object_id} 应有 {low} 到 {high} 个窗口，实际 "
+            if not isinstance(refs, list) or not refs:
+                errors.append(f"{task_id}: {object_id} 缺少来源窗口，实际 "
                               f"{len(refs) if isinstance(refs, list) else 0}")
                 continue
             for ref in refs:
@@ -240,8 +237,8 @@ def window_errors(plan):
                     errors.append(f"{task_id}: {object_id} 窗口必须写成 文件:起始-结束：{str(ref)[:40]}")
                     continue
                 start, end = int(match.group(2)), int(match.group(3))
-                if end < start or end - start + 1 > 3:
-                    errors.append(f"{task_id}: {object_id} 窗口跨度超过 3 行：{ref}")
+                if start < 1 or end < start:
+                    errors.append(f"{task_id}: {object_id} 窗口行号无效：{ref}")
         for extra in sorted(set(by_object) - set(object_ids)):
             errors.append(f"{task_id}: 窗口对象未分配给本任务：{extra}")
     return errors
@@ -459,8 +456,8 @@ def build_packet(plan, task_id, *, baseline, run, prd_rel, source_id, packet_pat
     rules = [
         "回执只写 output 指向的文件。写完立刻运行 checkCommand，失败只改这份回执。",
         "sources 原样复制 copyVerbatim.sources，不要另写一份。",
-        "evidenceRef 使用 windows[].evidenceRef 的字面量，类型是字符串。sourceUnits 同样最多 2 段、每段最多 3 行；更长就拆成两条单元。",
-        "windows[].text 已是不超过 3 行的原文。这些窗口不要再打开仓库检索。",
+        "evidenceRef 使用 windows[].evidenceRef 的字面量，类型是字符串。sourceUnits 按业务义务组织，不为段数或行数拆分。",
+        "windows[].text 是所选范围的原文。这些窗口不要再打开仓库检索。",
     ]
     if catalog:
         sample["obligations"][0]["acIds"] = [catalog[0]["acId"]]

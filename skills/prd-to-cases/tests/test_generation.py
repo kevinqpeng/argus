@@ -6,8 +6,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/generation.py"
+sys.path.insert(0, str(SCRIPT.parent))
 spec = importlib.util.spec_from_file_location("generation", SCRIPT)
 generation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generation)
@@ -61,6 +63,37 @@ class GenerationTests(unittest.TestCase):
         receipt["resultHash"] = generation.digest({k: v for k, v in receipt.items() if k != "resultHash"})
         path = self.root / f"G{i}" / str(self.state["attempts"][f"G{i}"]) / "result.json"
         path.write_text(json.dumps(receipt))
+
+    def test_draft_cache_invalidates_when_input_changes(self):
+        run = self.root
+        root = run / "cases/generation"
+        root.mkdir(parents=True)
+        matrix = run / "cases/decision-table.json"
+        matrix.write_text("{}")
+        with patch("verify_all.draft_gaps", return_value=[]) as check:
+            generation.check_draft(run, root)
+            generation.check_draft(run, root)
+            self.assertEqual(check.call_count, 1)
+            matrix.write_text('{"changed":true}')
+            with self.assertRaisesRegex(ValueError, "draft receipt missing or stale"):
+                generation.check_draft(run, root, receipt_only=True)
+            generation.check_draft(run, root)
+            self.assertEqual(check.call_count, 2)
+
+    def test_live_matrix_cannot_drift_from_frozen_plan(self):
+        run = self.root
+        self.root = run / "cases/generation"
+        (self.root / "frozen").mkdir(parents=True)
+        frozen = self.root / "frozen/decision-table.json"
+        frozen.write_text('{"cells":108}')
+        live = run / "cases/decision-table.json"
+        live.write_bytes(frozen.read_bytes())
+        self.plan["inputArtifacts"] = {"frozen/decision-table.json": generation.file_hash(frozen)}
+        self.reset_state()
+        self.assertEqual(self.evaluate()["status"], "PENDING")
+        live.write_text('{"cells":8}')
+        with self.assertRaisesRegex(ValueError, "changed live baseline"):
+            self.evaluate()
 
     def test_independent_ready_and_deterministic_merge(self):
         self.assertEqual(self.evaluate()["ready"], ["G1", "G2"])
@@ -190,27 +223,14 @@ class GenerationTests(unittest.TestCase):
         self.write_receipt(1, receipt)
         self.evaluate()
 
-    def test_contract_traps_fail_on_the_first_seal(self):
+    def test_wording_and_fixture_notation_do_not_block_generation(self):
         receipt = self.complete(1)
         case = receipt["cases"][0]
         case["fixtures"] = ["status=REJECTED"]
-        self.write_receipt(1, receipt)
-        with self.assertRaisesRegex(ValueError, "constant"):
+        for expected in ("原记录保留", "条数增加", "从流程起点重新审批"):
+            case["assertions"][0]["expected"] = expected
+            self.write_receipt(1, receipt)
             self.evaluate()
-        case["steps"].insert(0, {"id": "prep", "action": "甲驳回申请", "kind": "setup",
-                                  "assertionExemption": "establishes the rejected application"})
-        case["fixtures"] = []
-        case["assertions"][0]["expected"] = "原记录保留"
-        self.write_receipt(1, receipt)
-        with self.assertRaisesRegex(ValueError, "记录保留"):
-            self.evaluate()
-        case["assertions"][0]["expected"] = "条数增加"
-        self.write_receipt(1, receipt)
-        with self.assertRaisesRegex(ValueError, "baseline"):
-            self.evaluate()
-        case["steps"].insert(0, {"id": "base", "action": "读取条数作为基线", "kind": "setup",
-                                  "assertionExemption": "reads the current count"})
-        case["assertions"][0]["expected"] = "Accepted"
         self.plan["tasks"][0]["acIds"] = ["AC-1"]
         self.reset_state()
         case["assertions"][0]["expected"] = "见 AC-6.2-13"
@@ -270,8 +290,10 @@ class GenerationTests(unittest.TestCase):
         receipt["cases"][0]["automationRef"] = "planned:../outside.spec.ts::case 2"
         self.write_receipt(2, receipt)
         self.state["failed"] = []
-        with self.assertRaisesRegex(ValueError, "unsafe path"):
-            self.evaluate()
+        self.assertEqual(self.evaluate()["status"], "PASSED")
+        del receipt["cases"][0]["automationRef"]
+        self.write_receipt(2, receipt)
+        self.assertEqual(self.evaluate()["status"], "PASSED")
 
     def test_seal_writes_the_receipt_the_worker_used_to_compose(self):
         self.plan["phase"] = "cases"
@@ -293,6 +315,8 @@ class GenerationTests(unittest.TestCase):
         state = self.root / "state.json"
         plan.write_text(json.dumps(self.plan), encoding="utf-8")
         state.write_text(json.dumps(self.state), encoding="utf-8")
+        with patch("verify_all.draft_gaps", return_value=[]):
+            generation.check_draft(self.root.resolve().parent.parent, self.root)
         command = [sys.executable, str(SCRIPT), str(plan), str(state), "--root", str(self.root), "--seal", "G1"]
         self.assertEqual(subprocess.run(command, capture_output=True, text=True).returncode, 0)
         self.assertEqual(subprocess.run(command[:-1] + ["G2"], capture_output=True, text=True).returncode, 0)
@@ -321,6 +345,8 @@ class GenerationTests(unittest.TestCase):
         state = self.root / "state.json"
         plan.write_text(json.dumps(self.plan), encoding="utf-8")
         state.write_text(json.dumps(self.state), encoding="utf-8")
+        with patch("verify_all.draft_gaps", return_value=[]):
+            generation.check_draft(self.root.resolve().parent.parent, self.root)
         command = [sys.executable, str(SCRIPT), str(plan), str(state), "--root", str(self.root), "--seal-ready"]
         first = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stdout)

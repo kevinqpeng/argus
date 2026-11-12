@@ -14,7 +14,7 @@
 
 分片合并使用 `python3 <本技能>/scripts/merge_presentation.py <runDir>/cases/cases.json <轮次目录>/content.json <分片content.json>...`，再运行全量自检。脚本按冻结用例顺序合并并拒绝缺失、重复、越界或标题不一致；notes 按传入分片顺序保留。正文里的「本片」「本用例片」也会被拒绝，改该片措辞后再合并。输出已有不同内容时使用新轮次，避免覆盖。固定提示词保持原样。
 
-展示回执 receipt.json 由主 Agent 先写下真实 agentId、model、effort、isolation。计划含 notes 片或多于一片业务片时，`shards` 按 plan.json 顺序记录每片 agentId、caseIds 和 status=completed；notes 片的 caseIds 为空数组。然后运行 `render_review_table.py <runDir> --fill-receipt` 写入 promptHash 和 artifactHashes。promptHash 是本文件「固定提示词」正文（去掉首尾空白）UTF-8 字节的 SHA-256。artifactHashes 与 `verify_all.py` 使用同一份清单。主 Agent 不手写这些哈希。
+展示回执 receipt.json 由主 Agent 先写下真实 agentId、model、effort、isolation；model 照写实际传入的模型串（含 `:档位` 后缀时保留），effort 记 card 的 `resolvedEffort`；model 与 effort 必须取自同一张 card，同轮各片记录的 `configRevision` 应一致。计划含 notes 片或多于一片业务片时，`shards` 按 plan.json 顺序记录每片 agentId、caseIds 和 status=completed；notes 片的 caseIds 为空数组。然后运行 `render_review_table.py <runDir> --fill-receipt` 写入 promptHash 和 artifactHashes。promptHash 是本文件「固定提示词」正文（去掉首尾空白）UTF-8 字节的 SHA-256。artifactHashes 与 `verify_all.py` 使用同一份清单。主 Agent 不手写这些哈希。
 
 主 Agent 核对真实派发和回执。合并渲染后先跑一次全量 `--check-only`，再跑一次 `verify_all.py <runDir> --feature <功能名称>`，再跑一次 `phase_gate.py <runDir> --phase presentation`。`verify_all` 核对表头、合并、行高、下拉、默认值、mapping 和产物哈希。记录核查结果；发现源用例错误回用例阶段，展示问题只修展示。通过后发布，不要反复试发布命令。无需逐条 Jev 可读性打分或再次全量业务语义审查。
 
@@ -84,3 +84,9 @@
 ## 回归样例
 
 自动回归见 tests/test_review_table.py：图一式展开文案须被密度检查拦截；必要复杂边界有来源例外，例外绑定旧文案时拦截。另用以下四类输入试跑固定提示词：UI 用例含建数接口/定位器/SQL；两条同业务组但不同标题；带精确边界和并发时序的异常用例；接口用例含路径、字段和请求体。预期分别是技术方法迁移而义务保留、同组展示而 caseId 独立、数值与时序完整、接口细节改为业务动作且单号不进主表。所有结果仍为未测试。历史结果或截图显示通过不改变默认值。
+
+## 完成即补位
+
+用 `argus/scripts/scheduler.py <queue-plan> <queue-state> prepare --leases <leases> --source <展示plan.json> --run-id <runId> --concurrency <并发数>` 将展示计划接入共享队列。队列文件独立于 generation/state.json。每个分片返回后立即 finish 并 claim 下一片，不等待整批最慢任务；失败只 retry 该片。保持冻结并发上限，不以增加并发代替补位。
+
+分片体量按用例JSON的UTF-8字节估计：每512字节一单位，业务数据预算24单位（12 KiB），另为固定提示保留独立上下文空间，条数仍最多4条。长例保持单片，输出直接落盘；该预算是计划估计，不保证模型输出token上限，截断仍只重派受影响片。

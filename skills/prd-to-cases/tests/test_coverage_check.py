@@ -8,7 +8,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 SCRIPT = SCRIPTS / "coverage_check.py"
 sys.path.insert(0, str(SCRIPTS))
-from coverage_check import AXIS_FAMILIES  # noqa: E402
+AXIS_FAMILIES = ("subject", "lifecycle", "trigger", "target", "quantity", "permission", "repeat", "boundary")
 
 PRD = "1. 开关默认关闭，由配置人手动开启。\n2. 开启后驳回人必须选择一种重新审批方式。\n"
 WAIVER = "本需求只改审批开关文案，这一族形态在需求文本里没有任何对应行为可测"
@@ -106,7 +106,7 @@ class CoverageCheckTest(unittest.TestCase):
             self.assertIn("验收标准没有场景：AC-1-02", done.stdout)
             self.assertIn("组合矩阵单元缺口", done.stdout)
 
-    def test_blocks_when_a_morphology_axis_is_missing(self):
+    def test_missing_irrelevant_axis_is_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:
             dims = [{"name": "方式", "values": ["重新发起", "继续审批"]}]
             data = matrix(dims, [{"values": {"方式": "重新发起"}, "status": "covered", "caseIds": ["CASE-01"]},
@@ -115,11 +115,9 @@ class CoverageCheckTest(unittest.TestCase):
             data["axes"].pop("lifecycle")
             build(tmp, matrix_data=data)
             done = run(tmp)
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("缺少形态轴「lifecycle」", done.stdout)
-            self.assertIn("生命周期时点", done.stdout)
+            self.assertEqual(done.returncode, 0, done.stdout)
 
-    def test_axis_waiver_needs_a_real_reason(self):
+    def test_short_axis_waiver_is_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:
             dims = [{"name": "方式", "values": ["重新发起", "继续审批"]}]
             data = matrix(dims, [{"values": {"方式": "重新发起"}, "status": "covered", "caseIds": ["CASE-01"]},
@@ -128,8 +126,7 @@ class CoverageCheckTest(unittest.TestCase):
             data["axes"]["trigger"] = {"waiver": "不适用"}
             build(tmp, matrix_data=data)
             done = run(tmp)
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("axes.trigger 缺豁免理由", done.stdout)
+            self.assertEqual(done.returncode, 0, done.stdout)
 
     def test_axis_can_be_declared_on_the_dimension(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -192,66 +189,19 @@ class CoverageCheckTest(unittest.TestCase):
             self.assertEqual(done.returncode, 2)
             self.assertIn("二维组合未定论：角色=审批人 × 开关=关", done.stdout)
 
-    def test_not_applicable_needs_a_real_reason(self):
+    def test_short_not_applicable_reason_is_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:
             dims = [{"name": "方式", "values": ["重新发起", "继续审批"]}]
             cells = [{"values": {"方式": "重新发起"}, "status": "covered", "caseIds": ["CASE-01"]},
                      {"values": {"方式": "继续审批"}, "status": "not_applicable", "reason": "不涉及"}]
             build(tmp, matrix_data=matrix(dims, cells))
             done = run(tmp)
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("not_applicable 缺理由", done.stdout)
+            self.assertEqual(done.returncode, 0, done.stdout)
 
-    def test_blocks_on_person_quantifier_stronger_than_ac(self):
+    def test_quantifier_wording_does_not_gate_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
             build(tmp, ac_text="由其任意一人审批即可", assertions=[
                 {"stepId": "s1", "expected": "甲、乙均可看到并处理该待办"}])
-            done = run(tmp)
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("人员量词「均可」", done.stdout)
-
-    def test_blocks_on_quantifier_weaker_than_ac(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            build(tmp, ac_text="节点内所有人都会收到驳回待办", assertions=[
-                {"stepId": "s1", "expected": "待办只出现在其中一个审批人的列表里"}])
-            done = run(tmp)
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("或然量词", done.stdout)
-            self.assertIn("来源是全员口径", done.stdout)
-
-    def test_vague_quantifier_exclusion_needs_pending_ref(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            build(tmp, ac_text="节点内所有人都会收到驳回待办", assertions=[
-                {"stepId": "s1", "expected": "待办只出现在其中一个审批人的列表里"}])
-            write(tmp, "quantifier-exclusions.json",
-                  {"items": [{"caseId": "CASE-01", "token": "其中一个", "reason": "产品尚未裁决待办接收范围"}]})
-            done = run(tmp)
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("pendingRef", done.stdout)
-            write(tmp, "quantifier-exclusions.json",
-                  {"items": [{"caseId": "CASE-01", "token": "其中一个", "reason": "产品尚未裁决待办接收范围",
-                              "pendingRef": "REQ-待确认-0007"}]})
-            done = run(tmp)
-            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-
-    def test_person_quantifier_ignores_record_counts_and_non_person_subject(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            build(tmp, assertions=[
-                {"stepId": "s1", "expected": "流转记录新增一条驳回条目，两条条目各自独立"},
-                {"stepId": "s1", "expected": "两个固定方式且二者均可被选中"}])
-            done = run(tmp)
-            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-
-    def test_quantifier_exclusion_needs_reason(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            build(tmp, ac_text="由其任意一人审批即可", assertions=[
-                {"stepId": "s1", "expected": "甲、乙均可看到并处理该待办"}])
-            write(tmp, "quantifier-exclusions.json", {"items": [{"caseId": "CASE-01", "token": "均可", "reason": ""}]})
-            done = run(tmp)
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("quantifier-exclusions.json 缺理由", done.stdout)
-            write(tmp, "quantifier-exclusions.json",
-                  {"items": [{"caseId": "CASE-01", "token": "均可", "reason": "来源在待确认事项中未定"}]})
             done = run(tmp)
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
@@ -460,7 +410,7 @@ class PhaseGateWiringTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             build(tmp)
             data = json.loads((Path(tmp) / "cases/coverage-matrix.json").read_text(encoding="utf-8"))
-            data["axes"].pop("lifecycle")
+            data["cells"][0]["caseIds"] = ["missing-case"]
             (Path(tmp) / "cases/coverage-matrix.json").write_text(json.dumps(data), encoding="utf-8")
             self.assertTrue([gap for gap in self.gate_gaps(tmp) if gap.startswith("用例覆盖未闭合")])
 

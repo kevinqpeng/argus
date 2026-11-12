@@ -31,13 +31,23 @@ class NotesCheckTest(unittest.TestCase):
     base = {'category': '驳回记录', 'question': '记录如何展示？', 'action': '请产品确认',
             'sourceRefs': ['cases/generation/G4/2/notes.md']}
 
-    def test_decision_requires_search_evidence_impact_and_blocking(self):
-        self.write([dict(self.base, disposition='decision')])
+    def test_minimal_note_needs_no_classification_or_repeated_refs(self):
+        self.write([{'question': '谁处理？', 'evidence': '共享转办契约', 'impact': '决定待办归属'}])
+        result = run(self.root)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_note_keeps_evidence_and_effect(self):
+        self.write([{'question': '谁处理？'}])
         result = run(self.root)
         self.assertEqual(result.returncode, 2)
-        self.assertIn('searchedRefs', result.stdout)
-        self.assertIn('impactCaseIds', result.stdout)
-        self.assertIn('blocking', result.stdout)
+        self.assertIn('已查证据', result.stdout)
+        self.assertIn('影响用例', result.stdout)
+
+    def test_blank_evidence_is_not_content(self):
+        self.write([{'conclusion': '沿用原行为', 'evidence': ['  '], 'impact': '断言保持不变'}])
+        result = run(self.root)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('已查证据', result.stdout)
 
     def test_resolved_note_passes_and_counts(self):
         self.write([dict(self.base, disposition='resolved_by_code',
@@ -55,13 +65,9 @@ class NotesCheckTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn('TC-404', result.stdout)
 
-    def test_assumption_needs_basis_and_falsifier(self):
-        self.write([dict(self.base, disposition='assumption', searchedRefs=['检索无命中：停留时长'],
-                         basis='短', falsifier='')])
-        result = run(self.root)
-        self.assertEqual(result.returncode, 2)
-        self.assertIn('basis', result.stdout)
-        self.assertIn('falsifier', result.stdout)
+    def test_short_basis_needs_no_falsifier_or_minimum_length(self):
+        self.write([dict(self.base, disposition='assumption', basis='短')])
+        self.assertEqual(run(self.root).returncode, 0)
 
     def test_legacy_run_only_warns(self):
         (self.root / 'manifest.json').write_text(
@@ -74,7 +80,7 @@ class NotesCheckTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn('旧契约', result.stdout)
         strict = run(self.root, '--strict')
-        self.assertEqual(strict.returncode, 2)
+        self.assertEqual(strict.returncode, 0)
 
 
 if __name__ == '__main__':

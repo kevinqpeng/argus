@@ -21,11 +21,11 @@ description: Generates reviewable test cases from requirements, or imports exist
 
 这些字段在第一次落盘时就定稿。冻结生成计划前运行 `python3 <本目录>/scripts/verify_all.py <runDir> --draft`，不过就改原文。不要改完再整批重冻、重算 planHash。
 
-- 来源单元的 evidenceRef 在 `source_units.py` 写入时就是最多 2 段、每段最多 3 行。
+- 来源单元 evidenceRef 保留可核对的来源范围，数量与跨度按内容复杂度选择，不凑固定窗口数。
 - `cases/acs.json` 先于探索任务包。包里的 `acCatalog` 是义务 acIds 的唯一清单；预期已明的义务当场填写，只有 needs_clarification 且 expected 为空才留空。
 - 编号规则抽出时就写 `cases/rule-coverage.json`。
 - 决策表 `covered` 行直接写 `scenarios`（场景 ID）。没有 `coveredBy`。
-- 路径类义务在探索回执里写 `anchors.start`，或写满 waiver。生成输入包会带上这个标识，断言第一笔就写它。
+- 路径类预期说明可辨认的业务结果，节点名称、业务称呼或稳定标识均可，不要求 anchors 字段或固定句式。
 - 生成计划只冻结一次。worker 的 seal 在 `emit_cases.py --check` 通过后跑一次。
 
 ## 1. 采集并分析完整来源
@@ -68,11 +68,11 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 - 一个独立可验证行为一个场景。按适用性覆盖正常、异常、边界、权限、幂等、重试、并发、状态和输入校验。
 - 对每项需求检查是否存在共享资源或状态竞争、重复提交/重复请求、超时重试或重复消息等业务边界。结合 PRD、业务规则和已有证据判断适用性，记录依据；不适用记录原因，规则或预期不明标 needs_clarification，不自行假设业务结果。
 - 适用时在冻结基线前补充对应场景与用例：明确操作主体、共享对象、并发或重复方式、前置数据、预期响应及最终业务状态，分别断言关键副作用的次数和状态。需要同时竞争时在单条用例内安排并发操作；普通分片并行和测试失败重试不能替代业务并发或重复操作验证。
-- 组合口径以决策表 `cases/decision-table.json` 为准：维度及取值的完整笛卡尔积就是分母，逐格在场景冻结前裁定 `covered`（附场景与预期）、`not_applicable`、`out_of_scope` 或 `unknown`，理由 20 字以上。`not_applicable`、`out_of_scope`、`unknown` 可以少写轴，表示这一片同一个结论，更具体的行优先，其余由 `defaults` 继承，仍继承不到的阻断。`covered` 不能少写轴来充覆盖：一个场景展开后如果落在同一轴的两个取值上，`decision_table.py check` 直接阻断。每个取值单独写场景，用例的操作和结果要对应该取值（转办重新发起不能借原审批人的重新发起场景）。`unknown` 标 `risk`：`high` 进待确认事项；`medium`/`low` 写 `assumption`，由 `expand` 落进 `cases/assumptions.md` 作为可反驳的合并口径。用例合并后运行 `decision_table.py expand` 展开出组合矩阵 `cases/coverage-matrix.json`，矩阵是决策表的投影，不手改；`coverage_check.py` 核对两者一致。结构见 [影响探索](references/impact-exploration.md#1-先写决策表)。
+- 组合口径以决策表 `cases/decision-table.json` 为准：维度及取值的完整笛卡尔积就是分母，逐格在场景冻结前裁定 `covered`（附场景与预期）、`not_applicable`、`out_of_scope` 或 `unknown`，仅在需要解释适用性时记录简明依据。`not_applicable`、`out_of_scope`、`unknown` 可以少写轴，表示这一片同一个结论，更具体的行优先，其余由 `defaults` 继承，仍继承不到的阻断。`covered` 不能少写轴来充覆盖：一个场景展开后如果落在同一轴的两个取值上，`decision_table.py check` 直接阻断。每个取值单独写场景，用例的操作和结果要对应该取值（转办重新发起不能借原审批人的重新发起场景）。`unknown` 标 `risk`：`high` 进待确认事项；`medium`/`low` 写 `assumption`，由 `expand` 落进 `cases/assumptions.md` 作为可反驳的合并口径。用例合并后运行 `decision_table.py expand` 展开出组合矩阵 `cases/coverage-matrix.json`，矩阵是决策表的投影，不手改；`coverage_check.py` 核对两者一致。结构见 [影响探索](references/impact-exploration.md#1-先写决策表)。
 - 来源写「以发起时为准、之后的变化不影响已发起实例」时，生命周期轴要有两个方向，各一条用例：发起时关闭、发起后再打开；发起时开启、发起后再关闭。只测新建当时的开关，不算覆盖这一轴。
-- 轴要按形态选，不按 PRD 措辞选。维度名由业务自定义，但每轮必须对八个通用形态族作出交代：主体形态（直接操作人、代理代办：转办/加签/委托/管理员代操作、系统主体）、生命周期时点（变更前已存在、变更中在途、变更后新建，正反两向都要）、触发来源（用户操作、业务字段变化、配置变更、版本与定义变更、外部回调、批量）、目标状态（起始态、中间态、终态、回退态）、量词与集合（单/多主体、全部/部分成功）、权限与数据范围（有权、无权、越权、跨租户）、重复与并发（一次、重复提交、并发、重试、幂等）、边界（空、最小值、最大值、超长、非法）。写成维度时标 `family`，确实不适用时在决策表的 `axes` 里写不少于 20 字的理由——缺席等于漏族，`coverage_check.py` 直接 BLOCKED。
-- 决策表写 `expansions`。界面、被拆开的子类型、选择和原因的交叉、按标识找回原对象，四类各一条；查过没有就写 20 字以上的豁免。缺任一类，`decision_table.py check` 阻断。写法在 [展开四类](references/impact-exploration.md#展开四类)。
-- 格子数不设人为上限，但每个二维组合必须有定论：任一维度的任一取值 × 另一维度的任一取值，要么有用例覆盖，要么写出不适用理由。只有 `out_of_scope` 的取值或组合视为整片裁剪，直接 BLOCKED；`out_of_scope` 还要 `reviewer` 与 `approvalRef` 签署并计入覆盖率分母，越界不是免检通道。单格理由不足 20 字即视为未定论。硬上限 400 格，超出时先用等价类收敛取值，确有必要才加 `--allow-large-matrix`。
+- 决策维度按需求、来源复杂度和实际业务分支选择；主体、时点、权限、并发、边界等仅作分析提示，不要求逐族声明或补豁免。
+- `expansions` 按需记录界面、子类型、选择与原因交叉、对象定位等发现；不存在的类别可省略。
+- 格子数不设人为上限，但每个二维组合必须有定论：任一维度的任一取值 × 另一维度的任一取值，要么有用例覆盖，要么写出不适用理由。只有 `out_of_scope` 的取值或组合视为整片裁剪，直接 BLOCKED；`out_of_scope` 还要 `reviewer` 与 `approvalRef` 签署并计入覆盖率分母，越界不是免检通道。硬上限 400 格，超出时先用等价类收敛取值，确有必要才加 `--allow-large-matrix`。
 - P0 用例必须全部落在矩阵单元上，不参与等价类抽样：核心路径不允许只靠同族邻格代表。
 - P0 按已确认的核心流程、资金/关键数据、严重权限边界定级，保留理由。
 - 冻结前执行 [形式化路由](../decision-router/references/formal-routing.md)，选中时调用 Argus 的形式化子技能并接收反例及边界义务。将其映射到来源 AC 和真实用例，未确认的业务规则保持 needs_clarification。已有同指纹路由和模型证据直接复用，不重复运行。
@@ -84,7 +84,7 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 - 交叉核对来源清单、影响义务与场景全集；全部已确认义务都有场景，排除和未知均保留。冻结 impactHash、baselineVersion 和 SHA-256，再生成用例。冻结前先过「一次写对」的 `--draft`。派发前运行 `python3 <本目录>/scripts/slice_inputs.py <runDir> --plan cases/generation/plan.json`，worker 只读它写出的 `inputs/<taskId>.md`。
 - 按 [并行生成流程](references/parallel-generation.md) 由 Jev 辅助判断依赖与冲突，主 Agent 冻结分组、ID 和公共契约，调度 generation 子 Agent 在独立目录**只生成用例**（步骤 TSV 经 `scripts/emit_cases.py` 写出 cases.json，另写 notes.md），不写 spec。切分粒度按 AC 域，任务数按工作量、依赖和启动成本确定，允许单组；预分配用例超过 40 条时按该流程至少拆成两个可同时领取的任务。按 [共享调度](../argus/references/scheduling.md) 动态领取；单组沿用同一契约。全部分片经 `scripts/generation.py` 校验合并后再核对遗漏。生成分片必须齐全，所有必需场景和用例均须完整。
 - 用例粒度按「一个标题只回答一个结果」：同一 AC 内的正向、反向、边界和角色差异分别成条。开关的展示、默认、保存后仍开启、发布后新单能选方式、关闭时不出现方式，各占一条。路径按「谁驳回 × 哪种方式」各占一条，步骤只留驳回和再次提交。一条用例里塞进互不依赖的结论，评审表无法扫读，按未完成拆开。
-- 各用例有 fixtures、步骤、步骤绑定断言和 suite；按[回执和合并](references/parallel-generation.md#4-回执和合并)为每个业务步骤绑定断言、解释准备/清理豁免并回收未覆盖义务。断言按 [断言质量](references/assertion-quality.md) 的四类模板写：路径类给节点清单并说明不含谁，记录类写条数、顺序、旧行与当前节点四件套，结构类先断字段与按钮集合，配置类必须界面状态与服务端取值对照。生成任务包必须附这份模板和禁用措辞表，不使用模板即视为未完成。脚本尚未生成时 automationRef 写声明式入口 `planned:<spec文件名>::<用例标题>`，文件在脚本阶段按此名落盘，标题逐字一致。
+- 各用例有 fixtures、步骤、步骤绑定断言和 suite；按[回执和合并](references/parallel-generation.md#4-回执和合并)保留步骤与预期关联。断言说明测试者如何判断业务结果，表达参考[断言质量](references/assertion-quality.md)，不强制模板、特定词语、节点锚点或记录条数。设计阶段只明确自动化意图，automationRef 可省略；真实文件与入口在脚本阶段绑定。
 - 用例先行、脚本后置：脚本按人工评审通过的用例分批生成，避免用例改一轮、脚本白写一轮。
 - 源码标注稳定 caseId。
 - 参数化数据不会自动扩大场景分母。
@@ -95,11 +95,11 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 
 - 先通过 dispatch，来源和影响回执未变则复用。
 - 生成回执里的未覆盖义务，以及没有场景或没有用例的验收标准：原文和预期已经写明的，只为这些 ID 追加生成。预期不明、冲突或 needs_clarification 不编造，写入待确认事项。
-- 出表前运行一次 `python3 <本目录>/scripts/verify_all.py <runDir> --cases [--previous <历史评审表.xlsx>]`。它调用 `coverage_check.py`，核对 AC→场景→用例→断言、编号规则行→来源单元→义务→AC（任一义务的 AC 没有落到带断言的用例即 BLOCKED）、组合矩阵的八族形态轴声明、缺口、未定论单元、二维组合定论、取值代表与 `out_of_scope` 签署、决策表与矩阵是否同源，以及断言人员量词的双向口径（比来源强写「双方/均可」，或比来源弱写「其中一个/任意一人」，两个方向都拦），并与本项目既有同名评审表做差集。本项目已有同名功能的历史评审表时必须带 `--previous`。覆盖率按规则-义务 0.5、组合矩阵 0.3、基线差集 0.2 加权，三项与综合默认 0.9，阈值在 `argus-model.json` 的 `coverage` 里配置；低于阈值即 BLOCKED。矩阵分母只扣 `not_applicable`，`out_of_scope` 与 `unknown` 都算未覆盖，避免把格子推给越界或待确认来抬高覆盖率。量词口径确实未定且已进待确认事项时，写 `cases/quantifier-exclusions.json`（`caseId`+`token`+`reason`；或然量词还须 `pendingRef`）。BLOCKED 时补用例、补矩阵格，或把没有来源单元链路的编号条款写进 `cases/rule-coverage.json`（`covered_elsewhere`、`duplicate`、`not_applicable`、`out_of_scope`，均需理由）。
+- 出表前运行一次 `python3 <本目录>/scripts/verify_all.py <runDir> --cases [--previous <历史评审表.xlsx>]`。它调用 `coverage_check.py`，核对 AC→场景→用例→断言、编号规则行→来源单元→义务→AC（任一义务的 AC 没有落到带断言的用例即 BLOCKED）、组合矩阵的适用维度、缺口、未定论单元、二维组合定论、取值代表与 `out_of_scope` 签署、决策表与矩阵是否同源，并与本项目既有同名评审表做差集。本项目已有同名功能的历史评审表时必须带 `--previous`。覆盖率按规则-义务 0.5、组合矩阵 0.3、基线差集 0.2 加权，三项与综合默认 0.9，阈值在 `argus-model.json` 的 `coverage` 里配置；低于阈值即 BLOCKED。矩阵分母只扣 `not_applicable`，`out_of_scope` 与 `unknown` 都算未覆盖，避免把格子推给越界或待确认来抬高覆盖率。量词和集合预期按来源核对，不按词面匹配阻断；口径未定写入待确认事项。BLOCKED 时补用例、补矩阵格，或把没有来源单元链路的编号条款写进 `cases/rule-coverage.json`（`covered_elsewhere`、`duplicate`、`not_applicable`、`out_of_scope`，均需理由）。
 - 差集必须落到 `cases/history-diff.md`，逐条分类缺失、粒度、多余或冲突并说明本轮处置；先对齐行数口径（历史表的「（续）」行不是独立用例）。本项目已有同名功能的历史评审表时必须用 `--previous` 传入，它同时是本轮基线覆盖率的分母来源，也是唯一不受生成者自评影响的外部锤点；并把它写进 `manifest.cases.historyBaseline`，`--phase cases` / `presentation` 会按同一路径复核。
 - 对照 AC 的 Given/Then 核对测试数据、步骤和断言；原文明确的遗漏补齐。未知、冲突或影响探索发现但未解决的问题写入待确认事项供人工评审，不编造预期。已有实现与规则冲突写观察，不改成正确预期。
-- 同一次 `verify_all.py --cases` 还调用断言和待确认门禁，都在**合并后跑一次**，不逐片跑也不要求 worker 自己跑。断言门禁拦截弱措辞、或然结论、配置类缺失的接口对照，以及路径断言只写代词、`anchors.start` 没落进断言、记录追加缺条数。待确认门禁按 [待确认事项](references/pending-items.md) 核对三分法——`resolved_by_code` 的结论必须已经落进断言，`assumption` 落 `cases/assumptions.md`，只有 `decision` 进评审表；每条都要 `searchedRefs`。需要基线工作树时给 `--baseline`。BLOCKED 时只重派含问题 caseId 的那个分片（attempt 加一，其他分片不动），不整批重跑；也不把问题改写成更笼统的表述绕过。三类计数写入 `manifest.gates.pendingItems`，评审表只展示 `decision` 与假设汇总行。
-- 合并通过后，辅助 Jev 最多跑一次全量（`semantic_batch.py` 的 prepare、request、record、assemble）。同一 inputHash 再次 prepare 会失败。接着运行 `semantic_batch.py <runDir> report`。final 低于 0.8 的主体各写一条待确认：问题写业务疑问，分数留在 semantic-review.json。低分不改用例，也不再派生成。缺步骤、缺断言和 [共享契约](references/shared-contract.md) 的三条陷阱由 `generation.py` 在 seal 时失败，只重修该分片。入口用声明式 automationRef。人工评审通过即接受执行。未知检查、待确认事项和独立复核保留，不为了缩短墙钟删掉。
+- 同一次 `verify_all.py --cases` 合并后核对断言非空、步骤关联和待确认事项。待确认保留已查证据、业务问题或结论及对用例的影响；分类和重复追踪字段按需填写，不以字数或固定文案阻断。业务预期可判断性通过来源核对、语义复核及人工评审确认。失败只修受影响分片。
+- 合并通过后，辅助 Jev 最多跑一次全量（`semantic_batch.py` 的 prepare、request、record、assemble）。同一 inputHash 再次 prepare 会失败。接着运行 `semantic_batch.py <runDir> report`。final 低于 0.8 的主体各写一条待确认：问题写业务疑问，分数留在 semantic-review.json。低分不改用例，也不再派生成。缺步骤、缺断言和 [共享契约](references/shared-contract.md) 的分片归属由 `generation.py` 在 seal 时失败，只重修该分片。真实自动化入口留给脚本阶段绑定。人工评审通过即接受执行。未知检查、待确认事项和独立复核保留，不为了缩短墙钟删掉。
 
 ## 7. 输出人工评审表
 
@@ -118,7 +118,9 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 
 ## 完成条件
 
-- 完成：每个场景可追到已确认的 PRD、业务规则或影响义务，全部必需用例有声明式 planned 入口和有效断言，范围内义务预期明确且影响门禁通过，`coverage_check.py`、`assertion_check.py`、`notes_check.py` 无未处置缺口且规则-义务、组合矩阵、基线差集三项覆盖率均达标，JSON 与人工评审表一致；`deliverables/` 中恰有一个命名的「功能名称用例(V版本).xlsx」且与 `cases/cases.xlsx` 同字节。
+交付前必须运行 `python3 <本技能>/../argus/scripts/phase_gate.py <runDir> --phase design --complete`；它通过后才写 design_completed。用例及评审表派发使用 scheduler.prepare/claim/finish，领取和回收自动记录计时。输入与影响探索仍在真实开始/结束边界 stamp；缺失就记 unknown 并保持未完成，不在结束后补打。仅设计终点不要求人工批准、页面地图或 runner discovery。
+
+- 完成：每个场景可追到已确认的 PRD、业务规则或影响义务，全部必需用例有有效断言，范围内义务预期明确且影响门禁通过，`coverage_check.py`、`assertion_check.py`、`notes_check.py` 无未处置缺口且规则-义务、组合矩阵、基线差集三项覆盖率均达标，JSON 与人工评审表一致；`deliverables/` 中恰有一个命名的「功能名称用例(V版本).xlsx」且与 `cases/cases.xlsx` 同字节。
 - 已有缺口（包括历史评审表对比出的缺失）只允许两种处置：本轮补齐，或由调用方决定不补并在 `coverage-matrix.json`、`history-diff.md` 写明结论与下一轮去向；不追写即视为未完成。
 - 源变更后旧映射失效。
 - 调整范围要记录责任人、时间、理由和原基线指标，不能删失败场景提高覆盖。

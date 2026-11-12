@@ -62,12 +62,12 @@ host_config.py 的 JSON 含 modelMapping/defaultEffort/detectedModels；--format
 }
 ```
 
-示例需匹配实际发现档位才能使用。API 角色按 Provider 实际 effort 参数编码；delegate 按宿主工具参数编码，不把通用字段名盲发给每个模型。宿主不支持指定模型/强度或当前策略禁止委派时，该角色标 BLOCKED；不得悄悄在主会话使用其他模型。
+示例需匹配实际发现档位才能使用。API 角色按 Provider 实际 effort 参数编码；delegate 按宿主工具参数编码，不把通用字段名盲发给每个模型：pi 只接受 `Provider/模型ID:档位` 后缀串，dispatch.py 已连 Provider 一起拼好，省掉单独 effort 参数；会话模型未记录时该角色 BLOCKED。宿主不支持指定模型/强度或当前策略禁止委派时，该角色标 BLOCKED；不得悄悄在主会话使用其他模型。
 
 视觉 Jev 判断是 decision 的并行比对能力，模型版本冻结在 decision.visualModel；保留 vision 和 bug_analysis 角色负责复核和归因。
 
 恢复时沿用原冻结角色策略：`inherit-parent` 和 `session` 在当前轮重新解析，明确指定的模型与强度保持原绑定，除非用户要求的调整已通过配置变更路由。原快照的 `sessionEffective` 仅为创建时记录；当前实际调用写入新的回执或 doctor.md，不覆盖快照。仅更换协调者模型或宿主不新建 run；能力不足按 [恢复契约](../../argus/references/resume.md) 阻塞对应步骤。
 
-每次调用按角色读取冻结配置，并按[配置变更路由](../../decision-router/references/config-changes.md)应用原 run 中已验证的 model-adjustments.json 记录；无记录则使用原快照。delegate 使用宿主子 Agent 工具，明确模型传入其 model 参数；inherit-parent/auto 省略 model 参数。Codex 使用 spawn_agent 的 model 和 reasoning_effort，Claude 使用 Agent 支持的对应参数；其他宿主只用其已验证的等价调用。具体模型的 session 强度需使用当前轮可靠元数据并显式传入，不能用模型默认值代替；仅有最后记录而无法确认当前轮时，先阻塞询问固定强度或 model-default。API 按实际协议传参。
+每次调用按角色读取冻结配置，并按[配置变更路由](../../decision-router/references/config-changes.md)应用原 run 中已验证的 model-adjustments.json 记录；无记录则使用原快照。dispatch.py 自己核对 runId、快照哈希、连续 revision、证据引用和可改字段，只应用通过的 revision，并在 card 里输出 `configRevision`（原快照为 0）和 `adjustmentRejection`（有拒绝时）。delegate 使用宿主子 Agent 工具，明确模型传入其 model 参数；inherit-parent/auto 省略 model 参数。Codex 使用 spawn_agent 的 model 和 reasoning_effort，Claude 使用 Agent 支持的对应参数；其他宿主只用其已验证的等价调用。具体模型的 session 强度需使用当前轮可靠元数据并显式传入，不能用模型默认值代替；仅有最后记录而无法确认当前轮时，先阻塞询问固定强度或 model-default。API 按实际协议传参。
 
 每次调用前按实际 model/effort 能力复验。报告分别记录请求值、解析值和实际调用值；modelMapping.executionStatus=NOT_INVOKED 不能表述为执行通过。最终展示保存位置和完整更新后映射表，再进入后续已授权步骤。

@@ -46,21 +46,21 @@ class EmitCasesTest(unittest.TestCase):
             emit_cases.convert(text)
 
     def test_rows_become_a_sealed_case(self):
-        cases = emit_cases.convert(self.sample(), ["AC-1"])
-        self.assertEqual(cases[0]["automationRef"], "planned:reject.spec.ts::甲驳回")
+        cases = emit_cases.convert(self.sample().replace("reject.spec.ts", ""), ["AC-1"])
+        self.assertNotIn("automationRef", cases[0])
+        self.assertEqual(cases[0]["automationIntent"], "ui")
         task = {"scenarioIds": ["S1"], "acIds": ["AC-1"]}
         generation.validate_case(cases[0], task, "draft")
         generation.validate_automation_ref(cases[0], task, 1, {"cases.json": "x"}, "cases")
 
-    def test_constant_fixture_and_foreign_ac_fail_early(self):
+    def test_fixture_notation_is_free_but_foreign_ac_fails(self):
         text = "\n".join([
             HEADER,
             row(caseId="C1", scenarioId="S1", title="甲驳回", priority="P0", suite="ui",
                 spec="reject.spec.ts", fixtures="status=REJECTED", stepId="s1",
                 action="查看 AC-2", expected="仍是已驳回"),
         ]) + "\n"
-        with self.assertRaisesRegex(ValueError, "constant"):
-            emit_cases.convert(text)
+        self.assertEqual(emit_cases.convert(text)[0]["fixtures"], ["status=REJECTED"])
         with self.assertRaisesRegex(ValueError, "AC outside this slice"):
             emit_cases.convert(text.replace("status=REJECTED", "甲已登录"), ["AC-1"])
 
@@ -95,7 +95,6 @@ class EmitCasesTest(unittest.TestCase):
                        "同一 AC 的场景或优先级不一致", "同一需求的正文不一致",
                        "绑定表表头必须是", "TSV header must be unitId,sourceIds",
                        "TSV header must be caseId", "input overlaps worker directory",
-                       "planned automationRef requires file::title",
                        "missing assertion or explained setup/cleanup exemption"):
             self.assertIn(phrase, text)
 

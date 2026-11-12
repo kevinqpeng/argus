@@ -516,7 +516,6 @@
       "required": [
         "schemaVersion",
         "caseId",
-        "automationRef",
         "scenarioIds",
         "suite",
         "priority",
@@ -532,6 +531,10 @@
         "caseId": {
           "type": "string",
           "minLength": 1
+        },
+        "automationIntent": {
+          "type": "string",
+          "description": "可选自动化意图；真实入口在脚本阶段绑定"
         },
         "automationRef": {
           "type": "string",

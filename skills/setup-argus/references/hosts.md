@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | Cursor | ~/.cursor；可用 --runtime-dir 覆盖 | 从当前会话和工具发现模型、推理强度及委派能力；无法确认时为 unknown |
 | Codex | CODEX_HOME 或 ~/.codex | 配置默认可读 model/model_provider/model_reasoning_effort 与活动 profile；当前会话和工具 model/reasoning_effort 参数以实际元信息为准 |
-| pi | PI_CODING_AGENT_DIR 或 ~/.pi/agent | 模型/推理档位从当前会话目录及工具参数发现；不能假设沿用 Codex 的字段或同一组档位 |
+| pi | PI_CODING_AGENT_DIR 或 ~/.pi/agent | 模型/推理档位从当前会话目录及工具参数发现；不能假设沿用 Codex 的字段或同一组档位。强度只随模型串的 `:档位` 后缀传递且要带 Provider 前缀，dispatch.py 拼好；会话模型未记录时该角色 BLOCKED |
 | Claude Code | CLAUDE_CONFIG_DIR 或 ~/.claude | 模型 slug 用当前 Agent 工具接受的名称，强度按实际 effort 能力，不把完整 API ID 与工具别名混用 |
 | Grok | GROK_HOME 或 ~/.grok | 默认模型读 models.default；本机发行文档支持 --reasoning-effort/--effort，具体菜单档位按模型发现，不能假设 session 总可解析 |
 | agy | ~/.gemini/config，特殊安装用 --runtime-dir | 从本轮界面/工具发现模型和强度；没有显式设置能力时只继承实际会话或标不支持，不猜私有字段 |

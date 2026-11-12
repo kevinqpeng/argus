@@ -15,11 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus/scripts"))
 from case_contract import validate_steps
 
 CONTRACT = Path(__file__).resolve().parents[1] / "references" / "shared-contract.md"
-CONSTANT_FIXTURE = re.compile(
-    r"^(?:[A-Za-z_][\w.]*|[\u4e00-\u9fffA-Za-z0-9_]{1,16})\s*=\s*"
-    r"(?:[A-Za-z0-9_.\"'-]+|[\u4e00-\u9fffA-Za-z0-9_]{1,16})$")
-DELTA = re.compile(r"增量|比(?:原来|原先|之前|基线)多|(?:条数|数量|次数)(?:增加|变多)")
-BASELINE = re.compile(r"基线|当前条数|现有条数|读取条数|查询条数|记录条数")
 AC_CITE = re.compile(r"(?<![A-Za-z0-9])AC[-_][A-Za-z0-9.]+(?:-[A-Za-z0-9.]+)*")
 
 
@@ -89,20 +84,6 @@ def frozen_contract(plan, root):
 
 
 def contract_traps(case, task):
-    fixtures = case.get("fixtures") or []
-    steps = case["steps"]
-    if (fixtures and all(isinstance(item, str) and CONSTANT_FIXTURE.match(item.strip()) for item in fixtures)
-            and not any(step.get("kind") == "setup" for step in steps)):
-        raise ValueError(case["caseId"] + ": precondition is a constant; add the action that establishes it")
-    positions = {step["id"]: index for index, step in enumerate(steps)}
-    for assertion in case["assertions"]:
-        expected = assertion.get("expected") or ""
-        if "记录保留" in expected:
-            raise ValueError(case["caseId"] + ": unobservable assertion: 记录保留")
-        if DELTA.search(expected):
-            index = positions.get(assertion.get("stepId"), -1)
-            if not any(BASELINE.search(step.get("action") or "") for step in steps[:index + 1]):
-                raise ValueError(case["caseId"] + ": delta assertion has no baseline step")
     allowed = task.get("acIds")
     if isinstance(allowed, list):
         cited = set(AC_CITE.findall(json.dumps(case, ensure_ascii=False)))
@@ -125,18 +106,14 @@ def validate_case(case, task, review_status):
 
 
 def validate_automation_ref(case, task, attempt, files, phase):
+    if phase == "cases":
+        return
     ref = case.get("automationRef")
     require(isinstance(ref, str) and ref.strip(), "missing automationRef: " + case["caseId"])
-    if phase == "cases":
-        require(ref.startswith("planned:"), "case generation requires planned automationRef")
-        path, separator, title = ref[len("planned:"):].partition("::")
-        require(separator and title.strip(), "planned automationRef requires file::title")
-        safe_path(Path("/generation-check"), path)
-    else:
-        entry, separator, title = ref.partition(":")
-        require(separator and title.strip(), "automationRef requires an entry title")
-        require(entry in {f"{task['taskId']}/{attempt}/{n}" for n in files},
-                "automationRef outside owned files")
+    entry, separator, title = ref.partition(":")
+    require(separator and title.strip(), "automationRef requires an entry title")
+    require(entry in {f"{task['taskId']}/{attempt}/{n}" for n in files},
+            "automationRef outside owned files")
 
 
 def validate_plan(plan):
@@ -200,6 +177,13 @@ def evaluate(plan, state, root):
             "invalid active tasks")
     for name, expected in plan["inputArtifacts"].items():
         require(file_hash(safe_path(root, name)) == expected, "changed frozen input: " + name)
+    run = root.resolve().parent.parent
+    for name, expected in plan["inputArtifacts"].items():
+        if name.startswith("frozen/") and Path(name).name in {
+                "acs.json", "scenarios.json", "decision-table.json", "impact-analysis.json"}:
+            current = run / "cases" / Path(name).name
+            require(current.is_file() and file_hash(current) == expected,
+                    "changed live baseline; freeze a new plan: " + current.name)
     frozen_contract(plan, root)
     completed, cases, artifacts = {}, [], {}
     for tid in ordered:
@@ -342,6 +326,31 @@ def packet_main(argv):
     return 0
 
 
+def draft_fingerprint(run):
+    paths = []
+    paths += [run / "cases" / name for name in
+              ("acs.json", "impact-analysis.json", "decision-table.json")]
+    paths += sorted((run / "cases/sources").rglob("*"))
+    paths += sorted(Path(__file__).parent.glob("*.py"))
+    return digest({str(path): file_hash(path) if path.is_file() else None for path in paths})
+
+
+def check_draft(run, root, receipt_only=False):
+    from verify_all import draft_gaps
+    from scheduler import locked, save
+
+    fingerprint = draft_fingerprint(run)
+    receipt = root / "draft-check.json"
+    with locked(root / ".draft-check.lock"):
+        saved = json.loads(receipt.read_text()) if receipt.exists() else {}
+        if saved.get("inputHash") == fingerprint and saved.get("status") == "PASSED":
+            return
+        require(not receipt_only, "draft receipt missing or stale; evaluate the plan before dispatch")
+        gaps = draft_gaps(run, None)
+        require(not gaps, "draft baseline blocked: " + "; ".join(gaps))
+        save(receipt, {"schemaVersion": 1, "inputHash": fingerprint, "status": "PASSED"})
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "packet":
         try:
@@ -373,6 +382,9 @@ def main():
     try:
         plan = json.loads(args.plan.read_text())
         state = json.loads(args.state.read_text())
+        if plan.get("phase") == "cases":
+            check_draft(args.root.resolve().parent.parent, args.root,
+                        receipt_only=bool(args.seal or args.seal_ready))
         if args.seal or args.seal_ready:
             if args.seal:
                 result = seal(plan, state, args.root, args.seal, json.loads(args.gaps))

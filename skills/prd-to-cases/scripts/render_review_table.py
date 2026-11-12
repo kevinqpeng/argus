@@ -172,18 +172,11 @@ def load_run(run_dir):
 
 
 def case_weight(case):
-    """One unit per step or assertion. Long text adds a unit per extra 80 characters."""
+    """512-byte units; 24 units reserve 12 KiB beyond the shared task prompt."""
     if not isinstance(case, dict):
         return 1
-    weight = 0
-    for key, field in (("steps", "action"), ("assertions", "expected")):
-        rows = case.get(key) or []
-        if not isinstance(rows, list):
-            continue
-        for row in rows:
-            text = row.get(field) if isinstance(row, dict) else ""
-            weight += max(1, (len(text) + 79) // 80) if isinstance(text, str) and text else 1
-    return max(1, weight)
+    payload = json.dumps(case, ensure_ascii=False).encode('utf-8')
+    return max(1, (len(payload) + 511) // 512)
 
 
 def slice_case_ids(cases, cap=SLICE_CAP, weight_budget=SLICE_WEIGHT):
@@ -330,8 +323,13 @@ def presentation_input(source, case_ids):
 
 def check_destination(label, source_ids, groups, exemptions):
     """每个源条目要么落到展示序号，要么带理由豁免；不能既落又豁免或凭空多出。"""
-    flat = [sid for group in groups for sid in group]
     errors = []
+    expected_type = type(source_ids[0]) if source_ids else str
+    if (not isinstance(groups, list) or any(not isinstance(group, list) or
+            any(type(sid) is not expected_type for sid in group) for group in groups)
+            or not isinstance(exemptions, dict)):
+        return [f'{label}: 映射须为来源ID的二维数组，豁免须为对象'], []
+    flat = [sid for group in groups for sid in group]
     if sorted(set(flat)) != sorted(source_ids):
         missing = sorted(set(source_ids) - set(flat) - set(exemptions))
         extra = sorted(set(flat) - set(source_ids))
@@ -368,16 +366,23 @@ def normalize(content, source, errors):
         step_sources = row.get('stepSources') or [[sid] for sid in step_ids if sid not in step_ex]
         errs, _ = check_destination(f"{row['caseId']} 步骤", step_ids, step_sources, step_ex)
         errors += errs
+        if errs:
+            continue
         if len(row['steps']) != len(step_sources):
             errors.append(f"{row['caseId']}: steps 条数 {len(row['steps'])} 与 stepSources "
                           f"{len(step_sources)} 不一致")
         assertions = case['assertions']
         exp_ex = row.get('assertionExemptions') or {}
+        if not isinstance(exp_ex, dict) or any(not str(k).isdigit() for k in exp_ex):
+            errors.append(f"{row['caseId']}.assertionExemptions: 键须为从0开始的断言序号，例如 {{'0': '理由'}}，不是步骤ID")
+            continue
         indexes = list(range(len(assertions)))
         exp_sources = row.get('expectedSources') or [[i] for i in indexes if str(i) not in exp_ex]
         errs, _ = check_destination(f"{row['caseId']} 断言", indexes, exp_sources,
                                     {int(k): v for k, v in exp_ex.items()})
         errors += errs
+        if errs:
+            continue
         if len(row['expected']) != len(exp_sources):
             errors.append(f"{row['caseId']}: expected 条数 {len(row['expected'])} 与 expectedSources "
                           f"{len(exp_sources)} 不一致")
@@ -494,8 +499,8 @@ def note_dispositions(run_dir):
     if not isinstance(rows, list):
         print('ERROR cases/notes.json 需为 {notes: [...]}', file=sys.stderr)
         sys.exit(2)
-    return {str(row['category']): row.get('disposition') or 'decision'
-            for row in rows if isinstance(row, dict) and row.get('category')}
+    return {str(row.get('category') or row.get('question') or row.get('conclusion')): row.get('disposition') or 'decision'
+            for row in rows if isinstance(row, dict)}
 
 
 def low_scores(semantic):
@@ -522,7 +527,7 @@ def render_md(path, content, units, source, notes, low):
                f"- 场景: {', '.join(case['scenarioIds'])}",
                f"- AC: {', '.join(dict.fromkeys(ac_ids))}",
                f"- suite: {case['suite']} / 优先级: {case['priority']}",
-               f"- 自动化: `{case['automationRef']}`", '',
+               f"- 自动化: `{case.get('automationRef') or case.get('automationIntent') or '待脚本阶段绑定'}`", '',
                '**前置条件**', '', numbered(row['fixtures']), '',
                '**操作步骤**', '', numbered(row['steps']), '',
                '**预期结果**', '', numbered(row['expected']), '',
@@ -665,21 +670,18 @@ def main():
         sys.exit(2)
 
     notes = content.get('notes') or []
-    for note in notes:
-        if isinstance(note, dict) and not note.get('disposition'):
-            note['disposition'] = note_dispositions(run_dir).get(note.get('category'), 'decision')
     for i, note in enumerate(notes, 1):
-        if (not isinstance(note, dict) or
-                any(not isinstance(note.get(k), str) or not note[k].strip()
-                    for k in ('category', 'question', 'action')) or
-                not isinstance(note.get('sourceRefs'), list) or not note['sourceRefs'] or
-                any(not isinstance(ref, str) or not ref.strip() for ref in note['sourceRefs'])):
-            print(f'ERROR notes[{i}]: 需提供 category、question、action 和非空 sourceRefs', file=sys.stderr)
+        if not isinstance(note, dict) or not str(note.get('question') or note.get('conclusion') or '').strip():
+            print(f'ERROR notes[{i}]: 需提供业务疑问 question', file=sys.stderr)
             sys.exit(2)
-        if note.get('disposition') is not None and note['disposition'] not in NOTE_DISPOSITIONS:
-            print(f"ERROR notes[{i}]: disposition 只能是 {', '.join(NOTE_DISPOSITIONS)}，"
-                  f"收到 {note['disposition']!r}", file=sys.stderr)
-            sys.exit(2)
+        note.setdefault('question', note.get('conclusion'))
+        note.setdefault('category', note['question'])
+        note.setdefault('action', note.get('impact') or note.get('conclusion') or '确认后更新相关用例')
+        note.setdefault('sourceRefs', note.get('searchedRefs') or [note.get('evidence') or note.get('evidenceRef') or '见待确认事项证据'])
+        if not note.get('disposition'):
+            note['disposition'] = note_dispositions(run_dir).get(note.get('category'), 'decision')
+        if note['disposition'] not in NOTE_DISPOSITIONS:
+            note['disposition'] = 'decision'
     if args.cases_only and notes:
         print('ERROR 业务片的 notes 必须是空数组，待确认事项由 notes 片写入', file=sys.stderr)
         sys.exit(2)

@@ -7,7 +7,7 @@
 命令：`python3 <本目录>/../scripts/phase_gate.py <runDir> --phase <target|dispatch|semantic|cases|presentation|execution|report>`
 退出 0 = PASSED，退出 2 = BLOCKED，输出缺口清单。任一阶段 BLOCKED 时停在该阶段，不进入下一阶段，不能用内容完整代替过程完整。
 
-`cases` 与 `presentation` 阶段包含覆盖闭合检查：直接调用 `prd-to-cases/scripts/coverage_check.py` 的判定（八族形态轴、二维组合定论、越界签署、量词双向、覆盖率阈值），不把覆盖自检留成可跳过的手工步骤。历史基线写在 `manifest.cases.historyBaseline` 时一并做差集，否则只算内部分母。
+`cases` 与 `presentation` 阶段包含覆盖闭合检查：直接调用 `prd-to-cases/scripts/coverage_check.py` 的判定（适用业务维度、二维组合定论、越界签署、覆盖率阈值），不把覆盖自检留成可跳过的手工步骤。历史基线写在 `manifest.cases.historyBaseline` 时一并做差集，否则只算内部分母。
 
 ## 门禁一：目标冻结（评审门禁放行后，首次 Web 探索或业务执行前必须 PASSED）
 
@@ -24,7 +24,7 @@
 影响探索与用例生成由宿主子 Agent 完成，主会话只写计划、调度状态和最终材料。
 
 - 影响探索：按 [调度规则](../../prd-to-cases/references/impact-exploration.md) 判定单 Agent 或并行，判定依据与任务清单写 `cases/exploration.md`。启用并行时每个任务有独占回执 `cases/exploration/<taskId>/<attempt>.json`。
-- 索引窗口：`cases/exploration/plan.json` 每个任务的每个对象写 4 到 6 个 `文件:起始-结束`（每段不超过 3 行），缺窗口或跨度越界 BLOCKED。
+- 索引窗口：按来源复杂度选择足以理解业务的可解析范围，不限制窗口数和行跨度；缺证据保留未知或不适用，不补凑窗口。
 - 影响结论：`cases/impact-analysis.json` 的每个对象乘六个维度都要有 check 或带理由的 `not_applicable`/`out_of_scope`；`cases/exploration/evidence-check.json` 的 `failed` 必须为 0。缺格或伪造证据 BLOCKED，不能靠用例条数或覆盖率抵消。
 - 用例生成：按 [并行生成流程](../../prd-to-cases/references/parallel-generation.md) 写 `cases/generation/plan.json`、`state.json`，每个任务完成后写 `<taskId>/<attempt>/result.json`，最终 `cases/cases.json` 只能由合并结果产生。
 - 主会话直接写出 `cases.json` 而没有任何任务回执时，视为未调度，产物无效，不能进入阶段 4。

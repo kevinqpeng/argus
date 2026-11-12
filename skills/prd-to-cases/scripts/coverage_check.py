@@ -20,28 +20,9 @@ REF = re.compile(r'^(.{1,300}?):(\d+)(?:-(\d+))?$')
 ACCEPTED = {'covered', 'not_applicable', 'out_of_scope', 'unknown', 'gap'}
 SETTLED = {'covered', 'not_applicable', 'out_of_scope'}
 RULE_DISPOSITIONS = {'covered_elsewhere', 'duplicate', 'not_applicable', 'out_of_scope'}
-PERSON = ('人', '甲', '乙', '丙', '丁', '戊', '己')
-ALL_PEOPLE = ('均可', '都可', '都能', '均能', '双方', '两人', '任何人', '所有人', '每位', '每人', '全体',
-              '都可见', '都可看到', '都可以')
-# 或然量词：断言只承诺「其中一人」，来源或基线可能要求「全部人」，与 ALL_PEOPLE 构成反向缺口。
-VAGUE_PEOPLE = ('其中一个', '其中一名', '其中一位', '其中之一', '任意一人', '之一')
-CLAUSE = re.compile(r'[。；;，,\n]')
-MIN_REASON = 20
 HARD_CELLS = 400
 ALLOW_LARGE_FLAG = '--allow-large-matrix'
 
-# 通用形态轴：与业务无关的组合维度目录。任何需求都要对每族作出声明或豁免，
-# 否则某些形态（代理主体、定义变更、时点反向、量词集合…）会整族缺席而门禁仍然 PASS。
-AXIS_FAMILIES = {
-    'subject': '主体形态（直接操作人、代理代办：转办/加签/委托/管理员代操作、系统主体）',
-    'lifecycle': '生命周期时点（变更前已存在、变更中在途、变更后新建，且正反两向）',
-    'trigger': '触发来源（用户操作、业务字段变化、配置变更、版本与定义变更、外部回调、批量）',
-    'target': '目标状态（起始态、中间态、终态、回退或回滚态）',
-    'quantity': '量词与集合（单/多主体、单/多条、全部/部分成功、成员集合）',
-    'permission': '权限与数据范围（有权、无权、越权、跨租户、跨数据范围）',
-    'repeat': '重复与并发（一次、重复提交、并发、重试、超时、幂等）',
-    'boundary': '边界（空、最小、最大、超长、非法输入）',
-}
 DEFAULT_THRESHOLDS = {'ruleCoverage': 0.9, 'matrixCoverage': 0.9, 'baselineCoverage': 0.9,
                       'score': 0.9}
 PART_LABELS = {'rule': '规则-义务', 'matrix': '组合矩阵', 'baseline': '基线差集'}
@@ -135,41 +116,7 @@ def expand_cells(data, names):
     return cells, problems
 
 
-def quantifier_gaps(cases, acs, scenarios, exclusions):
-    """两个方向的量词缺口。
-
-    正向：断言写「双方都能处理」，AC 却只说「由其中一名处理」，属于断言强于来源。
-    反向：断言写「其中一个/任意一人」，AC 或基线要求全员，真值不同，必须裁决后才能出表。
-    记录条目数（一条/两条）不算人员量词；「二者均可被选中」这类非人物主语也跳过。
-    """
-    gaps = []
-    ac_text = {a['acId']: str(a.get('text') or '') for a in acs}
-    scenario_acs = {s['scenarioId']: s.get('acIds') or [] for s in scenarios}
-    for case in cases:
-        pool = ' '.join(ac_text.get(a, '') for sid in case.get('scenarioIds') or []
-                        for a in scenario_acs.get(sid, []))
-        for assertion in case.get('assertions') or []:
-            for clause in CLAUSE.split(str(assertion.get('expected') or '')):
-                token = next((t for t in ALL_PEOPLE if t in clause), None)
-                if token and any(p in clause for p in PERSON):
-                    if (case['caseId'], token) in exclusions:
-                        continue
-                    if not any(t in pool for t in ALL_PEOPLE):
-                        gaps.append(f'{case["caseId"]} 断言用了人员量词「{token}」，对应 AC 只给单人/分配口径：'
-                                    f'{clause.strip()[:40]}')
-                    continue
-                vague = next((t for t in VAGUE_PEOPLE if t in clause), None)
-                if not vague or not any(p in clause for p in PERSON):
-                    continue
-                if (case['caseId'], vague) in exclusions:
-                    continue
-                if any(t in pool for t in ALL_PEOPLE):
-                    gaps.append(f'{case["caseId"]} 断言用或然量词「{vague}」，来源是全员口径：'
-                                f'{clause.strip()[:40]}；先裁决待办接收范围再出表')
-    return gaps
-
-
-def check(run, previous=None, matrix=True, lenient_rules=False, quantifier=True, allow_large=False):
+def check(run, previous=None, matrix=True, lenient_rules=False, allow_large=False):
     cases_dir = run / 'cases'
     acs = load(cases_dir / 'acs.json', 'acs.json')
     scenarios = load(cases_dir / 'scenarios.json', 'scenarios.json')
@@ -197,18 +144,6 @@ def check(run, previous=None, matrix=True, lenient_rules=False, quantifier=True,
         for sid in case.get('scenarioIds') or []:
             if sid not in scenario_ids:
                 gaps.append(f'{case["caseId"]} 引用未知场景：{sid}')
-
-    if quantifier:
-        recorded = (load(cases_dir / 'quantifier-exclusions.json', 'cases/quantifier-exclusions.json',
-                         required=False) or {}).get('items') or []
-        for item in recorded:
-            if not (item.get('reason') or '').strip():
-                gaps.append(f'quantifier-exclusions.json 缺理由：{item.get("caseId")} {item.get("token")}')
-            elif item.get('token') in VAGUE_PEOPLE and not str(item.get('pendingRef') or '').strip():
-                gaps.append(f'quantifier-exclusions.json 或然量词豁免缺少待确认引用 pendingRef：'
-                            f'{item.get("caseId")} {item.get("token")}')
-        gaps.extend(quantifier_gaps(cases, acs, scenarios,
-                                    {(i.get('caseId'), i.get('token')): i for i in recorded}))
 
     rule_notes = (load(cases_dir / 'rule-coverage.json', 'cases/rule-coverage.json', required=False) or {}).get('lines') or {}
     for line, note in rule_notes.items():
@@ -362,7 +297,7 @@ def coverage_report(rule_ratio, stats, baseline_ratio, limits):
 
 
 def axis_gaps(data, dimensions):
-    """通用形态轴：每一族都要写成维度，或写明不适用理由。"""
+    """核对已提供的维度引用；形态族声明可选。"""
     declared = {}
     for dim in dimensions:
         if dim.get('family'):
@@ -372,9 +307,6 @@ def axis_gaps(data, dimensions):
     if not isinstance(axes, dict):
         return ['组合矩阵 axes 必须是对象：{形态族: {dimension|waiver}}']
     for family, spec in axes.items():
-        if family not in AXIS_FAMILIES:
-            problems.append(f'组合矩阵 axes 出现未知形态族：{family}（可用：{", ".join(AXIS_FAMILIES)}）')
-            continue
         if not isinstance(spec, dict):
             problems.append(f'组合矩阵 axes.{family} 必须是对象')
             continue
@@ -384,14 +316,10 @@ def axis_gaps(data, dimensions):
             declared.setdefault(family, []).append(dimension)
             if dimension not in {d.get('name') for d in dimensions}:
                 problems.append(f'组合矩阵 axes.{family} 指向未声明的维度：{dimension}')
-        elif len(waiver) < MIN_REASON:
-            problems.append(f'组合矩阵 axes.{family} 缺豁免理由（≥{MIN_REASON} 字）')
+        elif not waiver:
+            problems.append(f'组合矩阵 axes.{family} 缺豁免理由')
         else:
             declared.setdefault(family, ['豁免'])
-    for family, hint in AXIS_FAMILIES.items():
-        if family not in declared:
-            problems.append(f'组合矩阵缺少形态轴「{family}」：{hint}；在 dimensions[].family 或 axes 中声明，'
-                            f'或写明本需求不适用的理由')
     return problems
 
 
@@ -422,7 +350,7 @@ def matrix_report(cases_dir, cases, gaps, warnings, allow_large):
     expanded, problems = expand_cells(data, names)
     gaps.extend(problems)
     seen, settled, statuses = set(), set(), {}
-    unsigned, short = [], []
+    unsigned = []
     for cell in expanded:
         combo = tuple((cell.get('values') or {}).get(name) for name in names)
         label = dict(zip(names, combo))
@@ -457,8 +385,8 @@ def matrix_report(cases_dir, cases, gaps, warnings, allow_large):
                         f'{label} {reason or "缺理由"}')
         elif status == 'not_applicable':
             stats['notApplicable'] += 1
-            if len(reason) < MIN_REASON:
-                gaps.append(f'组合矩阵 not_applicable 缺理由（≥{MIN_REASON} 字）：{label}')
+            if not reason:
+                gaps.append(f'组合矩阵 not_applicable 缺理由：{label}')
             else:
                 settled.add(combo)
         else:
@@ -467,8 +395,6 @@ def matrix_report(cases_dir, cases, gaps, warnings, allow_large):
                        if not str(cell.get(key) or '').strip()]
             if missing:
                 unsigned.append((label, missing))
-            elif len(reason) < MIN_REASON:
-                short.append(label)
             else:
                 settled.add(combo)
     for label, missing in unsigned[:4]:
@@ -476,10 +402,6 @@ def matrix_report(cases_dir, cases, gaps, warnings, allow_large):
                     f'越界结论必须有理由、评审人与批准引用')
     if len(unsigned) > 4:
         gaps.append(f'组合矩阵 out_of_scope 未经签署：…另有 {len(unsigned) - 4} 个越界单元缺签署')
-    for label in short[:4]:
-        gaps.append(f'组合矩阵 out_of_scope 理由过短（≥{MIN_REASON} 字）：{label}')
-    if len(short) > 4:
-        gaps.append(f'组合矩阵 out_of_scope 理由过短：…另有 {len(short) - 4} 个单元')
     missing_cells = sorted(expected - seen)
     for combo in missing_cells[:6]:
         gaps.append(f'组合矩阵缺单元：{dict(zip(names, combo))}')
@@ -549,12 +471,11 @@ def main():
     parser.add_argument('--previous', help='历史评审表 .xlsx，用于差集核对')
     parser.add_argument('--no-matrix', action='store_true', help='跳过组合矩阵检查（仅限已记录理由的旧 run）')
     parser.add_argument('--lenient-rules', action='store_true', help='编号规则链未闭合只提示（默认阻断）')
-    parser.add_argument('--no-quantifier', action='store_true', help='跳过断言人员量词检查（仅限已记录理由的旧 run）')
     parser.add_argument('--allow-large-matrix', action='store_true',
                         help=f'允许组合矩阵超过 {HARD_CELLS} 格（需在矩阵 note 里说明收敛依据）')
     args = parser.parse_args()
     run = args.run_dir.resolve()
-    result = check(run, args.previous, not args.no_matrix, args.lenient_rules, not args.no_quantifier,
+    result = check(run, args.previous, not args.no_matrix, args.lenient_rules,
                    args.allow_large_matrix)
     summary = {k: v for k, v in result.items() if k not in ('gaps', 'warnings', 'historyDiff')}
     summary['warnings'] = len(result['warnings'])

@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus/scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from case_contract import validate_steps
-from generation import contract_traps, safe_path
+from generation import contract_traps
 
 HEADERS = ("caseId", "scenarioId", "title", "priority", "suite", "spec",
            "fixtures", "stepId", "kind", "action", "expected", "exemption")
@@ -50,11 +50,9 @@ def build(rows, ac_ids):
     first = rows[0]
     case_id = cell(first, "caseId")
     title = cell(first, "title")
-    spec = cell(first, "spec")
-    if (not title or not spec or "::" in spec or cell(first, "priority") not in PRIORITIES
+    if (not title or cell(first, "priority") not in PRIORITIES
             or cell(first, "suite") not in SUITES or not parts(cell(first, "scenarioId"))):
         raise ValueError("invalid case fields: " + case_id)
-    safe_path(Path("/generation-check"), spec)
     steps, assertions = [], []
     for row in rows:
         for key in META:
@@ -84,7 +82,7 @@ def build(rows, ac_ids):
         "schemaVersion": 1, "caseId": case_id, "scenarioIds": parts(cell(first, "scenarioId")),
         "title": title, "suite": cell(first, "suite"), "priority": cell(first, "priority"),
         "fixtures": parts(cell(first, "fixtures")), "steps": steps, "assertions": assertions,
-        "reviewStatus": "draft", "automationRef": f"planned:{spec}::{title}",
+        "reviewStatus": "draft", "automationIntent": cell(first, "suite"),
     }
     validate_steps(case["steps"], case["assertions"])
     task = {"scenarioIds": case["scenarioIds"]}

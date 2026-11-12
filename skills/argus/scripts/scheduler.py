@@ -110,6 +110,7 @@ class Queue:
     def __init__(self, plan_path, state_path, leases):
         require(len({p.resolve() for p in (plan_path, state_path, leases)}) == 3,
                 'plan, state and leases must be different files')
+        self.plan_path = plan_path
         self.plan = read(plan_path, {})
         self.tasks = validate(self.plan)
         self.state_path = state_path
@@ -199,6 +200,23 @@ class Queue:
             save(self.state_path, state)
             if operation != 'claim':
                 save(self.leases, leases)
+            run = self.plan.get('timingRun')
+            if run and operation in ('claim', 'finish'):
+                from datetime import datetime, timezone
+                stage = self.plan['timingStage']
+                manifest_path = Path(run) / 'manifest.json'
+                with locked(Path(run) / '.manifest.lock'):
+                    manifest = read(manifest_path, {})
+                    attempts = list(rows.values()) + state['history']
+                    started = [r['startedAt'] for r in attempts if 'startedAt' in r]
+                    if started:
+                        slot = {'startedAt': datetime.fromtimestamp(min(started), timezone.utc).isoformat(),
+                                'queueStateRef': str(self.state_path.resolve()),
+                                'queuePlanRef': str(self.plan_path.resolve())}
+                        if all(r['status'] in ('completed', 'failed', 'cancelled') for r in rows.values()):
+                            slot['endedAt'] = datetime.fromtimestamp(max(r['finishedAt'] for r in attempts if 'finishedAt' in r), timezone.utc).isoformat()
+                        manifest.setdefault('timing', {})[stage] = slot
+                        save(manifest_path, manifest)
             return result
 
 
@@ -230,11 +248,31 @@ def performance(plan, snapshot):
     return {'platforms': result, 'note': 'Occupied time includes LLM/tool waits; costs and idle time require host telemetry.'}
 
 
+def design_plan(source, run_id, concurrency):
+    """Adapt existing generation/review slices to the same durable claim queue."""
+    rows = source.get('slices') or source.get('tasks') or []
+    tasks = []
+    for row in rows:
+        tid = row.get('taskId') or row.get('name')
+        output = row.get('output')
+        outputs = [output] if output else [f"{tid}/{name}" for name in row.get('outputFiles', [])]
+        tasks.append({'taskId': tid, 'kind': 'generation', 'platform': 'shared',
+                      'taskType': 'presentation' if 'slices' in source else 'cases',
+                      'dependsOn': row.get('dependsOn', []), 'outputs': outputs,
+                      'caseIds': row.get('caseIds', []),
+                      'checkCommand': row.get('checkCommand'),
+                      'retrySafe': True, 'maxAttempts': 3})
+    plan = {'schemaVersion': 1, 'runId': run_id, 'inputHash': digest(source),
+            'generationConcurrency': concurrency, 'executionConcurrency': 1, 'tasks': tasks}
+    validate(plan)
+    return plan
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('plan', type=Path)
     p.add_argument('state', type=Path)
-    p.add_argument('operation', choices=('claim', 'finish', 'retry', 'status', 'report'))
+    p.add_argument('operation', choices=('prepare', 'claim', 'finish', 'retry', 'status', 'report'))
     p.add_argument('--leases', type=Path, required=True, help='Shared host-wide resource registry')
     p.add_argument('--worker')
     p.add_argument('--task')
@@ -243,8 +281,25 @@ def main():
     p.add_argument('--stopped', action='store_true')
     p.add_argument('--evidence')
     p.add_argument('--usage', type=Path, help='Observed metrics JSON; omit unavailable fields')
+    p.add_argument("--source", type=Path, help="Existing generation or presentation plan")
+    p.add_argument("--run-id")
+    p.add_argument("--concurrency", type=int)
     a = p.parse_args()
     try:
+        if a.operation == 'prepare':
+            require(a.source and a.run_id and a.concurrency, 'prepare requires source, run-id and concurrency')
+            source = read(a.source, {})
+            plan = design_plan(source, a.run_id, a.concurrency)
+            run = next((parent for parent in a.source.resolve().parents if (parent / 'manifest.json').is_file()), None)
+            require(run is not None, 'source must belong to a run with manifest.json')
+            plan['timingRun'] = str(run)
+            plan['timingStage'] = 'presentation' if 'slices' in source else 'generation'
+
+            with locked(a.plan.with_suffix('.lock')):
+                require(not a.plan.exists() or read(a.plan, {}) == plan, 'changed queue plan; use a new path')
+                save(a.plan, plan)
+            print(json.dumps({'status': 'READY', 'tasks': len(plan['tasks'])}))
+            return 0
         queue = Queue(a.plan, a.state, a.leases)
         result = queue.operate('status' if a.operation == 'report' else a.operation, a.worker, a.task,
                     a.token, a.outcome, a.stopped, a.evidence, usage=read(a.usage, {}) if a.usage else None)

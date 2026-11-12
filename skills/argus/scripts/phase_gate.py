@@ -87,6 +87,72 @@ class Gate:
         if offenders:
             self.gaps.append("harness 指向本地自建环境（禁止，目标须来自 web-private.json）：" + "; ".join(offenders[:5]))
 
+    def design(self) -> None:
+        """Design completion excludes approval and execution-only artifacts."""
+        from verify_all import case_gates, draft_gaps
+
+        self.gaps.extend(draft_gaps(self.run_dir, None))
+        self.dispatch()
+        self.semantic()
+        for name, result in case_gates(self.run_dir, None).items():
+            self.gaps.extend(f"{name}: {gap}" for gap in result["gaps"])
+        self.presentation_delivery()
+        formal = (self.manifest or {}).get("gates", {}).get("formalVerification", {})
+        self.need(formal.get("status") in {"PASSED", "N/A"}, "形式化路由未完成")
+        refs = formal.get("evidenceRef") or []
+        refs = [refs] if isinstance(refs, str) else refs
+        self.need(bool(refs), "缺少形式化路由证据")
+        for ref in refs:
+            self.need_file(ref, "形式化路由证据不存在")
+        from datetime import datetime
+        for stage in ("input", "exploration", "generation", "presentation"):
+            slot = (self.manifest or {}).get("timing", {}).get(stage, {})
+            try:
+                start = datetime.fromisoformat(slot["startedAt"])
+                end = datetime.fromisoformat(slot["endedAt"])
+                self.need(end > start, f"{stage} 计时必须覆盖实际工作区间")
+                if stage in ("generation", "presentation"):
+                    queue_ref = slot.get("queueStateRef")
+                    queue_plan_ref = slot.get("queuePlanRef")
+                    self.need(bool(queue_ref and queue_plan_ref), f"{stage} 缺少实际领取队列计时证据")
+                    if queue_ref and queue_plan_ref:
+                        queue_path = Path(queue_ref).resolve()
+                        plan_path = Path(queue_plan_ref).resolve()
+                        if not self.need(queue_path.is_relative_to(self.run_dir) and plan_path.is_relative_to(self.run_dir),
+                                         f"{stage} 队列证据必须在本 run"):
+                            continue
+                        queue = read_json(queue_path) or {}
+                        plan = read_json(plan_path) or {}
+                        self.need(queue.get("planHash") == digest(plan), f"{stage} 队列计划不一致")
+                        self.need(plan.get("runId") == self.manifest.get("runId")
+                                  and plan.get("timingStage") == stage,
+                                  f"{stage} 队列不属于本 run/阶段")
+                        round_id = str((self.manifest.get("presentation") or {}).get("round", "1"))
+                        source_ref = ("cases/generation/plan.json" if stage == "generation" else
+                                      f"cases/presentation/{round_id}/plan.json")
+                        source = read_json(safe_path(self.run_dir, source_ref)) or {}
+                        from scheduler import design_plan
+                        expected_plan = design_plan(source, self.manifest.get("runId"),
+                                                    plan.get("generationConcurrency"))
+                        self.need(plan.get("inputHash") == digest(source)
+                                  and plan.get("tasks") == expected_plan["tasks"],
+                                  f"{stage} 队列与当前分片计划不一致")
+
+                        task_rows = queue.get("tasks") or {}
+                        self.need(set(task_rows) == {task["taskId"] for task in expected_plan["tasks"]},
+                                  f"{stage} 队列回执任务集合不一致")
+                        rows = list(task_rows.values())
+                        self.need(bool(rows) and all(row.get("status") == "completed" for row in rows),
+                                  f"{stage} 队列尚未全部完成")
+                        if rows:
+                            attempts = rows + (queue.get("history") or [])
+                            self.need(abs(start.timestamp() - min(row.get("startedAt", 0) for row in attempts)) <= 0.000001
+                                      and abs(end.timestamp() - max(row.get("finishedAt", 0) for row in attempts)) <= 0.000001,
+                                      f"{stage} 时间与实际领取/回收不一致")
+
+            except (KeyError, ValueError, TypeError):
+                self.gaps.append(f"{stage} 缺少有效开始/结束时间")
+
     # --- 门禁二：并行调度 ---
     def dispatch(self) -> None:
         if not self.need(self.manifest is not None, "缺少 manifest.json"):
@@ -174,13 +240,13 @@ class Gate:
         entry = (self.manifest or {}).get("cases")
         if isinstance(entry, dict) and entry.get("historyBaseline"):
             baseline = safe_path(self.run_dir, str(entry["historyBaseline"]))
-        result = check(self.run_dir, baseline, True, False, True, False)
+        result = check(self.run_dir, baseline, True, False, False)
         for gap in result["gaps"]:
             self.gaps.append("用例覆盖未闭合：" + gap)
 
 
     def _exploration_windows(self) -> None:
-        """派发前每个对象必须有 4-6 个可解析的行号窗口，否则六维只能靠常识填。"""
+        """按对象复杂度提供可解析来源窗口，不按固定数量或跨度验收。"""
         from merge_impact_candidates import window_errors
         plan = read_json(self.run_dir / "cases/exploration/plan.json")
         if not self.need(isinstance(plan, dict), "缺少 cases/exploration/plan.json（索引窗口未落盘）"):
@@ -501,6 +567,7 @@ class Gate:
 
 
 PHASES = {
+    "design": "design",
     "target": "target",
     "dispatch": "dispatch",
     "cases": "cases",
@@ -640,13 +707,33 @@ def semantic_contract():
     }
 
 
+def complete_design(run_dir):
+    from scheduler import locked, save
+
+    with locked(run_dir / ".design.lock"):
+        gate = Gate(run_dir)
+        gate.design()
+        if not gate.gaps:
+            current = read_json(run_dir / "manifest.json")
+            if current != gate.manifest:
+                gate.gaps.append("manifest changed during design verification")
+            else:
+                current["state"] = "design_completed"
+                current.setdefault("gates", {})["design"] = {"status": "PASSED"}
+                save(run_dir / "manifest.json", current)
+        return gate
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Argus 阶段门禁检查")
     parser.add_argument("run_dir", nargs="?", type=Path, help="run 目录")
     parser.add_argument("--phase", required=True, choices=sorted(PHASES), help="要检查的阶段门禁")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出")
     parser.add_argument("--contract", action="store_true", help="打印 semantic 门禁契约后退出")
+    parser.add_argument("--complete", action="store_true", help="design 通过后保存完成状态")
     args = parser.parse_args()
+    if args.complete and args.phase != "design":
+        parser.error("--complete requires --phase design")
     if args.contract:
         if args.phase != "semantic":
             print("contract 只用于 semantic", file=sys.stderr)
@@ -662,8 +749,11 @@ def main() -> int:
         return 1
 
     try:
-        gate = Gate(run_dir)
-        getattr(gate, PHASES[args.phase])()
+        if args.complete:
+            gate = complete_design(run_dir)
+        else:
+            gate = Gate(run_dir)
+            getattr(gate, PHASES[args.phase])()
     except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
         print(json.dumps({"phase": args.phase, "status": "BLOCKED", "gaps": [str(exc)]}, ensure_ascii=False))
         return 2

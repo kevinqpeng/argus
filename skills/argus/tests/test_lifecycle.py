@@ -167,6 +167,22 @@ class LifecycleTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     lifecycle.approved_cases(self.run, self.manifest)
 
+    def test_script_stage_binds_cases_without_design_entry(self):
+        for i, case in enumerate(self.cases, 1):
+            case['title'] = f'title {i}'
+            del case['automationRef']
+        self.write('cases/cases.json', self.cases)
+        self.plan['approvedCasesHash'] = lifecycle.digest(self.cases)
+        self.write('cases/scripts/plan.json', self.plan)
+        for i in (1, 2):
+            receipt = lifecycle.read(self.run, f'cases/scripts/T{i}/result.json')
+            receipt['planHash'] = lifecycle.digest(self.plan)
+            self.write(f'cases/scripts/T{i}/result.json', receipt)
+            lifecycle.publish(self.run, f'T{i}')
+        bound = lifecycle.execution_cases(self.run)
+        self.assertEqual(bound[0]['automationRef'], 'harness/tests/1.spec.ts::title 1')
+        self.assertNotIn('automationRef', lifecycle.read(self.run, 'cases/cases.json')[0])
+
     def test_publish_cleanup_and_retry_preserve_specs_and_other_tasks(self):
         lifecycle.publish(self.run, "T1")
         published = self.run / "harness/tests/1.spec.ts"

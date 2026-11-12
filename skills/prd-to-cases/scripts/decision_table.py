@@ -20,8 +20,8 @@ assumption（本轮采用的合并口径），由用例按该口径执行，不�
    "reason": "为什么 Not applicable / out_of_scope / unknown",
    "risk": "high", "assumption": "medium/low 时的合并口径"}
 
-expansions 四类各一条：surface、subtype、both-arms、identity。
-不适用写 waiver（20 字以上）。写法在影响探索「展开四类」。
+expansions 按实际来源选填 surface、subtype、both-arms、identity。
+不适用的类别可以省略。
 
 values 可以只写部分轴，少写就是「管这一片」：{"重新审批方式": "驳回后重新发起"}
 一条顶掉这条轴上所有角色的格子，格子的数量由轴相乘得出，不靠人手写。
@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from merge_impact_candidates import MIN_REASON, explained  # noqa: E402
+from merge_impact_candidates import explained  # noqa: E402
 
 DIMENSIONS = "dimensions"
 TABLE = "cases/decision-table.json"
@@ -124,7 +124,7 @@ def row_errors(row, names, index):
         if not (row.get("expected") or "").strip():
             errors.append(f"{label} 标 covered 但没有 expected：组合的判定结果必须可观察")
     elif not explained(row.get("reason")):
-        errors.append(f"{label} {status} 理由不足（需 {MIN_REASON} 字以上，写清为什么该组合不受影响）")
+        errors.append(f"{label} {status} 理由不足（写清为什么该组合不受影响）")
     if status == "unknown":
         risk = row.get("risk")
         if risk not in RISKS:
@@ -153,7 +153,7 @@ def default_errors(default, names, index):
     if default.get("status") not in STATUSES:
         errors.append(f"默认口径第 {index + 1} 条 status 非法：{default.get('status')}")
     elif not explained(default.get("reason")):
-        errors.append(f"默认口径第 {index + 1} 条理由不足（需 {MIN_REASON} 字以上）")
+        errors.append(f"默认口径第 {index + 1} 条理由不足")
     return errors
 
 
@@ -267,11 +267,12 @@ def value_homes(table):
 
 
 def expansion_errors(table, cases=None):
-    """四类展开各一条。适用就写成轴上的取值；不适用写够字数的豁免。"""
+    """检查实际声明的展开项；未声明类别不要求补充。"""
     entries = table.get("expansions")
+    if entries is None:
+        return []
     if not isinstance(entries, list):
-        return ["展开项缺失：expansions 要有 surface、subtype、both-arms、identity 各一条，"
-                "或各写 20 字以上的豁免"]
+        return ["expansions 必须是数组"]
     by_kind, errors = {}, []
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
@@ -285,9 +286,6 @@ def expansion_errors(table, cases=None):
             errors.append(f"展开项重复：{kind}")
             continue
         by_kind[kind] = entry
-    for kind in EXPANSIONS:
-        if kind not in by_kind:
-            errors.append(f"展开项缺失：{kind}；补这一类的轴取值，或写 20 字以上的豁免")
     homes = value_homes(table)
     known = scenario_ids(cases) if cases is not None else None
     checkers = {"surface": lambda entry: surface_errors(entry, known),
@@ -299,7 +297,7 @@ def expansion_errors(table, cases=None):
         if explained(waiver):
             continue
         if str(waiver or "").strip():
-            errors.append(f"展开项 {kind}：豁免不足 {MIN_REASON} 字，写清查过什么；"
+            errors.append(f"展开项 {kind}：豁免未说明依据，写清查过什么；"
                           f"要展开就删掉 waiver，改成这一类的取值")
             continue
         errors.extend(checkers[kind](entry))
@@ -356,7 +354,7 @@ def subtype_errors(entry, homes):
         if explained(entry.get("sameOutcome")):
             return []
         return [f"展开项 subtype：{who} 的代码已拆开，values 至少两个并写上轴；"
-                f"结果确实相同就写 20 字以上的 sameOutcome"]
+                f"结果确实相同就写 sameOutcome"]
     return [f"展开项 subtype：取值不在任何维度上：{value}；加进轴，每个取值单独写场景"
             for value in values if value not in homes]
 

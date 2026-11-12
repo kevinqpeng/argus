@@ -17,7 +17,7 @@ description: 可独立或由 Argus 调用，按批准用例和已验证地图生
 
 - 前置：`cases/cases.json` 全部 `reviewStatus=approved`；`phase_gate.py --phase review` 必须已 PASSED。未批准不得开始脚本，否则脚本对着会被改的用例写。
 - 计划写在 `cases/scripts/plan.json`：`{schemaVersion, runId, approvedCasesHash, tasks:[{taskId, caseIds, specFile, notesFile}]}`。`approvedCasesHash` 绑定批准时的 cases.json 摘要；用例再变，计划失效。
-- 切分：一个任务一个独立测试文件（`specFile` 唯一，不限制扩展名），任务数按规模与复杂度确定；公共 DB 断言代码可作为共享生成任务，环境准备与实际核验进入执行队列并保留依赖。任务里写明「只实现分配 caseIds，不改用例期望值」。
+- 切分：一个任务一个独立测试文件（`specFile` 唯一，不限制扩展名；在本阶段决定文件名，不依赖设计用例中的 planned 引用），任务数按规模与复杂度确定；公共 DB 断言代码可作为共享生成任务，环境准备与实际核验进入执行队列并保留依赖。任务里写明「只实现分配 caseIds，不改用例期望值」。
 - 回执：每任务写 `cases/scripts/<taskId>/result.json`（`runId`、`planHash`、`taskId`、`specFileHash`、`caseIds`、`discoveredTitles`（caseId → 完整标题））；主 Agent 收齐回执并发布全部文件后，通过 lifecycle.py bind 生成 `cases/execution-cases.json`，再用 runner `--list` 复核发现标题逐字等于用例标题，保留原审批材料。
 - 门禁：`phase_gate.py <runDir> --phase scripts` 要求 plan 存在、每任务回执齐全、`approvedCasesHash` 与当前 cases 一致、discovery 覆盖全部已批准用例（不得多也不得少）、`manifest.scripts.generatedAfter` 晚于人工批准时间。
 

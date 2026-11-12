@@ -19,6 +19,52 @@ def task(tid, platform='web', kind='generation', **extra):
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_review_queue_refills_before_slowest_slice_finishes(self):
+        source = {"slices": [{"name": str(i), "output": f"slices/{i}/content.json"}
+                             for i in range(3)]}
+        plan = scheduler.design_plan(source, "review", 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "plan.json"
+            plan.update(timingRun=str(root), timingStage="presentation")
+            (root / "manifest.json").write_text('{}')
+            path.write_text(json.dumps(plan))
+            queue = Queue(path, root / "state.json", root / "leases.json")
+            first = queue.operate("claim", worker="a")
+            second = queue.operate("claim", worker="b")
+            self.assertIsNone(queue.operate("claim", worker="c"))
+            queue.operate("finish", task_id=first["taskId"], token=first["token"],
+                          outcome="completed", stopped=True, evidence="receipt")
+            third = queue.operate("claim", worker="a")
+            self.assertIsNotNone(third)
+            slot = json.loads((root / "manifest.json").read_text())["timing"]["presentation"]
+            self.assertIn("queueStateRef", slot)
+            self.assertNotIn("endedAt", slot)
+            self.assertNotEqual(third["taskId"], second["taskId"])
+            self.assertEqual(queue.operate("status")["tasks"][second["taskId"]]["status"], "running")
+
+    def test_timing_keeps_failed_attempt_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = {"slices": [{"name": "one", "output": "one.json"}]}
+            plan = scheduler.design_plan(source, "run", 1)
+            plan.update(timingRun=str(root), timingStage="generation")
+            (root / "manifest.json").write_text('{}')
+            path = root / "plan.json"
+            path.write_text(json.dumps(plan))
+            queue = Queue(path, root / "state.json", root / "leases.json")
+            first = queue.operate("claim", worker="a", now=100.1234567)
+            queue.operate("finish", task_id="one", token=first["token"], outcome="failed",
+                          stopped=True, evidence="failure", now=101)
+            queue.operate("retry", task_id="one", token=first["token"], now=102)
+            second = queue.operate("claim", worker="a", now=103)
+            queue.operate("finish", task_id="one", token=second["token"], outcome="completed",
+                          stopped=True, evidence="success", now=104.1234567)
+            from datetime import datetime
+            slot = json.loads((root / "manifest.json").read_text())["timing"]["generation"]
+            self.assertAlmostEqual(datetime.fromisoformat(slot["startedAt"]).timestamp(), 100.1234567, places=6)
+            self.assertAlmostEqual(datetime.fromisoformat(slot["endedAt"]).timestamp(), 104.1234567, places=6)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

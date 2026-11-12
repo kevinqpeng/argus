@@ -124,10 +124,8 @@ def publication_inputs(run, task_id):
     for case in cases:
         if case["caseId"] not in task["caseIds"]:
             continue
-        ref = case.get("automationRef", "")
-        require(ref.startswith("planned:"), "approved case requires planned automationRef")
-        path, separator, title = ref[8:].partition("::")
-        require(separator and title.strip() and path == task["specFile"], "automationRef outside script ownership")
+        title = case.get("title") or case.get("automationRef", "").partition("::")[2]
+        require(isinstance(title, str) and title.strip(), "script case requires a title")
         titles[case["caseId"]] = title
     require(receipt.get("discoveredTitles") == titles, "script title ownership mismatch")
     return plan, task, content
@@ -206,8 +204,9 @@ def execution_cases(run):
                 and receipt.get("specFile") == task["specFile"]
                 and receipt.get("specFileHash") == file_hash(safe_path(run, target)), "invalid published spec")
         for cid in task["caseIds"]:
-            refs[cid] = target
-    return [{**c, "automationRef": refs[c["caseId"]] + "::" + c["automationRef"].split("::", 1)[1]}
+            source_receipt = read(run, f"cases/scripts/{task['taskId']}/result.json")
+            refs[cid] = target + "::" + source_receipt["discoveredTitles"][cid]
+    return [{**c, "automationRef": refs[c["caseId"]]}
             for c in cases]
 
 

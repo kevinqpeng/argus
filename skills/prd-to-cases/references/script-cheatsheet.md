@@ -28,8 +28,8 @@
 | 合并后门禁 | `python3 <本技能>/scripts/verify_all.py <runDir> --cases [--baseline <基线工作树>] [--previous <历史评审表.xlsx>]`。一次跑完覆盖、断言、待确认 |
 | 评审表核验 | `python3 <本技能>/scripts/verify_all.py <runDir> [--round 1] --feature <功能名称>`。表头、合并、行高、下拉、默认值、mapping、产物哈希、发布前检查。不发布 |
 | 阶段计时 | `python3 <argus>/scripts/timing.py <runDir> stamp --stage <阶段> --event start`，结束把 `start` 换成 `end`。`show` 只读 |
-| 断言质量 | 由 `verify_all.py --cases` 调用。单独跑时：`python3 <本技能>/scripts/assertion_check.py <runDir>`。弱措辞、或然结论、路径断言的代词锚点、`anchors.start` 未落断言、记录追加缺条数 exit 2 |
-| 待确认三分法 | 由 `verify_all.py --cases` 调用。单独跑时：`python3 <本技能>/scripts/notes_check.py <runDir> [--baseline <基线工作树>]`。核对 `cases/notes.json` 的 `disposition`、`searchedRefs` 与证据，`--strict` 强制旧 run 也阻断 |
+| 断言质量 | `verify_all.py --cases` 核对断言非空和步骤关联；不按固定措辞、节点名格式或记录条数判定业务质量 |
+| 待确认事项 | `verify_all.py --cases` 调用 `notes_check.py`，保留业务问题、已查证据和用例影响；分类及旧追踪字段可选 |
 
 `baselineHash` 和 `inputHash` 是 64 位小写 hex。基线哈希用 `generation.digest`：`sort_keys=True`、`ensure_ascii=False`、`separators=(",", ":")` 的 UTF-8 SHA-256。文件字节哈希不能填进 `baselineHash`。
 
@@ -51,7 +51,7 @@ AC 绑定 TSV，制表符分隔：
 
 `caseId	scenarioId	title	priority	suite	spec	fixtures	stepId	kind	action	expected	exemption`
 
-`scenarioId` 和 `fixtures` 用 `|` 分隔。`suite` 是 `ui`、`api`、`performance`、`security`。`kind` 空着就是 `action`。`spec` 是脚本阶段的文件名，不含 `::`。`emit_cases.py` 写出 `planned:<spec>::<title>`，标题用 `title` 列。
+`scenarioId` 和 `fixtures` 用 `|` 分隔。`suite` 是 `ui`、`api`、`performance`、`security`。`kind` 空着就是 `action`。`spec` 在设计阶段可留空；脚本阶段再确定文件和入口。
 
 先写这一条的各步骤并 `--check`。通过后再写本任务其余行，然后 `--out`。`action` 步骤写 `expected`。`setup` 或 `cleanup` 可以不写 `expected`，这时 `exemption` 说明它为什么不是待测行为。
 
@@ -60,7 +60,7 @@ AC 绑定 TSV，制表符分隔：
 | 原文 | 修法 |
 |---|---|
 | `invalid baselineHash` | 改成 64 位小写 hex，用 `generation.digest` |
-| `evidence span > 3 lines` | `文件:起-止` 含首尾最多 3 行；一条 check 最多 2 段，用 `;` 分隔。来源单元在 `source_units.py` 写入时就拦，不要等冻结后再改 |
+| 来源证据 | 使用可解析的 `文件:起始-结束`；数量和跨度按来源复杂度确定 |
 | `义务要当场写 acIds` | 从任务包 `acCatalog` 选已有 acId。只有 needs_clarification 且 expected 为空才能留空 |
 | `没有 coveredBy 字段` | 决策表覆盖关系写 `scenarios`，值是场景 ID |
 | `生成任务超过 7 条` | 先拆任务，再跑 `slice_inputs.py`，然后才冻结计划 |
@@ -74,7 +74,7 @@ AC 绑定 TSV，制表符分隔：
 | `六维未核查项必须写进待确认事项：GAP-…` | 在 `content.json` 的 notes 里补一条，`sourceRefs` 写 `impact-gaps.json:<gapId>` |
 | `决策表组合未裁定` | 这一格没有任何行或 `defaults` 命中。非 covered 可以少写轴管住一整片；covered 必须每个取值有自己的场景 |
 | `同时覆盖互斥取值` | 同一个场景被拿去覆盖同一轴的两个取值。拆成每个取值一个场景，用例里做该取值的操作和结果 |
-| `展开项` | `expansions` 要有 surface、subtype、both-arms、identity 各一条。适用就把取值写上轴，界面项各写一个场景；没有这一类就写 20 字以上的 waiver。subtype 的 evidence 写 `文件:行号`，或用「检索无命中」开头 |
+| `展开项` | `expansions` 按实际发现填写，类别可省略，理由不设字数门槛 |
 | `决策表组合有多个同级口径` | 两条限定的轴一样多、又同时命中这一格。把其中一条写得更具体，或合并成一条 |
 | `决策表行重复` | 两行的 `values` 完全一样，包括只写了部分轴的写法 |
 | `决策表标 covered 的场景没有用例` | `covered` 行的 `scenarios` 必须是用例真正引用的 `scenarioId`，不能直接写 caseId |
@@ -83,7 +83,7 @@ AC 绑定 TSV，制表符分隔：
 | `决策表没有登记该格` | 矩阵里这一格的结论表里没有。补一行，或删掉手写的格子 |
 | `组合矩阵单元未定论` | 该格 `unknown` 但决策表没登记。要么补这一行（`unknown` + `risk`），要么写清本轮真实处置 |
 | `data 不能和别的维度合并` / `一次最多 3 个` || 扩展维度不能重复或覆盖基线六维 | `extraDimensions[].key` 不能叫 `data` 等基线名，也不能重复 || `扩展维度 … 要写清它回答什么问题` | `question` 至少 10 字，写清这个维度要验证什么 || `维度不能少于或替换基线六维` | `impact-analysis.json` 或 plan 的分母被删减/改名；只能往后追加 | `dimensions: [...]` 批量豁免不允许包含 `data`、`permission`，且每对象最多 3 维 |
-| `缺少 windows` / `应有 4 到 6 个窗口` | `plan.json` 每个 task 按 objectId 写 `windows: [{objectId, refs}]`，每对象 4 到 6 个 `文件:起始-结束` |
+| 索引窗口 | 依据来源复杂度填写 `windows: [{objectId, refs}]`；简短来源可用一个完整窗口，无适用来源时明确未知或不适用 |
 | `窗口跨度超过 3 行` | 窗口最多 3 行；跨多段就拆成多个窗口 |
 | `文件不存在` / `行号越界`（verify_evidence） | `evidenceRef` 的路径相对基线工作树，行号必须落在真实文件内；拼错或靠 PRD 反推都会被拦 |
 | `同一 AC 的场景或优先级不一致` | 一个 acId 只保留一套 requirementId、scenarioId、priority、title、expected、text |
@@ -92,7 +92,7 @@ AC 绑定 TSV，制表符分隔：
 | `TSV header must be unitId,sourceIds` | 来源单元改成上面的单元表头。报错用逗号连接列名，文件本身用制表符 |
 | `TSV header must be caseId` | 用例步骤表改成上面的步骤表头 |
 | `input overlaps worker directory` | inputArtifacts 放在 `frozen/` 或 `inputs/`，路径不以 taskId 开头 |
-| `planned automationRef requires file::title` | 阶段 A 由 emit 写 `planned:<spec>::<标题>`；标题与 title 列相同 |
+| 自动化入口 | 设计阶段可省略 automationRef；脚本阶段再绑定真实文件与入口，旧 planned 输入继续兼容 |
 | `missing assertion or explained setup/cleanup exemption` | 给该 stepId 补 expected，或把 kind 改成 setup/cleanup 并写 exemption。整条用例没有断言时报 `missing assertions`，同样补上 expected |
 
 `--check` 同时拦住常量前置（`status=已驳回` 这种赋值）、断言里的「记录保留」、以及没有基线步骤的增量断言。传入 `--ac-ids` 时，步骤里出现的 `AC-…` 必须属于本任务。

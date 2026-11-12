@@ -9,6 +9,19 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts/timing.py"
 
 
 class TimingTest(unittest.TestCase):
+    def test_run_records_real_command_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "manifest.json").write_text("{}")
+            result = subprocess.run([sys.executable, str(SCRIPT), str(run), "run",
+                                     "--stage", "generation", "--exec", sys.executable,
+                                     "-c", "raise SystemExit(3)"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 3, result.stderr)
+            slot = json.loads((run / "manifest.json").read_text())["timing"]["generation"]
+            self.assertLess(slot["startedAt"], slot["endedAt"])
+            metric = json.loads((run / "timing.metrics.jsonl").read_text())
+            self.assertEqual(metric["status"], "FAILED")
+
     def test_stamp_keeps_the_first_start_and_other_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

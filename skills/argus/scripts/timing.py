@@ -13,6 +13,8 @@ import argparse
 import fcntl
 import json
 import sys
+import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -23,7 +25,7 @@ ALLOWED = STAGES + ("presentation",)
 
 
 def now():
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return datetime.now().astimezone().isoformat(timespec="microseconds")
 
 
 def stamp(path, stage, event):
@@ -55,15 +57,31 @@ def stamp(path, stage, event):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run", type=Path)
-    parser.add_argument("command", choices=("stamp", "show"))
+    parser.add_argument("command", choices=("stamp", "show", "run"))
     parser.add_argument("--stage")
     parser.add_argument("--event", choices=("start", "end"))
+    parser.add_argument("--exec", dest="argv", nargs=argparse.REMAINDER,
+                        help="run 模式执行的实际命令；记录真实起止及退出状态")
     args = parser.parse_args()
     path = args.run.resolve() / "manifest.json"
     if not path.is_file():
         print(json.dumps({"status": "BLOCKED", "reason": "缺少 manifest.json"}, ensure_ascii=False))
         return 2
     try:
+        if args.command == "run":
+            if not args.stage or not args.argv:
+                parser.error("run requires --stage and --exec COMMAND")
+            stamp(path, args.stage, "start")
+            started = time.monotonic()
+            status = "ERROR"
+            try:
+                result = subprocess.run(args.argv, check=False)
+                status = "PASSED" if result.returncode == 0 else "FAILED"
+                return result.returncode
+            finally:
+                stamp(path, args.stage, "end")
+                from metrics import record
+                record(args.run / "timing.metrics.jsonl", args.stage, started, status)
         if args.command == "show":
             manifest = json.loads(path.read_text(encoding="utf-8"))
             print(json.dumps(manifest.get("timing") or {}, ensure_ascii=False, indent=2))

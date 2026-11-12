@@ -33,9 +33,9 @@
 - 只登记来源真正裁定过的组合。PRD 没写、但可以由维度级事实推出的（如开关关闭时行为不变），写进 `defaults` 继承到所有未被显式登记的格子。
 - `not_applicable`、`out_of_scope`、`unknown` 可以少写轴，表示这一片同一个结论。限定的轴越多越具体，一格同时命中多条时更具体的优先。`covered` 不能这样省：一个场景展开后如果落在同一轴的两个取值上，检查直接阻断。转办的重新发起、加签的重新发起要各自有场景，不能都写 `SCN-01`。
 - 继承不到、来源也没有规则时不要猜：先找 `defaults`，仍推不出就 `status: unknown` 并写 `risk`。`risk: high`（会改变本轮验收结论）进待确认事项；`medium`/`low` 必须写 `assumption`，由 `decision_table.py expand` 连同未规定原因落进 `cases/assumptions.md`，不占评审预算。判断标准只有一条——它会不会改变本轮验收结论。
-- `covered` 必填 `scenarios`（一条以上）和 `expected`（页面上能看到的判定结果）；`not_applicable`/`out_of_scope`/`unknown` 的理由 20 字以上，说清为什么这一格不受影响，不能只写「不适用」。
+- `covered` 必填 `scenarios`（一条以上）和 `expected`（页面上能看到的判定结果）；`not_applicable`/`out_of_scope`/`unknown` 的理由简明说明依据，说清为什么这一格不受影响，不能只写「不适用」。
 - 两条口径限定的轴一样多、又同时命中一格，视为未裁定，脚本阻断，不能按书写顺序取后一条：要么把其中一条写得更具体，要么合并成一条。
-- 轴的取值按形态选，不按 PRD 措辞选。每轮必须对八个通用形态族作出交代：`subject`（主体形态）、`lifecycle`（生命周期时点）、`trigger`（触发来源）、`target`（目标状态）、`quantity`（量词与集合）、`permission`（权限与数据范围）、`repeat`（重复与并发）、`boundary`（边界）。写在维度上的 `family` 或 `axes` 里不少于 20 字的 `waiver` 都算交代，两者都没有的族按漏族阻断。缺席的族通常就是漏掉的用例族——转办、加签、换版、越权、重复提交这类格子不会有 PRD 措辞提示你补。
+- 按需求、来源和风险选择会改变结果的维度。主体、时点、触发、状态、集合、权限、并发和边界可作为思考提示；仅展开适用维度，不要求逐族声明或填写豁免。
 - `expansions` 四类各一条。上面的例子用豁免带过。来源里有界面、子类型、交叉原因或原对象查找时，按 [展开四类](#展开四类) 把取值写上轴。
 - 不设人为格数上限，但每个二维组合必须有定论；只有 `out_of_scope` 的取值或整片裁剪算越界，还需 `reviewer` 与 `approvalRef` 签署。硬上限 400 格：超出时先用等价类收敛取值，不靠删维度绕开。
 
@@ -55,10 +55,10 @@ python3 <prd-to-cases>/scripts/decision_table.py expand <runDir>
 
 ### 展开四类
 
-八个形态族只要求轴在场。取值停在来源名词上时，族算交代了，更细的结果仍然没有格子。`expansions` 在冻结前把下面四类各写一条，任何需求类型都用这一份，不按业务名另列清单。适用就写成轴上的取值。界面类写成场景，不进笛卡尔积。查过确定没有这一类，写 `waiver`，20 字以上，写清查过什么。
+`expansions` 是可选的探索记录。按来源复杂度检查界面、子类型、选择分支及对象标识，只记录实际影响本需求的展开项；无关类别可以省略。
 
 - `surface`：来源点名的页面、弹窗、表单上，每一条可见文案、随选项变化的说明、可填字段、字数上限、按钮各占一个场景。`object` 写这个界面的名字。这些项不作为轴去乘角色。
-- `subtype`：来源或代码把一个对象拆成几种做法时，每种做法是某条轴上的一个取值。`evidence` 写 `文件:行号`。检索后没有拆分，`evidence` 以 `检索无命中` 开头并写检索范围，轴上保留父取值。代码拆了但结果相同，写 `sameOutcome`（20 字以上）。
+- `subtype`：来源或代码把一个对象拆成几种做法时，每种做法是某条轴上的一个取值。`evidence` 写 `文件:行号`。检索后没有拆分，`evidence` 以 `检索无命中` 开头并写检索范围，轴上保留父取值。代码拆了但结果相同，写 `sameOutcome`。
 - `both-arms`：每个用户选择都要和每个会改结果的原因交叉。`choice` 是选择所在的轴名，`arms` 是该轴上的取值，`cause` 是另一条轴上的取值。原因单独成一个取值。
 - `identity`：规则要按标识找回变更前的原对象时，轴上至少三个取值：仍能找到并沿用、标识改了找不到、定义换了找不到。
 
@@ -85,7 +85,7 @@ PRD 输入时，主 Agent 先核对来源采集完成的初步来源清单和变
 
 该规则是调度条件，不给业务结论打分。依赖相关性、规则支持和义务等价等语义判断沿用 decision-router 的集中题目与概率阈值，独立问题批量提交；证据不足先补证据，不以多数票决定事实。
 
-PRD 快照冻结后，来源清单和代码索引并行。采集只做快照和 sourceUnits；索引只依赖 PRD 原文里的对象、方法和契约名，不等 source_inventory 结束。索引墙钟 3 分钟，到点交出已命中的 `文件:行号` 和未命中符号。被测检出含 `.codegraph/` 时，索引用一次 `codegraph_explore`：`query` 写这条链上的符号，`projectPath` 指含索引的检出。一次调用拿调用路径和带行号的源码，收成不超过 3 行的窗口。没有 `.codegraph/` 时做一次限定目录检索。先看 `rg --version`，输出含 ripgrep 才用 `rg`；否则用 `grep -n`。有的宿主把 `rg` 接成别的 grep。探索任务在该对象的行号写入任务书之后才派发。清单缺口仍阻断最终冻结。索引和探索派发前运行 `python3 <argus>/scripts/dispatch.py <runConfigPath> generation`，只传它打印的非 null 参数。generation 绑定为宿主已发现的快速模型，effort 取该模型关闭思考的档位；目录里没有关闭档时用它列出的最低档。不在任务书里另写模型名。已派发的 worker 保持原模型。
+PRD 快照冻结后，来源清单和代码索引并行。采集只做快照和 sourceUnits；索引只依赖 PRD 原文里的对象、方法和契约名，不等 source_inventory 结束。索引墙钟 3 分钟，到点交出已命中的 `文件:行号` 和未命中符号。被测检出含 `.codegraph/` 时，索引用一次 `codegraph_explore`：`query` 写这条链上的符号，`projectPath` 指含索引的检出。一次调用拿调用路径和带行号的源码，收成保留必要上下文的窗口。没有 `.codegraph/` 时做一次限定目录检索。先看 `rg --version`，输出含 ripgrep 才用 `rg`；否则用 `grep -n`。有的宿主把 `rg` 接成别的 grep。探索任务在该对象的行号写入任务书之后才派发。清单缺口仍阻断最终冻结。索引和探索派发前运行 `python3 <argus>/scripts/dispatch.py <runConfigPath> generation`，只传它打印的非 null 参数。generation 绑定为宿主已发现的快速模型，effort 取该模型关闭思考的档位；目录里没有关闭档时用它列出的最低档。不在任务书里另写模型名。已派发的 worker 保持原模型。
 
 ## 3. 派发只读任务
 
@@ -95,7 +95,7 @@ PRD 快照冻结后，来源清单和代码索引并行。采集只做快照和 
 
 每次派发记录宿主 Agent 标识、任务 ID、attempt、输入指纹、状态与独占回执路径 `cases/exploration/<taskId>/<attempt>.json`。worker 只写该回执，读取完整变更对象索引及相关来源，不修改共享计划、最终影响分析或评审材料。回执逐条包含来源定位、依赖路径、六维归属、当前行为、候选义务、未知项、检索边界与停止依据；业务预期附权威依据，缺失则待确认。边界外发现作为交接项返回，不能以不属本任务为由丢弃。
 
-主 Agent 在派发前把索引写进任务书。每个对象写已经核对的 4 到 6 个 `文件:起始-结束` 窗口，窗口跨度不超过 3 行。没有行号的对象先留在索引任务，不派给探索 worker。新发现由主 Agent 汇入索引，记录覆盖边界与未搜索区域，不作为完整性证明。
+主 Agent 在派发前把索引写进任务书。按对象与来源复杂度选取已经核对的 `文件:起始-结束` 窗口，数量和跨度由支持结论所需上下文决定。没有行号的对象先留在索引任务，不派给探索 worker。新发现由主 Agent 汇入索引，记录覆盖边界与未搜索区域，不作为完整性证明。
 
 探索任务按互斥的 objectId 切分，每任务 4 到 5 个对象。同一对象和同一调用链只进一个任务；跨任务的边写成 handoff，不在两个任务里各查一遍。`plan.json` 的每个 task 写 `objectIds`。任务书只传本任务的窗口、对象和来源定位，不继承完整探索历史。
 
@@ -105,15 +105,15 @@ PRD 快照冻结后，来源清单和代码索引并行。采集只做快照和 
 python3 <prd-to-cases>/scripts/generation.py packet --task <taskId> --plan <plan.json> --baseline <基线工作树> --run <runDir> --prd <相对 PRD> --source-id <ID> --out cases/exploration/packets/<taskId>.json
 ```
 
-packet 从 `assemble_baseline.py` 与 `merge_impact_candidates.py` 的同一份常量写出必填字段、ID 规则、`evidenceRef` 的分号字符串形状、`emptyFields`（含 reviewRef、approvalRef 留空的理由）、`copyVerbatim.sources`、窗口原文和一份最小回执。run 里已有 `cases/acs.json` 时，包里带 `acCatalog`；预期已明的义务在这份回执里写 `acIds`，不要等合并后再回填。worker 把回执写到 `packet.output`，然后原样运行 `packet.checkCommand`。失败只改这份回执。`emptyFields` 已冻结，除 `acCatalog` 要求填写的 acIds 外，留空合法，不再询问主 Agent。`windows[].text` 是不超过 3 行的原文，`evidenceRef` 使用其中的字面量，sourceUnits 同样最多 2 段、每段最多 3 行。全部 worker 返回后运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py --stat --plan <plan.json> --run <runDir>`。缺失或 0 字节用同一 packet 重派，再运行合并命令。在途探索任务不超过主技能「分片并发」。
+packet 从 `assemble_baseline.py` 与 `merge_impact_candidates.py` 的同一份常量写出必填字段、ID 规则、`evidenceRef` 的分号字符串形状、`emptyFields`（含 reviewRef、approvalRef 留空的理由）、`copyVerbatim.sources`、窗口原文和一份最小回执。run 里已有 `cases/acs.json` 时，包里带 `acCatalog`；预期已明的义务在这份回执里写 `acIds`，不要等合并后再回填。worker 把回执写到 `packet.output`，然后原样运行 `packet.checkCommand`。失败只改这份回执。`emptyFields` 已冻结，除 `acCatalog` 要求填写的 acIds 外，留空合法，不再询问主 Agent。`windows[].text` 是必要范围的原文，`evidenceRef` 使用其中的字面量，sourceUnits 按实际业务义务组织。全部 worker 返回后运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py --stat --plan <plan.json> --run <runDir>`。缺失或 0 字节用同一 packet 重派，再运行合并命令。在途探索任务不超过主技能「分片并发」。
 
-worker 只读这份任务包。已经附上原文的窗口不再执行 `sed`。shell 不超过 25 次。每条 check 最多 2 条证据，每条不超过 3 行；这两条已经说明受影响或不受影响后停止，不再逐个调用者翻文件。点名窗口里没有该符号时，允许一次限定目录的检索（`rg --version` 含 ripgrep 才用 `rg`，否则 `grep -n`）；仍没有则写入 handoff。不从 `/` 或 `$HOME` 递归搜索，禁止 `git show <SHA>:<path>`。路径不存在时回报具体缺口，由主 Agent 核对后补发，不能猜测路径或忽略依赖。`sources` 原样复制 `copyVerbatim.sources`。
+worker 只读这份任务包。已经附上原文的窗口不再执行 `sed`。shell 不超过 25 次。每条 check 按复杂度提供证据；已足以说明受影响或不受影响后停止，不再逐个调用者翻文件。点名窗口里没有该符号时，允许一次限定目录的检索（`rg --version` 含 ripgrep 才用 `rg`，否则 `grep -n`）；仍没有则写入 handoff。不从 `/` 或 `$HOME` 递归搜索，禁止 `git show <SHA>:<path>`。路径不存在时回报具体缺口，由主 Agent 核对后补发，不能猜测路径或忽略依赖。`sources` 原样复制 `copyVerbatim.sources`。
 
 墙钟 6 分钟。到点把已完成的对象写入回执，`status` 为 `partial`，并列出未完成的 objectId 与 dimension。主 Agent 只补这些缺口。partial 不能当作探索完成。
 
 结构化回执顶层包含 `schemaVersion: 1`、`taskId`、正整数 `attempt`、与派发一致的 `inputHash`、`status`（`complete` 或 `partial`），以及 `sources`、`sourceUnits`、`objects`、`checks`、`obligations`、`handoffs` 六个数组（无项填空数组）。字段按 [回执模板](exploration-receipt.template.json) 填写，不改键名。标识带本任务前缀：`sourceUnits` 为 `<taskId>-U<n>`，`checks` 为 `<taskId>-C<n>`，`obligations` 为 `<taskId>-OB-<n>`，`handoffs` 为 `<taskId>-H<n>`，n 从 1 开始。`objects.objectId` 只用计划分配给本任务的 objectId。`disposition` 只能是 `covered`、`not_applicable`、`unknown`、`out_of_scope`。kind 为 prd 的 `sourceRef` 写 `run://` 加本 run 相对路径。候选可以有待确认字段，不能标成已批准。`checks.dimension` 只能是 `data`、`inflight`、`lifecycle`、`permission`、`side_effect`、`ordering`。可测性、夹具和执行成本写入 handoffs，不写入 checks，也不要使用 `kind` 或 `result` 字段。每个 handoff 包含唯一 `handoffId`、生产者、接收任务、依赖路径、证据定位和未决问题；无接收任务或未闭环保留未知。证据内容只写一次，其他项引用可定位的来源或回执，不复制长段源码。
 
-主 Agent 写 `cases/exploration/plan.json`，包含 `schemaVersion: 1`、绑定冻结来源与任务输入的 `inputHash` 和 `tasks: [{taskId, attempt, objectIds, windows: [{objectId, refs}]}]`，每次重派更新当前 attempt。基线六维是分母下限，允许用可选 `extraDimensions: [{key, question}]` 追加本需求特有的维度（如 `compat` 存量兼容、`idempotency` 重试幂等）：`key` 不能与基线重名，`question` 写清它回答什么，10 字以上。分母只许增不许减——`plan` 减维、改名或覆盖基线都会被拒绝，`phase_gate` 也拒绝少于基线六维的 `impact-analysis.json`。`windows` 每题对象写 4 到 6 个已核对过的 `文件:起始-结束`，每段不超过 3 行；`merge_impact_candidates.py` 与 `phase_gate.py --phase dispatch` 都拒绝缺窗口、条数越界和跨度超 3 行的计划。收到回执立即运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py <plan.json> <当前回执...>`，将输出保存为候选汇总；未收到全部回执时允许 BLOCKED 的部分结果供局部整理。程序检查当前任务、attempt、输入指纹、数组/ID、`dimension`、证据条数和行跨度、任务 `objectIds`、索引窗口以及 partial 状态，按同 ID 且内容完全相同合并并保留任务映射；不同内容保留全部版本并阻断，不能按 ID、文本相似度或程序输出判定业务等价。它还核对每个声明对象的六维（加计划的扩展维度）结论：有 check 的格子若结论是 `not_applicable`/`out_of_scope`，理由必须 20 字以上且说清为什么该维度不受影响，否则 BLOCKED。空格不再逐格阻断，而是登记成具名缺口：缺格率不超过三分之一时输出 `gaps`（每项 `GAP-<objectId>-<dimension>`），超过三分之一仍 BLOCKED，理由是先查完对象再登记。同一对象可写一条 `dimensions: [..]` 合并豁免无关联维度，但 `data`、`permission` 不许合并、一次最多 3 维、理由同样要写清，因为它们才是产生用例的维度。它不验证完整 schema、证据真实性、交接闭环或语义，也不生成最终基线；主 Agent 核验这些事项。证据真实性由 `python3 <prd-to-cases>/scripts/verify_evidence.py <merged.json> --baseline <基线工作树> --run <runDir>` 打开每条 `文件:行` 核对路径与行号，结果写 `cases/exploration/evidence-check.json`，`failed` 必须为 0。不要运行覆盖脚本。历史 Markdown 回执按原流程恢复，不转换成虚假的新回执。
+主 Agent 写 `cases/exploration/plan.json`，包含 `schemaVersion: 1`、绑定冻结来源与任务输入的 `inputHash` 和 `tasks: [{taskId, attempt, objectIds, windows: [{objectId, refs}]}]`，每次重派更新当前 attempt。基线六维是分母下限，允许用可选 `extraDimensions: [{key, question}]` 追加本需求特有的维度（如 `compat` 存量兼容、`idempotency` 重试幂等）：`key` 不能与基线重名，`question` 写清它回答什么，10 字以上。分母只许增不许减——`plan` 减维、改名或覆盖基线都会被拒绝，`phase_gate` 也拒绝少于基线六维的 `impact-analysis.json`。`windows` 按来源复杂度选择已核对的 `文件:起始-结束`。短文档或单一规则可用一个完整窗口，跨模块、分支或调用链按需要增加窗口；以足够判断业务义务为准，不凑数量、不人为截断上下文。无源码时引用冻结文档窗口；没有可用来源时登记真实缺口。校验器只检查对象关联和有效行号，不限制数量、行跨度或理由字数。收到回执立即运行 `python3 <prd-to-cases>/scripts/merge_impact_candidates.py <plan.json> <当前回执...>`，将输出保存为候选汇总；未收到全部回执时允许 BLOCKED 的部分结果供局部整理。程序检查当前任务、attempt、输入指纹、数组/ID、`dimension`、证据条数和行跨度、任务 `objectIds`、索引窗口以及 partial 状态，按同 ID 且内容完全相同合并并保留任务映射；不同内容保留全部版本并阻断，不能按 ID、文本相似度或程序输出判定业务等价。它还核对每个声明对象的六维（加计划的扩展维度）结论：有 check 的格子若结论是 `not_applicable`/`out_of_scope`，理由简明说清为什么该维度不受影响，否则 BLOCKED。空格不再逐格阻断，而是登记成具名缺口：缺格率不超过三分之一时输出 `gaps`（每项 `GAP-<objectId>-<dimension>`），超过三分之一仍 BLOCKED，理由是先查完对象再登记。同一对象可写一条 `dimensions: [..]` 合并豁免无关联维度，但 `data`、`permission` 不许合并、一次最多 3 维、理由同样要写清，因为它们才是产生用例的维度。它不验证完整 schema、证据真实性、交接闭环或语义，也不生成最终基线；主 Agent 核验这些事项。证据真实性由 `python3 <prd-to-cases>/scripts/verify_evidence.py <merged.json> --baseline <基线工作树> --run <runDir>` 打开每条 `文件:行` 核对路径与行号，结果写 `cases/exploration/evidence-check.json`，`failed` 必须为 0。不要运行覆盖脚本。历史 Markdown 回执按原流程恢复，不转换成虚假的新回执。
 
 收到一项结果即核对证据并处理新边界，同时整理其 sourceUnits/checks/obligations 候选，关键路径有足够证据时即可派发独立复核；最终冻结仍等待全部回执、交接闭环和跨任务复核。exploration.md 保留调度、证据索引、交接处理和未决项，细节引用独占回执，避免再完整改写全部探索结论。失败重派前停止旧 worker，增加 attempt 并使用新回执路径；迟到旧结果不合并。预算不足时保留未完成任务和缺口，不减少原范围。恢复时先核对真实 Agent 状态、来源指纹和回执，避免重复派发；来源变化按影响分析规则新建 run。
 

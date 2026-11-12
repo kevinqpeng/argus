@@ -15,7 +15,7 @@
 
 唯一协调者在原 workspacePath 的 `model-adjustments.json` 保存 `schemaVersion: 1`、`runId` 和按顺序追加的 `adjustments`。每条包含 `revision`、`requestedAt`、`requestRef`、`baseConfigHash`（原快照字节哈希）、`previousRevision`、完整字段差异、`overrides`、`decisionRef`、`capabilityEvidenceRef` 与 `effectiveFrom`（后续调用起点）。仅在用户请求、完整分布判定和能力核验均通过后追加，原子保存并读回；不得覆盖已有条目或原 argus-model.json。未完成验证的候选只留决策证据，不写入生效列表。
 
-恢复和每次角色调用前，核对 runId、原快照哈希、连续 revision、请求/决策/能力证据及 overrides 字段范围；失败只阻塞该调整。以原快照为底按 revision 应用 overrides，角色绑定整体替换，未调整角色保留原值。实际调用回执记录所用 revision、实际模型和强度。已在运行的 worker 保持派发时版本，完成后收回原回执；新调用才采用新版本，不为换模型重复派发。
+恢复和每次角色调用前，核对 runId、原快照哈希、连续 revision、请求/决策/能力证据及 overrides 字段范围；失败只阻塞该调整。`argus/scripts/dispatch.py` 已实现这组核对：以原快照为底按 revision 应用 overrides，遇到第一处不通过的条目就停在上一版，并在 card 里给出 `configRevision` 与 `adjustmentRejection`；主 Agent 不再手工覆盖角色绑定。以原快照为底按 revision 应用 overrides，角色绑定整体替换，未调整角色保留原值。实际调用回执记录所用 revision、实际模型和强度。已在运行的 worker 保持派发时版本，完成后收回原回执；新调用才采用新版本，不为换模型重复派发。
 
 原 runConfigPath、业务 inputHash、审批材料与已完成结果不因模型调整而改写；模型调用/决策缓存键必须包含实际模型、强度、题目版本和调整 revision，不能把旧模型响应冒充新调用。若后续生成改变用例、断言或其他审批材料，按实际产物变化重新执行对应评审门禁，不能用本次 retain_run 豁免。只发布失败仍只补发布。
 

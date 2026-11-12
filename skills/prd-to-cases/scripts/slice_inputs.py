@@ -78,9 +78,9 @@ def slice_records(run, case_ids):
 def constraint_block():
     return "\n".join([
         "## 写的时候就定稿",
-        "- evidenceRef 最多 2 段，每段含首尾最多 3 行，用英文分号连接。",
+        "- 按来源复杂度提供足以定位业务规则的证据窗口。",
         "- 义务的 acIds 只从本文件的 AC 清单里选，和义务同一笔写上。预期未明才留空，并标 needs_clarification。",
-        "- 路径义务如果给了 anchors.start，断言里写这个节点身份，不要只写「起点」。记录有追加时写条数。",
+        "- 预期写清本次操作后如何判断结果，表达方式按业务需要选择。",
         "",
     ])
 
@@ -95,15 +95,19 @@ def business_markdown(title, check, cases, scenarios, acs, obligations, units):
     ]
     if check:
         parts += ["自检命令：", "", "```", check, "```", ""]
-    starts = sorted({str(row.get("anchors", {}).get("start")).strip()
-                     for row in obligations
-                     if isinstance(row.get("anchors"), dict) and str(row["anchors"].get("start") or "").strip()})
-    if starts:
-        parts += [f"断言必须出现的节点身份：{'、'.join(starts)}", ""]
     sections = [("本片用例", cases), ("场景", scenarios), ("验收条件", acs),
                 ("相关义务", obligations), ("来源单元", units)]
     for heading, rows in sections:
         parts += [f"## {heading}", "", "```json", dump(rows), "```", ""]
+    if check and cases:
+        skeleton = {"title": title, "notes": [], "cases": [{"caseId": case["caseId"], "group": "填写业务分组", "title": "填写业务标题",
+            "fixtures": ["填写当前状态"], "steps": ["填写操作" for _ in case.get("steps", [])],
+            "expected": ["填写预期" for _ in case.get("assertions", [])],
+            "stepSources": [[step["id"]] for step in case.get("steps", [])],
+            "expectedSources": [[i] for i, _ in enumerate(case.get("assertions", []))],
+            "stepExemptions": {}, "assertionExemptions": {}} for case in cases]}
+        parts += ["## 输出映射骨架", "合并展示行时同步合并 Sources；步骤用字符串ID，断言用从0开始的整数序号。直接写文件，回复只给路径和检查结果。",
+                  "```json", dump(skeleton), "```", ""]
     return "\n".join(parts)
 
 

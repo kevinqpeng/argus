@@ -72,7 +72,6 @@ def case_gates(run, baseline, previous=None):
 
 
 def draft_gaps(run, source_id):
-    from assertion_check import MIN_WAIVER, OBLIGATION_CHANGE, OBLIGATION_PATH
     from decision_table import TABLE, blocking, load
     from merge_impact_candidates import evidence_errors
     from publish_review import version_status
@@ -109,14 +108,6 @@ def draft_gaps(run, source_id):
         unknown = [item for item in ac_ids if item not in catalog]
         if unknown:
             gaps.append(f"{label}: acIds 不在验收条件里：{unknown}")
-        text = " ".join(str(duty.get(key) or "") for key in ("text", "expected"))
-        if not (OBLIGATION_PATH.search(text) and OBLIGATION_CHANGE.search(text)):
-            continue
-        declared = duty.get("anchors") if isinstance(duty.get("anchors"), dict) else {}
-        start = str(declared.get("start") or "").strip()
-        waiver = str(declared.get("waiver") or "").strip()
-        if not start and len(waiver) < MIN_WAIVER:
-            gaps.append(f"{label}: 路径类义务要写 anchors.start，或写满 {MIN_WAIVER} 字 waiver")
     try:
         gaps.extend(blocking(load(run, TABLE), run))
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:

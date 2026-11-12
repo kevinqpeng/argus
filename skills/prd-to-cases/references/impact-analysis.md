@@ -31,7 +31,7 @@ sourceUnits 按独立规则和原表行建立，不以“入口/配置/记录”
 
 ### 冻结生产稳定业务基线
 
-在被测项目中一次解析代表线上稳定业务的 main 引用，记录仓库、引用名和完整 40 位提交 SHA。然后只运行一次 `python3 <本技能>/scripts/baseline_worktree.py <仓库> <SHA> <runDir>/baseline`。脚本在该提交上添加 detached worktree；同一路径已是该 SHA 时直接复用。之后本轮只读这个目录取证。符号定位见 [探索调度](impact-exploration.md)。取到行号后用 `sed -n` 摘不超过 3 行的窗口。禁止对单个文件循环 `git show <SHA>:<path>`。证据仍写 `仓库@SHA:路径` 及行段，来源哈希按该提交的原始文件字节计算。复核和恢复读取同一工作树；main 后续移动不改变本轮基线。缺少可验证的 main 时保留 PRD 可证实的义务，相关依赖标 unknown 并列出缺口。
+在被测项目中一次解析代表线上稳定业务的 main 引用，记录仓库、引用名和完整 40 位提交 SHA。然后只运行一次 `python3 <本技能>/scripts/baseline_worktree.py <仓库> <SHA> <runDir>/baseline`。脚本在该提交上添加 detached worktree；同一路径已是该 SHA 时直接复用。之后本轮只读这个目录取证。符号定位见 [探索调度](impact-exploration.md)。取到行号后用 `sed -n` 摘能完整说明该规则的必要窗口。禁止对单个文件循环 `git show <SHA>:<path>`。证据仍写 `仓库@SHA:路径` 及行段，来源哈希按该提交的原始文件字节计算。复核和恢复读取同一工作树；main 后续移动不改变本轮基线。缺少可验证的 main 时保留 PRD 可证实的义务，相关依赖标 unknown 并列出缺口。
 
 设计只使用 PRD 与该快照，不检索目标 PR、需求提交、共享测试分支或工作区差异。impactHash 绑定上述来源与六维分析结果。实际环境记录留在评审后的探索证据中；只有正式采纳新规则或更换设计基线时才更新设计材料并按原门禁评审。
 
@@ -52,7 +52,7 @@ kind 为 prd / business_rule / contract / history / code / observation。代码�
 | side_effect | 待办、通知、统计、搜索、缓存、SLA、任务及外部系统 |
 | ordering | 重复、乱序、并发、超时后成功、部分失败、回滚及补偿 |
 
-有源码时沿调用、读写、消息和契约追踪，包含定时任务与异步消费者。发现下一条依赖继续追踪，直到有证据说明不受影响或到达明确的已分析边界；不固定只看一层或改动文件。一条 check 写满两条、每条不超过 3 行的证据后停止翻文件，未闭合的下游写成 handoff 或后续任务，不在同一个 worker 里把调用图读完。evidenceRef 指向代码位置、协议、快照或检索记录，reason 写清依赖路径与停止依据。缺源码时用 PRD 及其附件核对已知规则；仍无法判定的分支保留 unknown，不伪造 not_applicable。
+有源码时沿调用、读写、消息和契约追踪，包含定时任务与异步消费者。发现下一条依赖继续追踪，直到有证据说明不受影响或到达明确的已分析边界；不固定只看一层或改动文件。一条 check 的证据足以支持结论时停止翻文件，未闭合的下游写成 handoff 或后续任务，不在同一个 worker 里把调用图读完。evidenceRef 指向代码位置、协议、快照或检索记录，reason 写清依赖路径与停止依据。缺源码时用 PRD 及其附件核对已知规则；仍无法判定的分支保留 unknown，不伪造 not_applicable。
 
 每条 reason 写明本维度的触发操作、相关业务状态、依赖路径及可观察结果。用 `impact_evidence` 对照 change、check、dependencyEvidence 核查；六个维度复制“CRUD已覆盖”不能证明检查完成。相同来源可复用，依赖结论须逐项成立；低概率按 unknown 处理，不以文本相似度自动判业务错误。
 
@@ -69,7 +69,7 @@ sourceUnits 与 checks 共用以下处置字段：
 ## 3. 确认测试义务与预期
 
 obligations 每项表示一个独立业务规则，保存 obligationId、sourceIds、text、expected、acIds、reviewStatus、approvalRef。未知预期可先留空并标 needs_clarification，进入待确认清单；进入冻结基线前每项都必须 approved、预期明确并映射 AC。approvalRef 指向适用的既有权威规则或真实业务确认；仅有代码现状、模型结论或“reviewed”标签不算业务依据。复用已确认规则无需重复询问。
-路径、节点或分支会变的义务（驳回后重新发起、从当前节点继续、换版重审、加签或转办后重审）另写 `anchors`：`{"start": "B0"}` 给出变更后新路径的第一个节点身份，可选 `path`（完整节点序列）与 `exclude`（新路径不再包含的节点），来源确实没给节点身份时写 `{"waiver": "…"}` 并说明节点清单取自哪里（不少于 20 字）。没有 `start` 也没有 `waiver` 的义务由 `assertion_check.py` 阻断——否则断言只能写「从流程起点重新审批」这类代词，换成换版、分支变化、加签之后就没有鉴别力。`start` 给了，覆盖该义务的用例断言里必须出现这个标识。
+路径、节点或分支变化时，按来源记录可判断结果的身份、顺序或业务条件。`anchors` 可作为辅助追踪信息，不要求固定字段、节点命名或理由字数；来源未明确的结论登记为未决，不为满足格式补造。
 
 ### 义务与 AC 双向核对
 

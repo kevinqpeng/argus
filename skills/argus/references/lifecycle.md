@@ -2,7 +2,7 @@
 
 ## 状态与路径
 
-生成用例使用 plan.phase="cases"：Worker 返回 reviewStatus=draft，automationRef 为 planned:<specFile>::<完整标题>。generation.py 是本地契约唯一实现；每个 Worker 结束写入后立即检查，全部通过再 --merge。draft 错误、缺引用或归属错误均 BLOCKED，不猜测修复。JSON 规范化不产生审批。旧计划无 phase 时保留旧版实际文件引用契约。
+生成用例使用 plan.phase="cases"：Worker 返回 reviewStatus=draft，可选 automationIntent 说明自动化意图，automationRef 不要求在设计时填写。generation.py 是本地契约唯一实现；每个 Worker 结束写入后立即检查，全部通过再 --merge。draft 错误、缺引用或归属错误均 BLOCKED，不猜测修复。JSON 规范化不产生审批。旧计划无 phase 时保留旧版实际文件引用契约。
 
 脚本生命周期是 Draft（Worker 独占目录中的源文件）→ Validated（publish 门禁通过）→ Published（原子写入且 published.json 绑定哈希）。Validated 是当次对真实文件的检查结果，不缓存成可陈旧的布尔值；发布在同一把 run 锁内重新检查。Published 恢复时核验内容，异内容拒绝覆盖。
 

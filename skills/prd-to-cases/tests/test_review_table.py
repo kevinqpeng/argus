@@ -15,6 +15,23 @@ SKILLS = SCRIPT.parents[2]
 
 
 class ReviewTableTest(unittest.TestCase):
+    def test_bad_mapping_returns_field_error(self):
+        spec = importlib.util.spec_from_file_location("render", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        errors, _ = module.check_destination('TC-1 步骤', ['s1'], [{'id': 's1'}], {})
+        self.assertTrue(errors)
+        source = {'cases': [{'caseId': 'C1', 'steps': [{'id': 's1'}], 'assertions': [{}]}]}
+        row = {'caseId': 'C1', 'steps': ['操作'], 'expected': ['结果'], 'stepSources': 1}
+        errors = []
+        self.assertEqual(module.normalize({'cases': [row]}, source, errors), [])
+        self.assertTrue(errors)
+        row['stepSources'] = [['s1']]
+        row['assertionExemptions'] = {'s1': '错误键空间'}
+        errors = []
+        self.assertEqual(module.normalize({'cases': [row]}, source, errors), [])
+        self.assertIn('assertionExemptions', errors[0])
+
     def test_partition_input_preserves_evidence_and_rejects_invalid_scope(self):
         spec = importlib.util.spec_from_file_location('render', SCRIPT)
         module = importlib.util.module_from_spec(spec)
@@ -151,7 +168,7 @@ class ReviewTableTest(unittest.TestCase):
             file.write_text(json.dumps(content, ensure_ascii=False), encoding='utf-8')
             result = subprocess.run([sys.executable, str(SCRIPT), str(root)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
-            self.assertIn('sourceRefs', result.stderr)
+            self.assertIn('question', result.stderr)
 
     def test_reconcile_moves_edits_deletes_and_ambiguous_rows(self):
         spec = importlib.util.spec_from_file_location('reconcile', SCRIPT.with_name('reconcile_review.py'))
@@ -425,8 +442,8 @@ class ReviewTableTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('render_slice', SCRIPT)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        heavy = {'steps': [{'id': str(i), 'action': '步骤'} for i in range(6)],
-                 'assertions': [{'stepId': str(i), 'expected': '结果'} for i in range(6)]}
+        heavy = {'steps': [{'id': str(i), 'action': '步骤' * 70} for i in range(6)],
+                 'assertions': [{'stepId': str(i), 'expected': '结果' * 70} for i in range(6)]}
         cases = [{'caseId': f'C{i}', **heavy} for i in range(9)]
         slices = module.slice_case_ids(cases)
         self.assertEqual([len(group) for group in slices], [2, 2, 2, 2, 1])
