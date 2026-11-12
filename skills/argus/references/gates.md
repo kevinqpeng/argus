@@ -42,7 +42,7 @@
 
 ## 历史语义回执
 
-新流程不执行逐项 Jev 语义审查，影响探索中的未知、冲突和缺口写入待确认事项供人工评审。合并后的辅助 Jev 同一 inputHash 只保留一份 semantic-review.json；低于 0.8 的分数写入待确认，不触发用例返工。旧 run 的语义回执和工具保留，按需核查历史材料；不作为新流程的门禁。
+合并后的辅助 Jev 同一 inputHash 只保留一份 `semantic-review.json`。低于 `noulYes` 阈值的主体必须进入 [低分语义增量修复](semantic-repair.md)：由协调者生成互斥分片并派 generation Agent，分别记录确有遗漏或语义误报；前者必须最小修改用例并对受影响主体增量复核，后者必须有独立证据和复核标识。`repair-validate` 与 `repair-assemble` 通过前，低分不得以 `acceptedReason`、待确认事项或人工评审替代；仍有未闭环低分则 BLOCKED。旧 run 的语义回执和工具保留，按需核查历史材料。
 
 ## 门禁三·六：脚本滞后评审（阶段 4.2 必须 PASSED）
 

@@ -311,6 +311,10 @@ class Gate:
         hashes = semantic_subject_hashes(self.run_dir)
         self.need(review.get("inputHash") == digest(hashes), "语义审查输入已变化或缺少绑定")
         pass_at = definitions["thresholds"]["noulYes"]
+        repair_path = self.run_dir / "cases/semantic-repair/manifest.json"
+        repair = read_json(repair_path) if repair_path.is_file() else {}
+        repair_actions = {(item.get("group"), item.get("caseId")): item
+                          for item in (repair.get("actions") or []) if isinstance(item, dict)}
         for group, expected in hashes.items():
             verdicts = review.get(group, {})
             if not self.need(isinstance(verdicts, dict) and set(verdicts) == set(expected),
@@ -322,8 +326,19 @@ class Gate:
                 score = verdict.get("final")
                 valid = type(score) in (int, float) and 0 <= score <= 1
                 self.need(valid, "语义概率无效：" + label)
-                self.need(valid and (score >= pass_at or bool(verdict.get("acceptedReason"))),
-                          "语义审查低分未处理：" + label)
+                action = repair_actions.get((group, ident)) or repair_actions.get(("cases", ident))
+                resolved = valid and score >= pass_at
+                if valid and score < pass_at and isinstance(action, dict):
+                    if action.get("disposition") == "repaired":
+                        post = action.get("postFinal")
+                        resolved = type(post) in (int, float) and pass_at <= post <= 1
+                    elif action.get("disposition") == "falsePositive":
+                        evidence_ref = str(action.get("evidenceRef") or "")
+                        evidence_path = safe_path(self.run_dir, evidence_ref) if evidence_ref else None
+                        resolved = bool(str(action.get("reviewer") or "").strip()
+                                        and evidence_path is not None and evidence_path.is_file()
+                                        and action.get("evidenceHash") == file_hash(evidence_path))
+                self.need(valid and resolved, "语义审查低分未处理：" + label)
                 ref = verdict.get("evidenceRef")
                 if self.need(isinstance(ref, str) and bool(ref), "缺少语义回执：" + label):
                     path = safe_path(self.run_dir, ref)

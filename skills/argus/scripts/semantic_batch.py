@@ -56,13 +56,18 @@ def batch_current(run, plan, batch):
     return plan.get('inputHash') == semantic_document_hash(run)
 
 
-def prepare(run, subjects_path):
+def prepare(run, subjects_path, incremental=False):
     existing = run / 'cases/semantic-review.json'
-    if existing.is_file():
+    if not incremental and existing.is_file():
         review = read(existing)
         if isinstance(review, dict) and review.get('inputHash') == semantic_input_hash(run):
             raise ValueError('semantic review already recorded for this input; run report and do not rerun')
     expected = expected_subjects(run)
+    if incremental:
+        selected = read(subjects_path)
+        expected = {group: set() for group in GROUPS}
+        for item in selected:
+            expected[item['group']].add(item['id'])
     hashes = semantic_subject_hashes(run)
     subjects = read(subjects_path)
     actual = {key: set() for key in GROUPS}
@@ -96,14 +101,15 @@ def prepare(run, subjects_path):
             flush()
             questions[name], state[name], mapping[name] = q, s, m
     flush()
-    if actual != expected:
+    if any(actual[group] != expected[group] for group in GROUPS):
         raise ValueError('semantic subjects incomplete')
-    directory = run / 'cases/semantic-batch'
+    directory = run / ('cases/semantic-repair-batch' if incremental else 'cases/semantic-batch')
     directory.mkdir(parents=True, exist_ok=True)
     previous_path = directory / 'plan.json'
     previous = read(previous_path) if previous_path.is_file() else {'batches': []}
     previous_batches = {batch.get('name'): batch for batch in previous.get('batches') or []}
-    plan = {'inputHash': semantic_input_hash(run), 'questionSetVersion': jev.DEFINITIONS['questionSetVersion'], 'batches': []}
+    plan = {'inputHash': semantic_input_hash(run), 'questionSetVersion': jev.DEFINITIONS['questionSetVersion'],
+            'incremental': incremental, 'batches': []}
     planned = []
     for index, (payload, mappings) in enumerate(batches, 1):
         name = f'{index:04d}'
@@ -146,8 +152,8 @@ def _hashes_equal(prior, mappings):
                for key, item in mappings.items())
 
 
-def assemble(run):
-    directory = run / 'cases/semantic-batch'
+def assemble(run, incremental=False):
+    directory = run / ('cases/semantic-repair-batch' if incremental else 'cases/semantic-batch')
     plan = read(directory / 'plan.json')
     if plan['questionSetVersion'] != jev.DEFINITIONS['questionSetVersion']:
         raise ValueError('semantic inputs or question set changed')
@@ -159,7 +165,15 @@ def assemble(run):
     review = {'schemaVersion': 1, 'inputHash': semantic_input_hash(run),
               'questionSetVersion': plan['questionSetVersion'], 'model': None,
               **{group: {} for group in GROUPS}}
+    if incremental:
+        for group in GROUPS:
+            review[group].update(existing.get(group) or {})
     expected = expected_subjects(run)
+    if incremental:
+        expected = {group: set() for group in GROUPS}
+        for batch in plan['batches']:
+            for target in (batch.get('mapping') or {}).values():
+                expected[target['group']].add(target['id'])
     seen_names = set()
     stale = []
     for batch in plan['batches']:
@@ -204,13 +218,15 @@ def assemble(run):
     if stale or any(set(review[group]) != ids for group, ids in expected.items()):
         missing = [f'{group}/{ident}' for group, ids in expected.items() for ident in sorted(ids - set(review[group]))]
         raise ValueError('semantic subjects stale or incomplete: ' + ', '.join((stale or missing)[:12]))
-    emit(run / 'cases/semantic-review.json', review)
+    emit(run / ('cases/semantic-repair-review.json' if incremental else 'cases/semantic-review.json'), review)
 
 
-def request(run, name, record=False):
+def request(run, name, record=False, incremental=False):
     if not name.isdecimal():
         raise ValueError('invalid batch name')
-    directory = run / 'cases/semantic-batch'
+    directory = run / ('cases/semantic-repair-batch' if incremental else 'cases/semantic-batch')
+    if not (directory / 'plan.json').is_file():
+        raise ValueError('semantic batch plan is missing')
     plan = read(directory / 'plan.json')
     batch = next(item for item in plan['batches'] if item['name'] == name)
     path = directory / f'{name}.input.json'
@@ -345,12 +361,11 @@ def write_subjects(run, output):
     print(json.dumps({'subjects': len(records)}))
 
 
-def report(run):
-    """List scores below the yes-threshold. Does not edit cases or call Jev."""
+def low_scores(run):
     path = run / 'cases/semantic-review.json'
     threshold = jev.DEFINITIONS['thresholds']['noulYes']
     if not path.is_file():
-        return {'status': 'ABSENT', 'threshold': threshold, 'below': []}
+        return threshold, []
     review = read(path)
     below = []
     for group in GROUPS:
@@ -358,13 +373,160 @@ def report(run):
             score = verdict.get('final') if isinstance(verdict, dict) else None
             if type(score) in (int, float) and score < threshold:
                 below.append({'group': group, 'id': ident, 'final': score})
-    return {'status': 'REPORTED', 'threshold': threshold, 'below': below}
+    return threshold, below
+
+
+def repair_plan(run):
+    """Create deterministic, disjoint repair shards for every low semantic subject."""
+    threshold, below = low_scores(run)
+    records, gaps = subject_records(run)
+    by_key = {(item['group'], item['id']): item for item in records}
+    case_ids = sorted({item['id'] for item in below if item['group'] in {'cases', 'realization', 'ruleSupport'}})
+    # Keep all dimensions of one case together; source/impact evidence is isolated.
+    groups = [('cases', case_ids[i:i + 10]) for i in range(0, len(case_ids), 10)]
+    groups += [('evidence', sorted({item['id'] for item in below if item['group'] in {'sources', 'impacts'}}))]
+    groups = [(kind, ids) for kind, ids in groups if ids]
+    root = run / 'cases/semantic-repair'
+    plan = {'schemaVersion': 1, 'inputHash': semantic_input_hash(run),
+            'threshold': threshold, 'sourceReviewHash': sha((run / 'cases/semantic-review.json').read_bytes()),
+            'shards': []}
+    for index, (kind, ids) in enumerate(groups, 1):
+        subjects = []
+        if kind == 'cases':
+            for ident in ids:
+                subjects.extend(by_key[(group, ident)] for group in ('cases', 'realization', 'ruleSupport')
+                                if (group, ident) in by_key)
+        else:
+            subjects.extend(by_key[key] for key in by_key if key[0] in {'sources', 'impacts'} and key[1] in ids)
+        name = f'{index:04d}'
+        emit(root / f'{name}.input.json', {'shardId': name, 'kind': kind, 'caseIds': ids,
+                                           'subjects': subjects, 'lowScores': [x for x in below
+                                           if x['id'] in ids]})
+        plan['shards'].append({'shardId': name, 'kind': kind, 'ids': ids,
+                              'inputHash': sha((root / f'{name}.input.json').read_bytes())})
+    emit(root / 'plan.json', plan)
+    return {'threshold': threshold, 'lowScores': below, 'shards': len(groups), 'gaps': gaps}
+
+
+def validate_repair(run, shard_name):
+    """Validate one agent receipt without mutating the canonical cases."""
+    root = run / 'cases/semantic-repair'
+    plan = read(root / 'plan.json')
+    shard = next(x for x in plan['shards'] if x['shardId'] == shard_name)
+    result = read(root / f'{shard_name}.result.json')
+    if result.get('shardId') != shard_name or result.get('inputHash') != shard['inputHash']:
+        raise ValueError('repair receipt does not match shard input')
+    actions = result.get('actions')
+    if not isinstance(actions, list) or not actions:
+        raise ValueError('repair receipt has no actions')
+    allowed = set(shard['ids'])
+    for action in actions:
+        if action.get('caseId') not in allowed:
+            raise ValueError('repair action escapes shard')
+        kind = action.get('disposition')
+        if kind not in {'repaired', 'falsePositive'} or not str(action.get('reason') or '').strip():
+            raise ValueError('repair action needs disposition and reason')
+        if kind == 'falsePositive' and (not str(action.get('evidenceRef') or '').strip()
+                                         or not str(action.get('reviewer') or '').strip()
+                                         or not str(action.get('evidenceHash') or '').strip()):
+            raise ValueError('false positive needs independent evidenceRef, evidenceHash and reviewer')
+        if kind == 'repaired' and not isinstance(action.get('patch'), dict):
+            raise ValueError('repaired action needs patch')
+        if action.get('group') not in {'cases', 'realization', 'ruleSupport', 'sources', 'impacts'}:
+            raise ValueError('repair action needs group')
+    emit(root / f'{shard_name}.validated.json', {'shardId': shard_name, 'inputHash': shard['inputHash'],
+                                                  'resultHash': sha((root / f'{shard_name}.result.json').read_bytes())})
+    return True
+
+
+def assemble_repairs(run):
+    root = run / 'cases/semantic-repair'
+    plan = read(root / 'plan.json')
+    cases = read(run / 'cases/cases.json')
+    by_id = {case['caseId']: case for case in cases}
+    manifest = {'schemaVersion': 1, 'inputHash': plan['inputHash'], 'actions': []}
+    seen = set()
+    for shard in plan['shards']:
+        validate_repair(run, shard['shardId'])
+        result = read(root / f"{shard['shardId']}.result.json")
+        for action in result['actions']:
+            key = (action['group'], action['caseId'])
+            if key in seen:
+                raise ValueError('duplicate repair action')
+            seen.add(key)
+            if action['disposition'] == 'repaired':
+                if action['group'] not in {'cases', 'realization', 'ruleSupport'}:
+                    raise ValueError('only case subjects may be repaired')
+                case = by_id[action['caseId']]
+                patch = action['patch']
+                for field in ('fixtures', 'steps', 'assertions'):
+                    if field in patch:
+                        case[field] = patch[field]
+            manifest['actions'].append(action)
+    emit(run / 'cases/cases.json', cases)
+    emit(root / 'manifest.json', manifest)
+    return manifest
+
+
+def repair_subjects(run, output):
+    """Build Jev subjects only for low scores after the repair agents finish."""
+    threshold, below = low_scores(run)
+    manifest_path = run / 'cases/semantic-repair/manifest.json'
+    if not manifest_path.is_file():
+        raise ValueError('repair manifest is missing')
+    manifest = read(manifest_path)
+    actions = {(item.get('group'), item.get('caseId')): item for item in manifest.get('actions', [])}
+    records, _ = subject_records(run)
+    selected = []
+    for item in records:
+        verdict = next((x for x in below if x['group'] == item['group'] and x['id'] == item['id']), None)
+        action = actions.get((item['group'], item['id'])) or actions.get(('cases', item['id']))
+        if verdict and action and action.get('disposition') == 'repaired':
+            selected.append(item)
+    if not selected:
+        raise ValueError('no repaired subjects require incremental semantic review')
+    emit(output, selected)
+    print(json.dumps({'subjects': len(selected), 'threshold': threshold}))
+
+
+def finalize_repairs(run):
+    root = run / 'cases/semantic-repair'
+    assemble_repairs(run)
+    assemble(run, incremental=True)
+    updated = read(run / 'cases/semantic-repair-review.json')
+    canonical_path = run / 'cases/semantic-review.json'
+    canonical = read(canonical_path)
+    manifest = read(root / 'manifest.json')
+    for group in GROUPS:
+        canonical.setdefault(group, {}).update(updated.get(group) or {})
+    canonical['inputHash'] = semantic_input_hash(run)
+    canonical['model'] = updated.get('model') or canonical.get('model')
+    for action in manifest.get('actions', []):
+        if action.get('disposition') == 'repaired':
+            verdict = (updated.get(action.get('group')) or {}).get(action.get('caseId'))
+            if verdict is not None:
+                action['postFinal'] = verdict.get('final')
+                action['postEvidenceRef'] = verdict.get('evidenceRef')
+                action['postEvidenceHash'] = verdict.get('evidenceHash')
+    emit(canonical_path, canonical)
+    emit(root / 'manifest.json', manifest)
+    return manifest
+
+
+def report(run):
+    """Report low scores and whether each has entered the repair workflow."""
+    threshold, below = low_scores(run)
+    manifest = read(run / 'cases/semantic-repair/manifest.json') if (run / 'cases/semantic-repair/manifest.json').is_file() else {}
+    resolved = {(a.get('caseId'), a.get('disposition')) for a in manifest.get('actions', [])}
+    for item in below:
+        item['repairStatus'] = 'falsePositive' if (item['id'], 'falsePositive') in resolved else ('repaired' if (item['id'], 'repaired') in resolved else 'pending')
+    return {'status': 'ABSENT' if not below and not manifest else 'REPORTED', 'threshold': threshold, 'below': below}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run', type=Path)
-    parser.add_argument('action', choices=['prepare', 'request', 'record', 'assemble', 'outline', 'subjects', 'report'])
+    parser.add_argument('action', choices=['prepare', 'request', 'record', 'assemble', 'outline', 'subjects', 'report', 'repair-plan', 'repair-prepare', 'repair-request', 'repair-record', 'repair-validate', 'repair-assemble', 'repair-subjects'])
     parser.add_argument('argument', nargs='?')
     args = parser.parse_args()
     run = args.run.resolve()
@@ -372,14 +534,31 @@ def main():
         if args.argument is None:
             parser.error('prepare requires subjects')
         prepare(run, Path(args.argument))
-    elif args.action in ('request', 'record'):
+    elif args.action in ('request', 'record', 'repair-request', 'repair-record'):
         if args.argument is None:
             parser.error('request/record requires batch name')
-        request(run, args.argument, record=args.action == 'record')
+        incremental = args.action.startswith('repair-')
+        request(run, args.argument, record=args.action.endswith('record'), incremental=incremental)
     elif args.action == 'outline':
         outline(run)
     elif args.action == 'report':
         print(json.dumps(report(run), ensure_ascii=False))
+    elif args.action == 'repair-prepare':
+        if args.argument is None:
+            parser.error('repair-prepare requires subjects')
+        prepare(run, Path(args.argument), incremental=True)
+    elif args.action == 'repair-plan':
+        print(json.dumps(repair_plan(run), ensure_ascii=False, indent=2))
+    elif args.action == 'repair-validate':
+        if args.argument is None:
+            parser.error('repair-validate requires shard name')
+        validate_repair(run, args.argument)
+    elif args.action == 'repair-assemble':
+        print(json.dumps(finalize_repairs(run), ensure_ascii=False, indent=2))
+    elif args.action == 'repair-subjects':
+        if args.argument is None:
+            parser.error('repair-subjects requires output path')
+        repair_subjects(run, Path(args.argument))
     elif args.action == 'subjects':
         if args.argument is None:
             parser.error('subjects requires output path')

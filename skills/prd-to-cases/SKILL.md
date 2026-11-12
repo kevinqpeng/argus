@@ -99,7 +99,7 @@ Must/校验行指：表头含必填、校验或 Must 且单元格为「是」，
 - 差集必须落到 `cases/history-diff.md`，逐条分类缺失、粒度、多余或冲突并说明本轮处置；先对齐行数口径（历史表的「（续）」行不是独立用例）。本项目已有同名功能的历史评审表时必须用 `--previous` 传入，它同时是本轮基线覆盖率的分母来源，也是唯一不受生成者自评影响的外部锤点；并把它写进 `manifest.cases.historyBaseline`，`--phase cases` / `presentation` 会按同一路径复核。
 - 对照 AC 的 Given/Then 核对测试数据、步骤和断言；原文明确的遗漏补齐。未知、冲突或影响探索发现但未解决的问题写入待确认事项供人工评审，不编造预期。已有实现与规则冲突写观察，不改成正确预期。
 - 同一次 `verify_all.py --cases` 合并后核对断言非空、步骤关联和待确认事项。待确认保留已查证据、业务问题或结论及对用例的影响；分类和重复追踪字段按需填写，不以字数或固定文案阻断。业务预期可判断性通过来源核对、语义复核及人工评审确认。失败只修受影响分片。
-- 合并通过后，辅助 Jev 最多跑一次全量（`semantic_batch.py` 的 prepare、request、record、assemble）。同一 inputHash 再次 prepare 会失败。接着运行 `semantic_batch.py <runDir> report`。final 低于 0.8 的主体各写一条待确认：问题写业务疑问，分数留在 semantic-review.json。低分不改用例，也不再派生成。缺步骤、缺断言和 [共享契约](references/shared-contract.md) 的分片归属由 `generation.py` 在 seal 时失败，只重修该分片。真实自动化入口留给脚本阶段绑定。人工评审通过即接受执行。未知检查、待确认事项和独立复核保留，不为了缩短墙钟删掉。
+- 合并通过后，辅助 Jev 最多跑一次全量（`semantic_batch.py` 的 prepare、request、record、assemble）。同一 inputHash 再次 prepare 会失败。接着运行 `semantic_batch.py <runDir> report`。final 低于阈值的主体必须进入 Argus 的[低分语义增量修复](../argus/references/semantic-repair.md)：`repair-plan` 按用例分片并派 generation Agent，Agent 逐项区分确有遗漏与语义误报；只对确有遗漏的用例最小补丁，误报保留独立证据和复核标识。通过 `repair-validate`、`repair-assemble` 后，仅对受影响主体增量复核；任一低分未闭环则阻断，不能靠接受理由或待确认事项放行。缺步骤、缺断言和 [共享契约](references/shared-contract.md) 的分片归属由 `generation.py` 在 seal 时失败，只重修该分片。真实自动化入口留给脚本阶段绑定。人工评审通过即接受执行。未知检查、待确认事项和独立复核保留，不为了缩短墙钟删掉。
 
 ## 7. 输出人工评审表
 
