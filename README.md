@@ -34,7 +34,7 @@ Argus 通过一组 [Agent Skills](https://agentskills.io/) 编排软件测试。
 npx skills add kevinqpeng/argus
 ```
 
-选择全部 10 个技能，再选择需要使用的 Agent。Argus 的技能通过相对路径引用彼此；请将它们安装在同一个技能目录中。
+选择全部 10 个技能，再选择需要使用的 Agent。Argus 的技能通过相对路径引用彼此；请将它们安装在同一个技能目录中。也可以只装给指定宿主，例如 `npx skills add kevinqpeng/argus --agent grok -g`。
 
 也可以查看可安装的技能：
 
@@ -42,23 +42,48 @@ npx skills add kevinqpeng/argus
 npx skills add kevinqpeng/argus --list
 ```
 
-### 使用插件安装
+#### 使用插件安装
 
-**Cursor**：在 Customize 中选择 Plugins → From GitHub Repository，导入 `kevinqpeng/argus`，然后安装 `argus` 并选择用户或项目范围。若当前修改尚未推送，使用本地插件测试：将完整仓库复制到 `~/.cursor/plugins/local/argus`，重启 Cursor 或执行 Developer: Reload Window，然后在 Customize 中检查技能。企业版可能需要管理员允许本地插件导入。模型、子 Agent 和工具能力须在当前 Cursor 会话中验证。
+支持插件安装的宿主可一次装好整套技能，下面命令在任意目录执行均可。
 
-**Codex**：添加此仓库作为插件市场，再安装插件：
+**Cursor**（界面安装，无 CLI 命令）
+
+1. Customize → Plugins → From GitHub Repository，填入 `kevinqpeng/argus`。
+2. 安装 `argus`，选择用户或项目范围。
+3. 重启窗口或执行 Developer: Reload Window，在 Customize 中确认技能已列出。
+
+从 GitHub 导入时只读取已推送的版本。验证尚未推送的本地修改时，将完整仓库复制到 `~/.cursor/plugins/local/argus` 后重新加载窗口。企业版可能需管理员允许本地插件导入；模型、子 Agent 和工具能力以当前会话为准。
+
+**Codex**
 
 ```bash
 codex plugin marketplace add kevinqpeng/argus
 codex plugin add argus@argus-marketplace
 ```
 
-**Claude Code**：在 Claude Code 中运行：
+**Claude Code**
 
 ```text
 /plugin marketplace add kevinqpeng/argus
 /plugin install argus@argus-marketplace
 ```
+
+**Antigravity**
+
+```bash
+git clone https://github.com/kevinqpeng/argus
+agy plugin install ./argus
+```
+
+安装时会把技能复制到 Antigravity 的插件目录，克隆出的仓库之后可以删除；升级时重新克隆并执行一次 `agy plugin install`。若只想要技能、不要插件，可直接运行 `npx skills add kevinqpeng/argus --agent antigravity -g`。
+
+**Grok**
+
+```bash
+grok plugin install kevinqpeng/argus --trust
+```
+
+不带 `--trust` 时会先展示来源并停下，确认后重跑一次即可；升级用 `grok plugin update`。
 
 重新启动会话后，调用 `argus` 或 `setup-argus`。插件与 skills CLI 安装方式使用同一组技能；执行前仍需配置所需工具和授权。
 
@@ -123,7 +148,7 @@ Argus 为每次运行记录独立的 runId、配置和输入指纹。输入或�
 | 技能 | 用途 |
 | --- | --- |
 | [argus](skills/argus/SKILL.md) | 编排 PRD 验收、缺陷回归和结果交付 |
-| [形式化验证](skills/argus/skills/formal-verification/SKILL.md) | 按需使用 TLA+ 检查状态、并发与重试，并跟踪反例回放 |
+| [formal-verification](skills/argus/skills/formal-verification/SKILL.md) | 按需使用 TLA+ 检查状态、并发与重试，并跟踪反例回放 |
 | [setup-argus](skills/setup-argus/SKILL.md) | 配置模型、目标、工作区和缺陷交付方式 |
 | [prd-to-cases](skills/prd-to-cases/SKILL.md) | 冻结验收场景，生成测试用例和矩阵 |
 | [coverage-check](skills/coverage-check/SKILL.md) | 已取消。人工评审通过即接受执行 |
@@ -136,7 +161,7 @@ Argus 为每次运行记录独立的 runId、配置和输入指纹。输入或�
 
 ## 运行要求
 
-- **Agent 宿主**：需要支持读取 Agent Skills；模型、子 Agent 和工具能力以实际宿主为准。
+- **Agent 宿主**：Cursor、Codex、Claude Code、Antigravity、Grok 等可读取 Agent Skills 的宿主；模型、子 Agent 和工具能力以实际宿主为准。
 - **测试输入**：提供完整 PRD、明确的测试范围、目标环境和必要授权。
 - **测试工具**：Web 测试依赖 Playwright；移动端真机测试依赖 Appium 和对应驱动。专项测试依赖所选工具。
 - **语义判断**：需要 Jev 时，在安全环境中配置 `TYPESAFE_API_KEY`。
