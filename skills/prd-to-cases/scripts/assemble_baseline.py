@@ -248,6 +248,7 @@ def command_impact(run, prd, source_id, candidates_path):
     checks = one(candidates, "checks")
     obligations = one(candidates, "obligations")
     handoffs = one(candidates, "handoffs")
+    candidate_paths = one(candidates, "candidatePaths")
     digest = file_hash(path)
     seen = False
     for source in sources:
@@ -295,6 +296,19 @@ def command_impact(run, prd, source_id, candidates_path):
         duty.setdefault("reviewStatus", "needs_clarification")
         duty.setdefault("approvalRef", "")
         require_fields(duty, IMPACT_REQUIRED["obligations"], duty.get("obligationId", "obligation"))
+    for item in candidate_paths:
+        item.setdefault("schemaVersion", 1)
+        require_fields(item, IMPACT_REQUIRED["candidatePaths"], item.get("pathId", "path"))
+        if item.get("disposition") not in {"covered", "equivalent", "unrelated", "needs_confirmation", "unknown"}:
+            raise ValueError(f"候选路径处置无效: {item.get('pathId')}")
+        if item.get("disposition") == "covered" and not item.get("scenarioIds"):
+            raise ValueError(f"covered 候选路径缺少场景: {item.get('pathId')}")
+        if item.get("disposition") == "equivalent" and not item.get("representativePathId"):
+            raise ValueError(f"equivalent 候选路径缺少代表路径: {item.get('pathId')}")
+        if item.get("disposition") == "needs_confirmation" and not item.get("question"):
+            raise ValueError(f"待确认候选路径缺少问题: {item.get('pathId')}")
+        if item.get("disposition") in {"covered", "needs_confirmation"} and not item.get("observableDifference"):
+            raise ValueError(f"候选路径缺少可观察差异: {item.get('pathId')}")
     for item in handoffs:
         item.setdefault("schemaVersion", 1)
         item.setdefault("receiver", "")
@@ -309,7 +323,7 @@ def command_impact(run, prd, source_id, candidates_path):
         raise ValueError("六维矩阵不可用：" + "；".join(errors[:6]))
     document = {"schemaVersion": 1, "dimensions": list(dimensions), "sources": sources,
                 "sourceUnits": units, "objects": objects, "checks": checks, "obligations": obligations,
-                "handoffs": handoffs}
+                "handoffs": handoffs, "candidatePaths": candidate_paths}
     target = safe_path(run, "cases/impact-analysis.json")
     write_json(target, document)
     gaps = matrix_gaps(object_ids, checks, dimensions)

@@ -183,7 +183,7 @@ def runtime_overrides(data):
     if "roles" in data:
         result["roles"] = dict(data["roles"])
     for role, binding in data.get("roles", {}).items():
-        if role not in {"reasoning", "generation", "bug_analysis", "vision"} or not isinstance(binding, dict):
+        if role not in {"reasoning", "generation", "exploration", "bug_analysis", "vision"} or not isinstance(binding, dict):
             raise ValueError("invalid role binding")
         binding = dict(binding)
         if binding.get("mode") == "host":
@@ -372,7 +372,7 @@ def inspect_config(host, paths, profile=None):
 def initial_config():
     config = {"schemaVersion": 1, "host": {"detect": "auto"},
               "defaultEffort": "session",
-              "roles": {r: {"mode": "delegate", "model": "inherit-parent"} for r in ["reasoning", "generation", "bug_analysis", "vision"]},
+              "roles": {r: {"mode": "delegate", "model": "inherit-parent"} for r in ["reasoning", "generation", "exploration", "bug_analysis", "vision"]},
               "decision": {"activeProvider": "jev", "transport": "api", "verification": "required", "visualModel": "jev-1.14.0", "maxCallsPerRun": 100, "maxRetries": 2, "timeoutMs": 10000},
               "coverage": {"ruleCoverage": 0.9, "matrixCoverage": 0.9, "baselineCoverage": 0.9,
                            "score": 0.9, "scenarioThreshold": 0.95, "p0Threshold": 1, "failOnFlaky": True},
@@ -425,7 +425,7 @@ def model_catalog_entries(data):
 def model_mapping(config, session, catalog=None, explicit_roles=()):
     entries = model_catalog_entries(catalog) if catalog is not None else {}
     descriptions = {"reasoning": "PRD 理解与复杂推理", "generation": "测试场景与代码生成",
-                    "bug_analysis": "失败复现与根因分析", "vision": "截图与视觉检查"}
+                    "exploration": "代码与配置路径探索", "bug_analysis": "失败复现与根因分析", "vision": "截图与视觉检查"}
     rows = []
     for role, description in descriptions.items():
         binding = config["roles"][role]

@@ -8,7 +8,7 @@ import re
 import sys
 from pathlib import Path
 
-ROLES = ("reasoning", "generation", "bug_analysis", "vision")
+ROLES = ("reasoning", "generation", "exploration", "bug_analysis", "vision")
 INHERIT = {"inherit-parent", "auto", "host.default"}
 SUFFIX_HOSTS = {"pi"}  # hosts that take the thinking level only as a model suffix
 BINDING_KEYS = {"mode", "model", "provider", "effort"}

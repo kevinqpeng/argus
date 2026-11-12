@@ -10,12 +10,14 @@ from pathlib import Path
 
 
 GROUPS = {"sources": "sourceId", "sourceUnits": "unitId", "objects": "objectId",
-          "checks": "checkId", "obligations": "obligationId", "handoffs": "handoffId"}
+          "checks": "checkId", "obligations": "obligationId", "handoffs": "handoffId",
+          "candidatePaths": "pathId"}
 BASE_DIMENSIONS = ("data", "inflight", "lifecycle", "permission", "side_effect", "ordering")
 DIMENSION_ORDER = BASE_DIMENSIONS
 DIMENSIONS = set(BASE_DIMENSIONS)
 EXTRA_QUESTION_MIN = 10
 DISPOSITIONS = {"covered", "not_applicable", "unknown", "out_of_scope"}
+PATH_DISPOSITIONS = {"covered", "equivalent", "unrelated", "needs_confirmation", "unknown"}
 DECIDED = {"covered", "unknown"}
 UNDECIDED = {"not_applicable", "out_of_scope"}
 FILLER = ("不适用", "无需", "无影响", "无关", "none", "n/a", "na", "无")
@@ -28,6 +30,7 @@ CODE_REF = re.compile(r"(.+):(\d+)(?:-(\d+))?$")
 ID_RULES = {"sourceUnits": "-U", "checks": "-C", "obligations": "-OB-", "handoffs": "-H"}
 # assemble_baseline.impact 用同一份必填清单。schemaVersion 由调用方先补 1。
 IMPACT_REQUIRED = {
+    "candidatePaths": ("pathId", "sourceIds", "objectIds", "evidence", "branch", "disposition", "scenarioIds", "caseIds"),
     "sources": ("sourceId", "kind", "sourceRef", "sourceHash"),
     "sourceUnits": ("unitId", "sourceIds", "sourceExcerpt", "evidenceRef", "disposition", "reason"),
     "objects": ("objectId", "description"),
@@ -307,6 +310,15 @@ def collect(plan, receipts):
                     errors.append(f"{tid}: {group} id must be {tid}{ID_RULES[group]}<n>: {row[key]}")
                 if group == "sourceUnits" and row.get("disposition") not in DISPOSITIONS:
                     errors.append(f"{tid}: source unit {row[key]}: invalid disposition")
+                if group == "candidatePaths":
+                    if row.get("disposition") not in PATH_DISPOSITIONS:
+                        errors.append(f"{tid}: candidate path {row[key]}: invalid disposition")
+                    if row.get("disposition") == "covered" and not row.get("scenarioIds"):
+                        errors.append(f"{tid}: covered candidate path {row[key]} needs scenarioIds")
+                    if row.get("disposition") == "equivalent" and not row.get("representativePathId"):
+                        errors.append(f"{tid}: equivalent candidate path {row[key]} needs representativePathId")
+                    if row.get("disposition") == "needs_confirmation" and not row.get("question"):
+                        errors.append(f"{tid}: candidate path {row[key]} needs question")
                 if group == "sources" and row.get("kind") == "prd":
                     ref = row.get("sourceRef")
                     if not isinstance(ref, str) or not ref.startswith("run://"):
