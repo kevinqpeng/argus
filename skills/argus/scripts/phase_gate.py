@@ -611,6 +611,17 @@ def semantic_documents(run_dir):
 
 
 def source_content(run_dir, source):
+    ref = source.get("sourceRef") if isinstance(source, dict) else None
+    if isinstance(ref, str) and ref.startswith("run://"):
+        try:
+            path = safe_path(run_dir, ref.removeprefix("run://").split(":", 1)[0])
+            data = path.read_bytes()
+            expected = source.get("sourceHash")
+            if expected and hashlib.sha256(data).hexdigest() != expected:
+                return ""
+            return data.decode("utf-8")
+        except (OSError, ValueError, UnicodeDecodeError):
+            return ""
     content = source.get("sourceContent") if isinstance(source, dict) else None
     if isinstance(content, str) and content.strip():
         return content

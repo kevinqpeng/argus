@@ -10,6 +10,22 @@ from phase_gate import Gate, file_hash, semantic_contract, semantic_input_hash, 
 
 
 class SemanticReviewTests(unittest.TestCase):
+    def test_source_content_reads_verified_snapshot_and_rejects_drift(self):
+        from phase_gate import source_content
+        from hashlib import sha256
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            path = root / 'cases/sources/prd.md'
+            path.parent.mkdir(parents=True)
+            path.write_text('原始规则', encoding='utf-8')
+            source = {'sourceRef': 'run://cases/sources/prd.md',
+                      'sourceHash': sha256(path.read_bytes()).hexdigest(),
+                      'sourceContent': '旧副本'}
+            self.assertEqual(source_content(root, source), '原始规则')
+            path.write_text('变化规则', encoding='utf-8')
+            self.assertEqual(source_content(root, source), '')
+            self.assertEqual(source_content(root, {'sourceContent': '旧快照'}), '旧快照')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
